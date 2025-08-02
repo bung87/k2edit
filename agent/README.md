@@ -17,6 +17,9 @@ agent/
 ├── context_manager.py   # Context enhancement and management
 ├── memory_store.py      # Persistent storage system
 ├── lsp_indexer.py       # LSP integration and symbol indexing
+└── integration.py       # K2Edit integration helpers
+
+examples/
 └── example_usage.py     # Usage examples and demonstrations
 ```
 
@@ -276,13 +279,13 @@ logger = logging.getLogger("k2edit.agent")
 
 ## Examples
 
-See `example_usage.py` for complete working examples of all features.
+See `examples/example_usage.py` for complete working examples of all features.
 
 Run the examples:
 
 ```bash
 cd /path/to/k2edit
-python agent/example_usage.py
+python examples/example_usage.py
 ```
 
 ## Contributing
