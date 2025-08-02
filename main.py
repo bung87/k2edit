@@ -10,6 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
+import asyncio
+from typing import Dict, Any
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -23,6 +25,7 @@ from views.command_bar import CommandBar
 from views.output_panel import OutputPanel
 from views.file_explorer import FileExplorer
 from agent.kimi_api import KimiAPI
+from agent.integration import K2EditAgentIntegration
 
 
 def setup_logging(log_level: str = "DEBUG") -> logging.Logger:
@@ -100,9 +103,10 @@ class K2EditApp(App):
             # Initialize components
             self.editor = CustomSyntaxEditor(app_instance=self)
             self.command_bar = CommandBar()
-            self.output_panel = OutputPanel()
-            self.file_explorer = FileExplorer()
+            self.output_panel = OutputPanel(id="output-panel")
+            self.file_explorer = FileExplorer(id="file-explorer")
             self.kimi_api = KimiAPI()
+            self.agent_integration = None
             self.initial_file = initial_file
             
             self.logger.info("K2EditApp initialized successfully")
@@ -119,9 +123,14 @@ class K2EditApp(App):
             self.command_bar.editor = self.editor
             self.command_bar.output_panel = self.output_panel
             self.command_bar.kimi_api = self.kimi_api
+            self.command_bar.set_agent_integration(self.agent_integration)
+            
+            # Initialize agentic system
+            asyncio.create_task(self._initialize_agent_system())
             
             # Listen for file selection messages from file explorer
-            
+            self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
+
             # Load initial file if provided
             if self.initial_file:
                 self.logger.info(f"Loading initial file: {self.initial_file}")
@@ -138,21 +147,97 @@ class K2EditApp(App):
             self.logger.error(f"Error during app mounting: {e}", exc_info=True)
             self.notify(f"Error during startup: {e}", severity="error")
     
+    async def _initialize_agent_system(self):
+        """Initialize the agentic system asynchronously"""
+        try:
+            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()))
+            await self.agent_integration.initialize()
+            self.output_panel.add_info("Agentic system initialized")
+            # Add welcome message now that AI system is ready
+            self.output_panel.add_welcome_message()
+            self.logger.info("Agentic system initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize agentic system: {e}")
+            self.output_panel.add_error(f"Agentic system initialization failed: {e}")
+    
+    async def _on_file_open_with_agent(self, file_path: str):
+        """Handle file open with agentic system integration"""
+        if self.agent_integration:
+            await self.agent_integration.on_file_open(file_path)
+    
+    async def _on_file_change_with_agent(self, file_path: str, old_content: str, new_content: str):
+        """Handle file change with agentic system integration"""
+        if self.agent_integration:
+            await self.agent_integration.on_file_change(file_path, old_content, new_content)
+    
     def compose(self) -> ComposeResult:
-        """Create the UI layout."""
+        """Create the UI layout with programmatic sizing."""
         yield Header()
         with Horizontal():
+            # File explorer with fixed width
+            # self.file_explorer.styles.width = "25%"
+            # self.file_explorer.styles.min_width = "25%"
+            # self.file_explorer.styles.max_width = "25%"
             yield self.file_explorer
-            with Vertical(id="main-panel"):
+            
+            # Main editor panel with explicit width
+            with Vertical(id="main-panel") as main_panel:
+                # main_panel.styles.width = "45%"
+                # main_panel.styles.min_width = "45%"
+                # main_panel.styles.max_width = "45%"
+                
+                self.editor.styles.height = "1fr"
+                self.editor.styles.width = "100%"
+                self.editor.styles.overflow_x = "hidden"
+                self.editor.styles.overflow_y = "auto"
                 yield self.editor
+                
+                self.command_bar.styles.height = 3
+                self.command_bar.styles.min_height = 3
+                self.command_bar.styles.max_height = 3
+                self.command_bar.styles.width = "100%"
                 yield self.command_bar
+            
+            # Output panel with fixed width
+            # self.output_panel.styles.width = "30%"
+            # self.output_panel.styles.min_width = "30%"
+            # self.output_panel.styles.max_width = "30%"
             yield self.output_panel
         yield Footer()
+
+    def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
+        """Handle file selection from the file explorer."""
+        try:
+            file_path = message.file_path
+            self.logger.info(f"File selected from explorer: {file_path}")
+            
+            if Path(file_path).is_file():
+                if self.editor.load_file(file_path):
+                    self.output_panel.add_info(f"Loaded file: {file_path}")
+                    self.logger.info(f"Successfully loaded file from explorer: {file_path}")
+                    self.editor.focus()
+                    
+                    # Notify agentic system about file open
+                    asyncio.create_task(self._on_file_open_with_agent(file_path))
+                else:
+                    error_msg = f"Failed to load file: {file_path}"
+                    self.output_panel.add_error(error_msg)
+                    self.logger.error(error_msg)
+            else:
+                # It's a directory, keep the tree view
+                self.logger.debug(f"Directory selected: {file_path}")
+                
+        except Exception as e:
+            self.logger.error(f"Error handling file selection: {e}", exc_info=True)
+            self.notify(f"Error loading file: {e}", severity="error")
     
     def action_quit(self) -> None:
         """Quit the application."""
         try:
             self.logger.info("User initiated quit")
+            # Shutdown agentic system
+            if self.agent_integration:
+                asyncio.create_task(self.agent_integration.shutdown())
             self.exit()
         except Exception as e:
             self.logger.error(f"Error during quit: {e}", exc_info=True)
@@ -166,7 +251,6 @@ class K2EditApp(App):
             self.command_bar.set_text("/open ")
         except Exception as e:
             self.logger.error(f"Error in open file action: {e}", exc_info=True)
-            self.notify("Error opening file dialog", severity="error")
     
     def action_save_file(self) -> None:
         """Focus command bar with save command."""
@@ -176,7 +260,6 @@ class K2EditApp(App):
             self.command_bar.set_text("/save")
         except Exception as e:
             self.logger.error(f"Error in save file action: {e}", exc_info=True)
-            self.notify("Error opening save dialog", severity="error")
     
     def action_focus_command(self) -> None:
         """Focus the command bar."""
@@ -194,19 +277,23 @@ class K2EditApp(App):
         except Exception as e:
             self.logger.error(f"Error focusing editor: {e}", exc_info=True)
     
-    def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
-        """Handle file selection from the file explorer."""
-        try:
-            file_path = message.file_path
-            self.logger.info(f"File selected from explorer: {file_path}")
-            if self.editor.load_file(file_path):
-                self.output_panel.add_info(f"Opened file: {file_path}")
-                self.editor.focus()
-            else:
-                self.output_panel.add_error(f"Failed to open file: {file_path}")
-        except Exception as e:
-            self.logger.error(f"Error handling file selection: {e}", exc_info=True)
-            self.notify(f"Error opening file: {e}", severity="error")
+    async def process_agent_query(self, query: str) -> dict[str, any]:
+        """Process an AI query using the agentic system"""
+        if not self.agent_integration:
+            return {"error": "Agentic system not initialized"}
+        
+        current_file = str(self.editor.current_file) if self.editor.current_file else None
+        selected_text = self.editor.get_selected_text() if hasattr(self.editor, 'get_selected_text') else None
+        cursor_pos = {"line": self.editor.cursor_line, "column": self.editor.cursor_column}
+        
+        result = await self.agent_integration.on_ai_query(
+            query=query,
+            file_path=current_file,
+            selected_text=selected_text,
+            cursor_position=cursor_pos
+        )
+        
+        return result
 
 
 def main():

@@ -101,7 +101,7 @@ class FileExplorer(Static):
                     # Recursively add subdirectories
                     self._add_directory(dir_node, item)
                 else:
-                    file_node = parent.add(item.name)
+                    file_node = parent.add_leaf(item.name)
                     file_node.label_style = "file"
                     file_node.data = {"type": "file", "path": str(item)}
                     

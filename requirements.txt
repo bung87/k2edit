@@ -1,7 +1,7 @@
 textual[syntax]>=0.45.0
 tree-sitter==0.21.3
 tree-sitter-languages==1.10.2
-httpx>=0.25.0
+openai>=1.0.0
 python-dotenv>=1.0.0
 rich>=13.3.3
 pygments>=2.15.0

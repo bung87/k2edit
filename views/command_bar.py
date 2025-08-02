@@ -1,6 +1,7 @@
 """Command bar widget for handling user commands and AI interactions."""
 
 import asyncio
+import logging
 from typing import Optional
 from textual.widgets import Input
 from textual.message import Message
@@ -17,6 +18,8 @@ class CommandBar(Input):
         )
         self.editor = None
         self.kimi_api = None
+        self.agent_integration = None
+        self.logger = logging.getLogger("k2edit")
     
     class CommandExecuted(Message):
         """Message sent when a command is executed."""
@@ -32,6 +35,10 @@ class CommandBar(Input):
     def set_kimi_api(self, kimi_api) -> None:
         """Set the Kimi API reference."""
         self.kimi_api = kimi_api
+    
+    def set_agent_integration(self, agent_integration) -> None:
+        """Set the agent integration reference."""
+        self.agent_integration = agent_integration
     
     def set_text(self, text: str) -> None:
         """Set the command bar text."""
@@ -52,6 +59,8 @@ class CommandBar(Input):
     
     async def _process_command(self, command: str) -> None:
         """Process and execute a command."""
+        self.logger.info(f"Processing command: {command}")
+        
         if not command.startswith('/'):
             # Treat as a Kimi query
             await self._handle_kimi_query(command)
@@ -88,6 +97,7 @@ class CommandBar(Input):
                 self.app.notify(f"Unknown command: {cmd}", severity="warning")
         
         except Exception as e:
+            self.logger.error(f"Error executing command '{command}': {e}", exc_info=True)
             self.app.notify(f"Error executing command: {e}", severity="error")
     
     async def _handle_open(self, filename: str) -> None:
@@ -99,13 +109,16 @@ class CommandBar(Input):
         if self.editor:
             success = self.editor.load_file(filename)
             if success:
+                self.logger.info(f"Successfully opened file: {filename}")
                 self.app.notify(f"Opened: {filename}", severity="information")
     
     async def _handle_save(self, filename: str = "") -> None:
         """Handle file save command."""
         if self.editor:
             success = self.editor.save_file(filename if filename else None)
-            if not success and not filename:
+            if success:
+                self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
+            elif not success and not filename:
                 self.app.notify("Use /saveas <filename> for new files", severity="warning")
     
     async def _handle_save_as(self, filename: str) -> None:
@@ -116,6 +129,7 @@ class CommandBar(Input):
         
         if self.editor:
             self.editor.save_file(filename)
+            self.logger.info(f"Successfully saved file as: {filename}")
     
     async def _handle_kimi_query(self, query: str) -> None:
         """Handle general Kimi query."""
@@ -148,6 +162,7 @@ class CommandBar(Input):
             self.post_message(self.CommandExecuted(f"/kimi {query}", response.get('content', '')))
             
         except Exception as e:
+            self.logger.error(f"Kimi API error for query '{query}': {e}", exc_info=True)
             self.app.notify(f"Kimi API error: {e}", severity="error")
     
     async def _handle_explain(self) -> None:
@@ -220,33 +235,42 @@ class CommandBar(Input):
         await self._handle_kimi_query(query)
     
     async def _handle_run_agent(self, goal: str) -> None:
-        """Handle agent mode execution."""
+        """Handle agent mode execution using the integrated agentic system."""
         if not goal:
             self.app.notify("Please specify a goal for the agent", severity="warning")
             return
         
-        if not self.kimi_api:
-            self.app.notify("Kimi API not available", severity="error")
+        if not self.agent_integration:
+            self.app.notify("Agentic system not initialized", severity="error")
             return
         
-        context = self._get_editor_context()
-        
-        self.app.notify("Running agent mode...", severity="information")
+        self.app.notify("Running agentic system...", severity="information")
         
         try:
-            response = await self.kimi_api.run_agent(
-                goal,
-                context=context
+            # Get current editor state
+            current_file = str(self.editor.current_file) if self.editor.current_file else None
+            selected_text = self.editor.get_selected_text()
+            cursor_pos = {"line": self.editor.cursor_line, "column": self.editor.cursor_column}
+            
+            # Use the agentic system
+            response = await self.agent_integration.on_ai_query(
+                query=goal,
+                file_path=current_file,
+                selected_text=selected_text,
+                cursor_position=cursor_pos
             )
             
-            # Handle tool calls from agent
-            if response.get('tool_calls'):
-                await self._handle_tool_calls(response['tool_calls'])
+            # Format and display response
+            if isinstance(response, dict):
+                content = response.get('response', str(response))
+            else:
+                content = str(response)
             
-            self.post_message(self.CommandExecuted(f"/run_agent {goal}", response.get('content', '')))
+            self.post_message(self.CommandExecuted(f"/run_agent {goal}", content))
             
         except Exception as e:
-            self.app.notify(f"Agent error: {e}", severity="error")
+            self.logger.error(f"Agentic system error for goal '{goal}': {e}", exc_info=True)
+            self.app.notify(f"Agentic system error: {e}", severity="error")
     
     async def _handle_help(self) -> None:
         """Show help information."""
@@ -262,8 +286,15 @@ Available Commands:
 /refactor [req] - Refactor selected code
 /generate_test  - Generate tests for selected code
 /doc            - Add documentation to selected code
-/run_agent <goal> - Run agent mode with goal
+/run_agent <goal> - Use agentic system with context/memory/LSP
 /help           - Show this help
+
+Agentic System Features:
+- Context-aware code analysis
+- Project-wide understanding
+- Code intelligence via LSP
+- Memory of previous interactions
+- Cross-file symbol analysis
 
 Keyboard Shortcuts:
 Ctrl+O - Open file
@@ -287,9 +318,15 @@ Ctrl+Q - Quit
             "language": getattr(self.editor, 'language', 'text')
         }
         
-        if not self.editor.selection.is_empty:
-            start_line, end_line = self.editor.get_selected_lines()
-            context["selected_lines"] = {"start": start_line, "end": end_line}
+        # Safely handle selection attributes
+        try:
+            selection = getattr(self.editor, 'selection', None)
+            if selection and hasattr(selection, 'is_empty') and not selection.is_empty:
+                if hasattr(self.editor, 'get_selected_lines'):
+                    start_line, end_line = self.editor.get_selected_lines()
+                    context["selected_lines"] = {"start": start_line, "end": end_line}
+        except (AttributeError, ValueError):
+            pass
         
         return context
     
@@ -310,6 +347,7 @@ Ctrl+Q - Quit
                     self.app.notify(f"Unknown tool: {function_name}", severity="warning")
             
             except Exception as e:
+                self.logger.error(f"Tool execution error for {function_name}: {e}", exc_info=True)
                 self.app.notify(f"Tool execution error: {e}", severity="error")
     
     async def _tool_replace_code(self, start_line: int, end_line: int, new_code: str) -> None:

@@ -29,19 +29,20 @@ class OutputPanel(Vertical):
     
     def on_mount(self) -> None:
         """Initialize the output panel."""
-        self.add_welcome_message()
+        # Output panel is ready for AI responses and command results
+        # Welcome message should be added explicitly when needed
+        pass
     
     def add_welcome_message(self) -> None:
         """Add a welcome message to the output panel."""
         welcome_text = Text()
-        welcome_text.append("Welcome to K2Edit!\n", style="bold green")
-        welcome_text.append("Type /help for available commands\n")
-        welcome_text.append("Use /kimi to chat with AI\n")
-        welcome_text.append("Select code and use /explain, /fix, /refactor, etc.\n")
+        welcome_text.append("AI Assistant Ready\n", style="bold blue")
+        welcome_text.append("Commands: /help, /kimi <query>, /explain, /fix, /refactor\n")
+        welcome_text.append("Select code and use commands for AI assistance")
         
         panel = Panel(
             welcome_text,
-            title="Getting Started",
+            title="AI Assistant",
             border_style="blue"
         )
         log = self.query_one("#output-log", RichLog)

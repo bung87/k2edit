@@ -6,7 +6,11 @@ import asyncio
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
 
-import httpx
+try:
+    from openai import AsyncOpenAI
+    from openai import OpenAIError
+except ImportError:
+    raise ImportError("OpenAI library not found. Please install with: pip install openai")
 from dotenv import load_dotenv
 
 from .schema import TOOL_SCHEMAS
@@ -27,12 +31,10 @@ class KimiAPI:
             print("Warning: KIMI_API_KEY not set. AI features will be disabled.")
             self.api_key = None
         
-        self.client = httpx.AsyncClient(
-            timeout=60.0,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
+        self.client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=60.0
         )
     
     async def chat(
@@ -67,8 +69,8 @@ class KimiAPI:
             else:
                 return await self._single_chat(payload)
         
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"API request failed: {e.response.status_code} - {e.response.text}")
+        except OpenAIError as e:
+            raise Exception(f"API request failed: {str(e)}")
         except Exception as e:
             raise Exception(f"API error: {str(e)}")
     
@@ -147,24 +149,36 @@ Please think step by step and use tools to accomplish the goal.
     
     async def _single_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a single chat request."""
-        response = await self.client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload
-        )
-        response.raise_for_status()
+        response = await self.client.chat.completions.create(**payload)
         
-        data = response.json()
-        choice = data["choices"][0]
-        message = choice["message"]
+        message = response.choices[0].message
         
         result = {
-            "content": message.get("content", ""),
-            "role": message.get("role", "assistant")
+            "content": message.content or "",
+            "role": message.role
         }
         
         # Handle tool calls
-        if "tool_calls" in message:
-            result["tool_calls"] = message["tool_calls"]
+        if message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tool_call.id,
+                    "type": tool_call.type,
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments
+                    }
+                }
+                for tool_call in message.tool_calls
+            ]
+        
+        # Include usage information if available
+        if response.usage:
+            result["usage"] = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
         
         return result
     
@@ -174,33 +188,23 @@ Please think step by step and use tools to accomplish the goal.
         
         content_parts = []
         tool_calls = []
+        usage_info = None
         
-        async with self.client.stream(
-            "POST",
-            f"{self.base_url}/chat/completions",
-            json=payload
-        ) as response:
-            response.raise_for_status()
+        stream = await self.client.chat.completions.create(**payload)
+        
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content_parts.append(chunk.choices[0].delta.content)
             
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
-                    
-                    try:
-                        data = json.loads(data_str)
-                        choice = data["choices"][0]
-                        delta = choice.get("delta", {})
-                        
-                        if "content" in delta and delta["content"]:
-                            content_parts.append(delta["content"])
-                        
-                        if "tool_calls" in delta:
-                            tool_calls.extend(delta["tool_calls"])
-                    
-                    except json.JSONDecodeError:
-                        continue
+            if chunk.choices and chunk.choices[0].delta.tool_calls:
+                tool_calls.extend(chunk.choices[0].delta.tool_calls)
+            
+            if hasattr(chunk, 'usage') and chunk.usage:
+                usage_info = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens
+                }
         
         result = {
             "content": "".join(content_parts),
@@ -208,7 +212,20 @@ Please think step by step and use tools to accomplish the goal.
         }
         
         if tool_calls:
-            result["tool_calls"] = tool_calls
+            result["tool_calls"] = [
+                {
+                    "id": tool_call.id,
+                    "type": tool_call.type,
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments
+                    }
+                }
+                for tool_call in tool_calls
+            ]
+        
+        if usage_info:
+            result["usage"] = usage_info
         
         return result
     
@@ -236,6 +253,10 @@ Please think step by step and use tools to accomplish the goal.
                 "content": system_content
             })
             
+            # Add conversation history if available
+            if context.get("conversation_history"):
+                messages.extend(context["conversation_history"])
+            
             # Add file content if available
             if context.get("file_content"):
                 file_content = context["file_content"]
@@ -246,6 +267,12 @@ Please think step by step and use tools to accomplish the goal.
                     "role": "user",
                     "content": f"Current file content:\n```\n{file_content}\n```"
                 })
+        else:
+            # Default system message when no context
+            messages.append({
+                "role": "system",
+                "content": "You are a helpful AI coding assistant."
+            })
         
         # Add the user message
         messages.append({
@@ -336,8 +363,8 @@ Please think step by step and use tools to accomplish the goal.
         }
     
     async def close(self):
-        """Close the HTTP client."""
-        await self.client.aclose()
+        """Close the OpenAI client."""
+        await self.client.close()
     
     def __del__(self):
         """Cleanup on deletion."""

@@ -24,19 +24,14 @@ Footer {
 
 Horizontal {
     height: 100%;
-}
-
-#main-panel {
-    width: 1fr;
-    border-right: solid #3b82f6;
-    margin: 0;
-    padding: 0;
+    box-sizing: border-box;
 }
 
 TextArea {
     border: solid #3b82f6;
     background: #1e293b;
     color: #f1f5f9;
+    box-sizing: border-box;
 }
 
 TextArea:focus {
@@ -50,17 +45,27 @@ Input {
     color: #f1f5f9;
     margin: 0;
     padding: 0;
+    box-sizing: border-box;
 }
 
 Input:focus {
     border: solid #10b981;
 }
 
+CommandBar {
+    border: solid #3b82f6;
+    background: #1e293b;
+    color: #f1f5f9;
+    box-sizing: border-box;
+}
+
+CommandBar:focus {
+    border: solid #10b981;
+}
+
 Vertical {
-    width: 1fr;
-    min-width: 30;
-    margin: 0;
-    padding: 0;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 #output-title {
@@ -73,12 +78,9 @@ Vertical {
 }
 
 OutputPanel {
-    width: 25%;
-    min-width: 25;
-    max-width: 40;
     background: #1e293b;
-    margin: 0;
-    padding: 0;
+    border: solid #3b82f6;
+    box-sizing: border-box;
 }
 
 RichLog {
@@ -86,33 +88,39 @@ RichLog {
     background: #1e293b;
     color: #f1f5f9;
     padding: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+#output-log {
+    height: 1fr;
+    width: 100%;
+    max-width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
 }
 
 CustomSyntaxEditor {
-    border: none;
+    border: solid #3b82f6;
     background: #1e293b;
     color: #f1f5f9;
     scrollbar-background: #1e293b;
     scrollbar-color: #3b82f6;
     scrollbar-corner-color: #1e293b;
-    overflow-y: auto;
-    overflow-x: auto;
-    margin: 0;
-    padding: 0;
+    padding: 0 1;
+    box-sizing: border-box;
 }
 
 CustomSyntaxEditor:focus {
-    border: none;
+    border: solid #10b981;
 }
 
 FileExplorer {
-    width: 25%;
-    min-width: 25;
-    max-width: 40;
     background: #1e293b;
-    border-right: solid #3b82f6;
-    margin: 0;
-    padding: 0;
+    border: solid #3b82f6;
+    box-sizing: border-box;
 }
 
 FileExplorer .tree--label {
@@ -136,4 +144,16 @@ FileExplorer .file {
 
 FileExplorer .hidden {
     color: #64748b;
+}
+
+#file-explorer {
+    width: 25%;
+}
+
+#main-panel {
+    width: 45%;
+}
+
+#output-panel {
+    width: 30%;
 }

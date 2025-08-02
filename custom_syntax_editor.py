@@ -16,11 +16,31 @@ import logging
 class CustomSyntaxEditor(ScrollView, can_focus=True):
     """A custom editor widget with Rich syntax highlighting, line numbers, and cursor."""
     
-    text = reactive("")
-    cursor_line = reactive(0)
-    cursor_column = reactive(0)
+    # Reactive properties for cursor and content - disable layout triggers
+    text = reactive("", layout=False)
+    cursor_line = reactive(0, layout=False)
+    cursor_column = reactive(0, layout=False)
     # scroll_offset is now handled by Textual's scrolling system
-    show_line_numbers = reactive(True)
+    show_line_numbers = reactive(True, layout=False)
+    
+    def watch_text(self, old_text: str, new_text: str) -> None:
+        """Watch text changes and update content appropriately."""
+        # Minimal updates to prevent layout shifts
+        self.refresh()
+        
+    def watch_cursor_line(self, old_line: int, new_line: int) -> None:
+        """Watch cursor line changes and ensure cursor visibility."""
+        # Minimal refresh without layout changes
+        self.refresh()
+        
+    def watch_cursor_column(self, old_column: int, new_column: int) -> None:
+        """Watch cursor column changes and ensure cursor visibility."""
+        # Minimal refresh without layout changes
+        self.refresh()
+        
+    def watch_show_line_numbers(self, old_value: bool, new_value: bool) -> None:
+        """Watch line numbers visibility - refresh but don't affect layout width."""
+        self.refresh()
     
     BINDINGS = [
         ("up", "cursor_up", "Move cursor up"),
@@ -134,6 +154,35 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
         
         return cursor_segments
     
+    def _truncate_segments_to_width(self, segments: list[Segment], max_width: int) -> list[Segment]:
+        """Truncate segments to fit within the specified width."""
+        if max_width <= 0:
+            return []
+        
+        truncated_segments = []
+        current_width = 0
+        
+        for segment in segments:
+            segment_text = segment.text
+            segment_length = len(segment_text)
+            
+            if current_width + segment_length <= max_width:
+                # Entire segment fits
+                truncated_segments.append(segment)
+                current_width += segment_length
+            elif current_width < max_width:
+                # Partial segment fits
+                remaining_width = max_width - current_width
+                truncated_text = segment_text[:remaining_width]
+                if truncated_text:
+                    truncated_segments.append(Segment(truncated_text, segment.style))
+                break
+            else:
+                # No more space
+                break
+        
+        return truncated_segments
+    
     def _apply_horizontal_scroll(self, segments: list[Segment], scroll_x: int) -> list[Segment]:
         """Apply horizontal scroll offset to segments."""
         if scroll_x <= 0:
@@ -179,14 +228,12 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
     def get_content_width(self) -> int:
         """Get the width of the content for horizontal scrolling."""
         if not self.text:
-            return 80
+            return 80  # Return a default minimum width
         
         lines = self.text.split('\n')
         max_line_length = max(len(line) for line in lines) if lines else 0
         
-        # Don't include line number width in scrollable content width
-        # Line numbers are fixed and don't scroll
-        
+        # Return the actual max line length, or a minimum of 80
         return max(max_line_length, 80)
     
     def get_content_height(self) -> int:
@@ -198,13 +245,22 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
         return len(lines)
     
     def update_virtual_size(self) -> None:
-        """Update the virtual size based on content."""
-        width = self.get_content_width()
-        height = self.get_content_height()
-        self.virtual_size = Size(width, height)
+        """Update virtual size based on content, independent of container size."""
+        # Calculate content dimensions
+        content_width = self.get_content_width()
+        content_height = self.get_content_height()
+        
+        # The virtual width should be based on the content, not the container.
+        # This prevents the container from shrinking the virtual space.
+        # A minimum height is set to ensure the editor doesn't collapse when empty.
+        self.virtual_size = Size(content_width, max(content_height, 20))
     
     def render_line(self, y: int) -> Strip:
         """Render a single line with line numbers."""
+        
+        # Show welcome screen when no file is loaded and no content
+        if not self.current_file and not self.text:
+            return self._render_welcome_screen(y)
         
         scroll_x, scroll_y = self.scroll_offset
         lines = self.text.split('\n')
@@ -271,10 +327,19 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
         # Apply horizontal scrolling to content segments
         if content_scroll_x > 0:
             content_segments = self._apply_horizontal_scroll(content_segments, content_scroll_x)
-        
-        segments.extend(content_segments)
-        
-        return Strip(segments, self.size.width)
+
+        # `segments` currently holds the line number part.
+        # Now truncate the content to fit the remaining width.
+        available_width = self.size.width
+        if self.show_line_numbers:
+            available_width = max(1, available_width - line_number_width)
+
+        truncated_content = self._truncate_segments_to_width(content_segments, available_width)
+
+        # Combine line numbers and truncated content
+        final_segments = segments + truncated_content
+
+        return Strip(final_segments, self.size.width)
     
     def load_file(self, file_path: Union[str, Path]) -> bool:
         """Load a file into the editor."""
@@ -397,12 +462,86 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
         new_scroll_y = max(0, scroll_y - 3)  # Scroll up by 3 lines
         self.scroll_to(scroll_x, new_scroll_y, animate=False)
     
+    def _render_welcome_screen(self, y: int) -> Strip:
+        """Render a welcome screen when no file is loaded."""
+        height = self.size.height
+        width = self.size.width
+        
+        # Make the welcome screen more compact to avoid overlapping issues
+        welcome_lines = [
+            "",
+            "  ╭─────────────────────────────────────────────╮",
+            "  │                                             │",
+            "  │         K2Edit - Code Editor                │",
+            "  │                                             │",
+            "  │  Press Ctrl+O to open a file                │",
+            "  │  Use file explorer (left) to browse         │",
+            "  │  Press Ctrl+K for command bar             │",
+            "  │                                             │",
+            "  ╰─────────────────────────────────────────────╯",
+            "",
+            "  Ready to edit! Select a file to begin."
+        ]
+        
+        # Position it higher to avoid any potential overlap
+        center_y = max(height // 3, 5)  # Position in upper third of screen
+        start_y = center_y
+        
+        if y < start_y or y >= start_y + len(welcome_lines):
+            return Strip.blank(width)
+        
+        line_index = y - start_y
+        if line_index < 0 or line_index >= len(welcome_lines):
+            return Strip.blank(width)
+        
+        line = welcome_lines[line_index]
+        
+        # Center the line horizontally
+        if len(line) < width:
+            padding = max(0, (width - len(line)) // 2)
+            centered_line = " " * padding + line
+        else:
+            centered_line = line[:width]
+        
+        # Use more subtle styling
+        if "K2Edit" in line:
+            style = Style(color="#60a5fa", bold=True)  # Blue for title
+        elif line.strip().startswith("╭") or line.strip().startswith("│") or line.strip().startswith("╰"):
+            style = Style(color="#475569")  # Gray for borders
+        else:
+            style = Style(color="#94a3b8")  # Lighter gray for text
+        
+        segments = [Segment(centered_line, style)]
+        return Strip(segments, width)
+
     def action_scroll_down(self) -> None:
         """Scroll down without moving cursor."""
         scroll_x, scroll_y = self.scroll_offset
         max_scroll_y = max(0, self.get_content_height() - self.size.height)
         new_scroll_y = min(max_scroll_y, scroll_y + 3)  # Scroll down by 3 lines
         self.scroll_to(scroll_x, new_scroll_y, animate=False)
+    
+    def get_selected_text(self) -> Optional[str]:
+        """Get the currently selected text. Returns None if no selection."""
+        # For now, return None as we don't have selection implemented
+        # This can be extended later to support actual text selection
+        return None
+    
+    @property
+    def cursor_location(self) -> dict:
+        """Get cursor location as a dictionary with line and column."""
+        return {"line": self.cursor_line, "column": self.cursor_column}
+    
+    @property
+    def selection(self):
+        """Placeholder selection object for AI integration compatibility."""
+        class DummySelection:
+            is_empty = True
+        return DummySelection()
+    
+    def get_selected_lines(self):
+        """Placeholder method for AI integration compatibility."""
+        return (0, 0)
     
     def _clamp_cursor(self) -> None:
         """Ensure cursor is within valid bounds."""
@@ -464,11 +603,26 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
             else:
                 return False
             
+            # Read old content for agentic system
+            old_content = ""
+            if path.exists():
+                with open(path, 'r', encoding='utf-8') as f:
+                    old_content = f.read()
+            
             # Ensure parent directory exists
             path.parent.mkdir(parents=True, exist_ok=True)
             
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(self.text)
+            
+            # Notify agentic system of file change
+            if self._app_instance and hasattr(self._app_instance, '_on_file_change_with_agent'):
+                import asyncio
+                asyncio.create_task(
+                    self._app_instance._on_file_change_with_agent(
+                        str(path), old_content, self.text
+                    )
+                )
             
             self.current_file = path
             self.is_modified = False
