@@ -17,26 +17,24 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
     """A custom editor widget with Rich syntax highlighting, line numbers, and cursor."""
     
     # Reactive properties for cursor and content - disable layout triggers
-    text = reactive("", layout=False)
-    cursor_line = reactive(0, layout=False)
-    cursor_column = reactive(0, layout=False)
+    text = reactive("")
+    cursor_line = reactive(0)
+    cursor_column = reactive(0)
     # scroll_offset is now handled by Textual's scrolling system
     show_line_numbers = reactive(True, layout=False)
     
     def watch_text(self, old_text: str, new_text: str) -> None:
         """Watch text changes and update content appropriately."""
-        # Minimal updates to prevent layout shifts
-        self.refresh()
+        self.update_virtual_size()
+        self.refresh(layout=True)
         
     def watch_cursor_line(self, old_line: int, new_line: int) -> None:
         """Watch cursor line changes and ensure cursor visibility."""
-        # Minimal refresh without layout changes
-        self.refresh()
+        pass
         
     def watch_cursor_column(self, old_column: int, new_column: int) -> None:
         """Watch cursor column changes and ensure cursor visibility."""
-        # Minimal refresh without layout changes
-        self.refresh()
+        pass
         
     def watch_show_line_numbers(self, old_value: bool, new_value: bool) -> None:
         """Watch line numbers visibility - refresh but don't affect layout width."""
@@ -98,9 +96,12 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
     
     def _add_cursor_to_plain_text(self, line_text: str) -> list[Segment]:
         """Add cursor to plain text line."""
-        before_cursor = line_text[:self.cursor_column]
-        cursor_char = line_text[self.cursor_column:self.cursor_column + 1] if self.cursor_column < len(line_text) else " "
-        after_cursor = line_text[self.cursor_column + 1:] if self.cursor_column < len(line_text) else ""
+        # Replace tabs with 4 spaces for consistent alignment, matching get_content_width
+        display_line = line_text.replace('\t', '    ').replace('\r', '')
+        
+        before_cursor = display_line[:self.cursor_column]
+        cursor_char = display_line[self.cursor_column:self.cursor_column + 1] if self.cursor_column < len(display_line) else " "
+        after_cursor = display_line[self.cursor_column + 1:] if self.cursor_column < len(display_line) else ""
         
         segments = []
         if before_cursor:
@@ -218,23 +219,31 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
     def render_lines(self, crop: Region) -> list[Strip]:
         """Render multiple lines within the crop region."""
         strips = []
-        
-        for y in range(crop.height):
-            strip = self.render_line(y)
-            strips.append(strip)
+        start_line = self.scroll_offset.y + crop.y
+        end_line = start_line + crop.height
+
+        for i in range(start_line, end_line):
+            if i < self.get_content_height():
+                strip = self.render_line(i)
+                strips.append(strip)
+            else:
+                # Render empty strips for lines beyond the content
+                strips.append(Strip([]))
         
         return strips
     
     def get_content_width(self) -> int:
         """Get the width of the content for horizontal scrolling."""
         if not self.text:
-            return 80  # Return a default minimum width
-        
+            return 0  # Return 0 if no text
+
         lines = self.text.split('\n')
-        max_line_length = max(len(line) for line in lines) if lines else 0
+        # Account for tab expansion (4 spaces per tab)
+        expanded_lines = [line.replace('\t', '    ') for line in lines]
+        max_line_length = max(len(line) for line in expanded_lines) if expanded_lines else 0
         
-        # Return the actual max line length, or a minimum of 80
-        return max(max_line_length, 80)
+        # Return the actual max line length
+        return max_line_length
     
     def get_content_height(self) -> int:
         """Get the height of the content for vertical scrolling."""
@@ -254,91 +263,61 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
         # This prevents the container from shrinking the virtual space.
         # A minimum height is set to ensure the editor doesn't collapse when empty.
         self.virtual_size = Size(content_width, max(content_height, 20))
+        if self._app_instance and hasattr(self._app_instance, 'logger'):
+            self._app_instance.logger.debug(f"Updated virtual size to: {self.virtual_size}")
     
     def render_line(self, y: int) -> Strip:
         """Render a single line with line numbers."""
-        
-        # Show welcome screen when no file is loaded and no content
         if not self.current_file and not self.text:
             return self._render_welcome_screen(y)
-        
+
         scroll_x, scroll_y = self.scroll_offset
         lines = self.text.split('\n')
-        line_index = y + scroll_y  # y is viewport position, add scroll to get actual line
+        line_index = y + scroll_y
+
         if line_index >= len(lines):
             return Strip.blank(self.size.width)
-        
+
         line = lines[line_index]
-        segments = []
-        
-        # Calculate line number width
+
+        # --- Line Number Rendering ---
+        line_number_segments = []
         line_number_width = 0
         if self.show_line_numbers:
             line_number_width = self._line_number_width + 3
-            line_number = str(line_index + 1).rjust(self._line_number_width)
-            # Line numbers are always at x=0, not affected by horizontal scroll
-            segments.append(Segment(f"{line_number} │ ", Style(color="#6c7086")))
-        
-        # Apply horizontal scroll only to content, not line numbers
-        content_scroll_x = scroll_x
-        
-        # Apply syntax highlighting if available
+            line_number_str = str(line_index + 1).rjust(self._line_number_width)
+            line_number_segments.append(Segment(f"{line_number_str} │ ", Style(color="#6c7086")))
+
+        # --- Content Rendering ---
+        # Always expand tabs for consistent width calculation
+        expanded_line = line.replace('\t', '    ')
+        style = Style.parse("white on #272822") # Default style
+
         if self._syntax_language:
             try:
-                syntax = Syntax(
-                    line,
-                    self._syntax_language,
-                    theme="monokai",
-                    line_numbers=False,
-                    word_wrap=False,
-                    background_color=None
-                )
-                
+                syntax = Syntax(line, self._syntax_language, theme="monokai", line_numbers=False, word_wrap=False, tab_size=4)
                 rendered_lines = list(self._rich_console.render_lines(syntax))
                 if rendered_lines:
-                    line_segments = list(rendered_lines[0])
-                    
-                    # Add cursor if this is the cursor line
-                    if line_index == self.cursor_line:
-                        cursor_segments = self._add_cursor_to_segments(line_segments, line)
-                        content_segments = cursor_segments
-                    else:
-                        content_segments = line_segments
+                    content_segments = rendered_lines[0]
                 else:
-                    # Fallback to plain text
-                    if line_index == self.cursor_line:
-                        content_segments = self._add_cursor_to_plain_text(line)
-                    else:
-                        content_segments = [Segment(line)]
-                        
+                    content_segments = [Segment(expanded_line, style)] # Fallback
             except Exception:
-                # Fallback to plain text on error
-                if line_index == self.cursor_line:
-                    content_segments = self._add_cursor_to_plain_text(line)
-                else:
-                    content_segments = [Segment(line)]
+                content_segments = [Segment(expanded_line, style)] # Fallback
         else:
-            # Plain text rendering with cursor
-            if line_index == self.cursor_line:
-                content_segments = self._add_cursor_to_plain_text(line)
-            else:
-                content_segments = [Segment(line)]
-        
-        # Apply horizontal scrolling to content segments
-        if content_scroll_x > 0:
-            content_segments = self._apply_horizontal_scroll(content_segments, content_scroll_x)
+            content_segments = [Segment(expanded_line, style)]
 
-        # `segments` currently holds the line number part.
-        # Now truncate the content to fit the remaining width.
-        available_width = self.size.width
-        if self.show_line_numbers:
-            available_width = max(1, available_width - line_number_width)
+        # Add cursor if it's the active line
+        if line_index == self.cursor_line:
+            content_segments = self._add_cursor_to_segments(content_segments, line)
 
+        # --- Final Assembly ---
+        if scroll_x > 0:
+            content_segments = self._apply_horizontal_scroll(content_segments, scroll_x)
+            
+        available_width = self.size.width - line_number_width
         truncated_content = self._truncate_segments_to_width(content_segments, available_width)
 
-        # Combine line numbers and truncated content
-        final_segments = segments + truncated_content
-
+        final_segments = line_number_segments + truncated_content
         return Strip(final_segments, self.size.width)
     
     def load_file(self, file_path: Union[str, Path]) -> bool:
@@ -369,9 +348,9 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
                 if self._app_instance and hasattr(self._app_instance, 'logger'):
                     self._app_instance.logger.info(f"CUSTOM EDITOR: Using syntax highlighting for language: {language}")
             else:
-                self._syntax_language = None
+                self._syntax_language = "text" # Default to plain text
                 if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.info("CUSTOM EDITOR: No language mapping found, using plain text")
+                    self._app_instance.logger.info("CUSTOM EDITOR: No language mapping found, using plain text highlighting")
             
             if self._app_instance and hasattr(self._app_instance, 'logger'):
                 self._app_instance.logger.info(f"CUSTOM EDITOR: Successfully loaded file: {path}")
@@ -571,8 +550,19 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
         # Scroll to make cursor visible
         self.scroll_to(cursor_x, cursor_y, animate=False)
     
+    def on_focus(self, event) -> None:
+        if self._app_instance and hasattr(self._app_instance, 'logger'):
+            self._app_instance.logger.info("Editor focused, forcing full refresh")
+        self.refresh(layout=True)
+
+    def on_blur(self, event) -> None:
+        if self._app_instance and hasattr(self._app_instance, 'logger'):
+            self._app_instance.logger.info("Editor blurred")
+
     def on_click(self, event: Click) -> None:
         """Handle mouse clicks to position cursor."""
+        if self._app_instance and hasattr(self._app_instance, 'logger'):
+            self._app_instance.logger.info(f"Editor clicked at {event.x}, {event.y}")
         # Calculate line and column from click position
         scroll_x, scroll_y = self.scroll_offset
         click_line = event.y + scroll_y
@@ -591,7 +581,8 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
             self.cursor_line = click_line
             self.cursor_column = min(click_column, len(lines[click_line]))
             self._clamp_cursor()
-            self.refresh()
+        self.refresh()
+        self.focus()
     
     def save_file(self, file_path: Optional[Union[str, Path]] = None) -> bool:
         """Save the current content to a file."""

@@ -193,16 +193,16 @@ class K2EditApp(App):
         yield Header()
         with Horizontal():
             # File explorer with fixed width
-            # self.file_explorer.styles.width = "25%"
-            # self.file_explorer.styles.min_width = "25%"
-            # self.file_explorer.styles.max_width = "25%"
+            self.file_explorer.styles.width = "25%"
+            self.file_explorer.styles.min_width = "25%"
+            self.file_explorer.styles.max_width = "25%"
             yield self.file_explorer
             
             # Main editor panel with explicit width
             with Vertical(id="main-panel") as main_panel:
-                # main_panel.styles.width = "45%"
-                # main_panel.styles.min_width = "45%"
-                # main_panel.styles.max_width = "45%"
+                main_panel.styles.width = "50%"
+                main_panel.styles.min_width = "50%"
+                main_panel.styles.max_width = "50%"
                 
                 self.editor.styles.height = "1fr"
                 self.editor.styles.width = "100%"
@@ -217,9 +217,9 @@ class K2EditApp(App):
                 yield self.command_bar
             
             # Output panel with fixed width
-            # self.output_panel.styles.width = "30%"
-            # self.output_panel.styles.min_width = "30%"
-            # self.output_panel.styles.max_width = "30%"
+            self.output_panel.styles.width = "25%"
+            self.output_panel.styles.min_width = "25%"
+            self.output_panel.styles.max_width = "25%"
             yield self.output_panel
         yield Footer()
         
@@ -252,6 +252,45 @@ class K2EditApp(App):
         except Exception as e:
             self.logger.error(f"Error handling file selection: {e}", exc_info=True)
             self.notify(f"Error loading file: {e}", severity="error")
+    
+    def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
+        """Handle adding file to AI context from file explorer."""
+        try:
+            file_path = message.file_path
+            self.logger.info(f"Adding file to AI context: {file_path}")
+            
+            if Path(file_path).is_file():
+                # Add file to agent context
+                asyncio.create_task(self._add_file_to_context(file_path))
+                self.output_panel.add_info(f"Added to AI context: {Path(file_path).name}")
+            else:
+                self.output_panel.add_error(f"Cannot add directory to context: {file_path}")
+                
+        except Exception as e:
+            self.logger.error(f"Error adding file to context: {e}", exc_info=True)
+            self.notify(f"Error adding file to context: {e}", severity="error")
+    
+    async def _add_file_to_context(self, file_path: str) -> None:
+        """Add file to AI agent context."""
+        if not self.agent_integration:
+            self.output_panel.add_error("Agentic system not initialized")
+            return
+        
+        try:
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Add to agent context via integration
+            success = await self.agent_integration.add_context_file(file_path, content)
+            if success:
+                self.logger.info(f"Successfully added {file_path} to AI context")
+            else:
+                self.output_panel.add_error("Failed to add file to context")
+                
+        except Exception as e:
+            self.logger.error(f"Error adding file to context: {e}")
+            self.output_panel.add_error(f"Failed to add file to context: {e}")
     
     def action_quit(self) -> None:
         """Quit the application."""
@@ -325,7 +364,7 @@ def main():
         load_dotenv()
         
         # Setup logging - can be configured via environment variable
-        log_level = os.getenv("K2EDIT_LOG_LEVEL", "INFO")
+        log_level = os.getenv("K2EDIT_LOG_LEVEL", "DEBUG")
         logger = setup_logging(log_level)
         
         logger.info("Starting K2Edit application")

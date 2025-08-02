@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Optional, List
 import logging
 
-from textual.widgets import Tree, Static
+from textual.widgets import Tree, Static, Button
 from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.message import Message
+from textual.containers import Horizontal
 
 
 class FileExplorer(Static):
@@ -50,6 +51,36 @@ class FileExplorer(Static):
     
     FileExplorer .hidden {
         color: #64748b;
+    }
+    
+    .add-context-btn {
+        background: transparent;
+        color: #10b981;
+        border: none;
+        padding: 0 1;
+        margin: 0 1;
+        min-width: 3;
+        height: 1;
+        text-style: none;
+    }
+    
+    .add-context-btn:hover {
+        background: #10b981;
+        color: #1e293b;
+    }
+    
+    .add-context-btn:focus {
+        background: #059669;
+        color: #f1f5f9;
+    }
+    
+    .help-text {
+        width: 100%;
+        height: 1;
+        background: #334155;
+        color: #94a3b8;
+        text-align: center;
+        padding: 0 1;
     }
     """
     
@@ -101,9 +132,8 @@ class FileExplorer(Static):
                     # Recursively add subdirectories
                     self._add_directory(dir_node, item)
                 else:
-                    file_node = parent.add_leaf(item.name)
+                    file_node = parent.add_leaf(item.name, data={"type": "file", "path": str(item)})
                     file_node.label_style = "file"
-                    file_node.data = {"type": "file", "path": str(item)}
                     
         except PermissionError:
             self.logger.warning(f"Permission denied accessing {path}")
@@ -121,8 +151,37 @@ class FileExplorer(Static):
                 # Send file selected message
                 self.post_message(self.FileSelected(item_path))
     
+    def on_key(self, event) -> None:
+        """Handle keyboard events for adding files to context."""
+        tree = self.query_one(Tree)
+        if tree.cursor_node and tree.cursor_node.data:
+            node_data = tree.cursor_node.data
+            if node_data.get("type") == "file":
+                item_path = node_data.get("path")
+                
+                # Add to context with 'a' key
+                if event.key == "a":
+                    self.post_message(self.AddToContext(item_path))
+                    self.notify(f"Added {Path(item_path).name} to AI context")
+    
+    def on_tree_node_highlighted(self, event) -> None:
+        """Handle node highlighting to show keyboard hints."""
+        tree = self.query_one(Tree)
+        if tree.cursor_node and tree.cursor_node.data:
+            node_data = tree.cursor_node.data
+            if node_data.get("type") == "file":
+                # Show hint for keyboard shortcut
+                self.notify("Press 'a' to add file to AI context", timeout=2.0)
+    
     class FileSelected(Message):
         """Message sent when a file is selected in the explorer."""
+        
+        def __init__(self, file_path: str) -> None:
+            super().__init__()
+            self.file_path = file_path
+    
+    class AddToContext(Message):
+        """Message sent when a file should be added to AI context."""
         
         def __init__(self, file_path: str) -> None:
             super().__init__()

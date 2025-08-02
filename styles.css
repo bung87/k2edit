@@ -109,7 +109,6 @@ CustomSyntaxEditor {
     scrollbar-background: #1e293b;
     scrollbar-color: #3b82f6;
     scrollbar-corner-color: #1e293b;
-    padding: 0 1;
     box-sizing: border-box;
 }
 
@@ -144,16 +143,4 @@ FileExplorer .file {
 
 FileExplorer .hidden {
     color: #64748b;
-}
-
-#file-explorer {
-    width: 25%;
-}
-
-#main-panel {
-    width: 45%;
-}
-
-#output-panel {
-    width: 30%;
 }

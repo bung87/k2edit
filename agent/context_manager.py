@@ -83,6 +83,36 @@ class AgenticContextManager:
         
         # Store context in memory
         await self.memory_store.store_context(file_path, asdict(self.current_context))
+
+    async def add_context_file(self, file_path: str, file_content: str = None):
+        """Add a file to the conversation context without changing current context"""
+        if not file_content:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+            except Exception as e:
+                self.logger.error(f"Error reading file {file_path}: {e}")
+                return False
+        
+        # Store the file as additional context
+        context_entry = {
+            "type": "additional_file",
+            "file_path": file_path,
+            "content": file_content,
+            "language": self._detect_language(file_path),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Store in memory store
+        await self.memory_store.store_conversation({
+            "type": "context_addition",
+            "file_path": file_path,
+            "content_preview": file_content[:200] + "..." if len(file_content) > 200 else file_content,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        self.logger.info(f"Added file to context: {file_path}")
+        return True
         
     async def get_enhanced_context(self, query: str) -> Dict[str, Any]:
         """Get enhanced context for AI agent based on query including semantic search and hierarchical data"""

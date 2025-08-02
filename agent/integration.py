@@ -108,6 +108,21 @@ class K2EditAgentIntegration:
             logger.error(f"Error getting code intelligence: {e}")
             return {}
     
+    async def add_context_file(self, file_path: str, file_content: str = None) -> bool:
+        """Add a file to the AI context"""
+        if not self.agent_initialized:
+            return False
+            
+        try:
+            from agent import get_agent_context
+            agent = await get_agent_context()
+            if agent:
+                return await agent.add_context_file(file_path, file_content)
+            return False
+        except Exception as e:
+            logger.error(f"Error adding file to context: {e}")
+            return False
+    
     async def shutdown(self):
         """Shutdown the agentic system"""
         if self.agent_initialized:
