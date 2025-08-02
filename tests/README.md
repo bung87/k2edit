@@ -5,8 +5,11 @@ This directory contains comprehensive tests for the K2Edit agentic system, inclu
 ## Test Structure
 
 - `test_context_manager.py` - Tests for the AgenticContextManager
+- `test_context_features.py` - Tests for enhanced context and memory features
 - `test_memory_store.py` - Tests for the MemoryStore component
 - `test_lsp_indexer.py` - Tests for the LSPIndexer component
+- `test_kimi_api.py` - Unit tests for KimiAPI (mocked)
+- `test_kimi_api_integration.py` - Integration tests for KimiAPI (real API calls)
 - `test_integration.py` - End-to-end integration tests
 - `conftest.py` - Pytest configuration and fixtures
 

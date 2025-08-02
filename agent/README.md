@@ -18,9 +18,6 @@ agent/
 ├── memory_store.py      # Persistent storage system
 ├── lsp_indexer.py       # LSP integration and symbol indexing
 └── integration.py       # K2Edit integration helpers
-
-examples/
-└── example_usage.py     # Usage examples and demonstrations
 ```
 
 ## Features
@@ -277,15 +274,20 @@ logger = logging.getLogger("k2edit.agent")
 - `get_file_info(file_path)`
 - `refresh_index(file_path=None)`
 
-## Examples
+## Usage
 
-See `examples/example_usage.py` for complete working examples of all features.
+The agentic system is automatically integrated into the K2Edit application. When you run the main application, the agentic features are available through:
 
-Run the examples:
+- **AI queries**: Use the command bar (`Ctrl+K`) to ask AI questions
+- **Context awareness**: Files are automatically added to context when opened
+- **Memory tracking**: Code changes are automatically recorded
+- **Code intelligence**: Available through the integrated UI
+
+To start the application:
 
 ```bash
 cd /path/to/k2edit
-python examples/example_usage.py
+python main.py
 ```
 
 ## Contributing
