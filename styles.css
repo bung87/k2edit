@@ -1,0 +1,97 @@
+/* K2Edit Styles - Textual CSS */
+
+Screen {
+    background: #0f172a;
+}
+
+Header {
+    dock: top;
+    height: 1;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
+}
+
+Horizontal {
+    height: 100%;
+}
+
+#main-panel {
+    width: 70%;
+    border-right: solid #3b82f6;
+    margin: 0;
+    padding: 0;
+}
+
+TextArea {
+    border: solid #3b82f6;
+    background: #1e293b;
+    color: #f1f5f9;
+}
+
+TextArea:focus {
+    border: solid #10b981;
+}
+
+Input {
+    height: 3;
+    border: solid #3b82f6;
+    background: #1e293b;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
+}
+
+Input:focus {
+    border: solid #10b981;
+}
+
+Vertical {
+    width: 30%;
+    min-width: 30;
+    margin: 0;
+    padding: 0;
+}
+
+#output-title {
+    dock: top;
+    height: 1;
+    background: #3b82f6;
+    color: #f1f5f9;
+    text-align: center;
+    padding: 0 1;
+}
+
+RichLog {
+    border: solid #3b82f6;
+    background: #1e293b;
+    color: #f1f5f9;
+    padding: 1;
+}
+
+CustomSyntaxEditor {
+    border: none;
+    background: #1e293b;
+    color: #f1f5f9;
+    scrollbar-background: #1e293b;
+    scrollbar-color: #3b82f6;
+    scrollbar-corner-color: #1e293b;
+    overflow-y: auto;
+    overflow-x: auto;
+    margin: 0;
+    padding: 0;
+}
+
+CustomSyntaxEditor:focus {
+    border: none;
+}

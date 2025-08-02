@@ -1,0 +1,480 @@
+from pathlib import Path
+from typing import Union, Optional
+from textual.scroll_view import ScrollView
+from textual.reactive import reactive
+from textual.strip import Strip
+from textual.geometry import Region, Size, Offset
+from textual.events import Key, Click
+from textual.coordinate import Coordinate
+from rich.console import Console
+from rich.syntax import Syntax
+from rich.segment import Segment
+from rich.text import Text
+from rich.style import Style
+import logging
+
+class CustomSyntaxEditor(ScrollView, can_focus=True):
+    """A custom editor widget with Rich syntax highlighting, line numbers, and cursor."""
+    
+    text = reactive("")
+    cursor_line = reactive(0)
+    cursor_column = reactive(0)
+    # scroll_offset is now handled by Textual's scrolling system
+    show_line_numbers = reactive(True)
+    
+    BINDINGS = [
+        ("up", "cursor_up", "Move cursor up"),
+        ("down", "cursor_down", "Move cursor down"),
+        ("left", "cursor_left", "Move cursor left"),
+        ("right", "cursor_right", "Move cursor right"),
+        ("home", "cursor_home", "Move to start of line"),
+        ("end", "cursor_end", "Move to end of line"),
+        ("pageup", "page_up", "Page up"),
+        ("pagedown", "page_down", "Page down"),
+        ("ctrl+up", "scroll_up", "Scroll up"),
+        ("ctrl+down", "scroll_down", "Scroll down"),
+    ]
+    
+    def __init__(self, app_instance=None, **kwargs):
+        super().__init__(**kwargs)
+        self._app_instance = app_instance
+        self._rich_console = Console(width=80, legacy_windows=False)
+        self._syntax_language = None
+        self.current_file = None
+        self.is_modified = False
+        self._line_number_width = 4
+        
+        # Enable scrollbars - these are set via CSS or widget properties
+        self.can_focus = True
+        
+        # Set initial virtual size
+        self.virtual_size = Size(100, 1)
+        
+        # Language mapping
+        self._language_map = {
+            '.py': 'python',
+            '.js': 'javascript',
+            '.ts': 'typescript',
+            '.html': 'html',
+            '.css': 'css',
+            '.json': 'json',
+            '.xml': 'xml',
+            '.yaml': 'yaml',
+            '.yml': 'yaml',
+            '.md': 'markdown',
+            '.nim': 'nim',
+            '.c': 'c',
+            '.cpp': 'cpp',
+            '.h': 'c',
+            '.hpp': 'cpp',
+            '.java': 'java',
+            '.go': 'go',
+            '.rs': 'rust',
+            '.php': 'php',
+            '.rb': 'ruby',
+            '.sh': 'bash',
+            '.sql': 'sql',
+        }
+    
+    def _add_cursor_to_plain_text(self, line_text: str) -> list[Segment]:
+        """Add cursor to plain text line."""
+        before_cursor = line_text[:self.cursor_column]
+        cursor_char = line_text[self.cursor_column:self.cursor_column + 1] if self.cursor_column < len(line_text) else " "
+        after_cursor = line_text[self.cursor_column + 1:] if self.cursor_column < len(line_text) else ""
+        
+        segments = []
+        if before_cursor:
+            segments.append(Segment(before_cursor))
+        segments.append(Segment(cursor_char, Style.parse("black on white")))
+        if after_cursor:
+            segments.append(Segment(after_cursor))
+        
+        return segments
+    
+    def _add_cursor_to_segments(self, line_segments: list[Segment], line_text: str) -> list[Segment]:
+        """Add cursor to syntax-highlighted line segments."""
+        if not line_segments:
+            return self._add_cursor_to_plain_text(line_text)
+        
+        # Find the position in segments where cursor should be
+        cursor_segments = []
+        current_pos = 0
+        cursor_added = False
+        
+        for segment in line_segments:
+            segment_text = segment.text
+            segment_end = current_pos + len(segment_text)
+            
+            if not cursor_added and current_pos <= self.cursor_column < segment_end:
+                # Cursor is within this segment
+                offset = self.cursor_column - current_pos
+                before = segment_text[:offset]
+                cursor_char = segment_text[offset:offset + 1] if offset < len(segment_text) else " "
+                after = segment_text[offset + 1:] if offset < len(segment_text) else ""
+                
+                if before:
+                    cursor_segments.append(Segment(before, segment.style))
+                cursor_segments.append(Segment(cursor_char, Style.parse("black on white")))
+                if after:
+                    cursor_segments.append(Segment(after, segment.style))
+                cursor_added = True
+            elif not cursor_added and self.cursor_column == current_pos:
+                # Cursor is at the start of this segment
+                cursor_segments.append(Segment(" ", Style.parse("black on white")))
+                cursor_segments.append(segment)
+                cursor_added = True
+            else:
+                cursor_segments.append(segment)
+            
+            current_pos = segment_end
+        
+        # If cursor is at the end of the line
+        if not cursor_added and self.cursor_column >= len(line_text):
+            cursor_segments.append(Segment(" ", Style.parse("black on white")))
+        
+        return cursor_segments
+    
+    def _apply_horizontal_scroll(self, segments: list[Segment], scroll_x: int) -> list[Segment]:
+        """Apply horizontal scroll offset to segments."""
+        if scroll_x <= 0:
+            return segments
+        
+        scrolled_segments = []
+        current_pos = 0
+        
+        for segment in segments:
+            segment_text = segment.text
+            segment_end = current_pos + len(segment_text)
+            
+            if segment_end <= scroll_x:
+                # This segment is completely scrolled out
+                current_pos = segment_end
+                continue
+            elif current_pos < scroll_x < segment_end:
+                # This segment is partially scrolled out
+                visible_start = scroll_x - current_pos
+                visible_text = segment_text[visible_start:]
+                if visible_text:
+                    scrolled_segments.append(Segment(visible_text, segment.style))
+            else:
+                # This segment is completely visible
+                scrolled_segments.append(segment)
+            
+            current_pos = segment_end
+        
+        return scrolled_segments
+    
+
+    
+    def render_lines(self, crop: Region) -> list[Strip]:
+        """Render multiple lines within the crop region."""
+        strips = []
+        
+        for y in range(crop.height):
+            strip = self.render_line(y)
+            strips.append(strip)
+        
+        return strips
+    
+    def get_content_width(self) -> int:
+        """Get the width of the content for horizontal scrolling."""
+        if not self.text:
+            return 80
+        
+        lines = self.text.split('\n')
+        max_line_length = max(len(line) for line in lines) if lines else 0
+        
+        # Don't include line number width in scrollable content width
+        # Line numbers are fixed and don't scroll
+        
+        return max(max_line_length, 80)
+    
+    def get_content_height(self) -> int:
+        """Get the height of the content for vertical scrolling."""
+        if not self.text:
+            return 1
+        
+        lines = self.text.split('\n')
+        return len(lines)
+    
+    def update_virtual_size(self) -> None:
+        """Update the virtual size based on content."""
+        width = self.get_content_width()
+        height = self.get_content_height()
+        self.virtual_size = Size(width, height)
+    
+    def render_line(self, y: int) -> Strip:
+        """Render a single line with line numbers."""
+        
+        scroll_x, scroll_y = self.scroll_offset
+        lines = self.text.split('\n')
+        line_index = y + scroll_y  # y is viewport position, add scroll to get actual line
+        if line_index >= len(lines):
+            return Strip.blank(self.size.width)
+        
+        line = lines[line_index]
+        segments = []
+        
+        # Calculate line number width
+        line_number_width = 0
+        if self.show_line_numbers:
+            line_number_width = self._line_number_width + 3
+            line_number = str(line_index + 1).rjust(self._line_number_width)
+            # Line numbers are always at x=0, not affected by horizontal scroll
+            segments.append(Segment(f"{line_number} │ ", Style(color="#6c7086")))
+        
+        # Apply horizontal scroll only to content, not line numbers
+        content_scroll_x = scroll_x
+        
+        # Apply syntax highlighting if available
+        if self._syntax_language:
+            try:
+                syntax = Syntax(
+                    line,
+                    self._syntax_language,
+                    theme="monokai",
+                    line_numbers=False,
+                    word_wrap=False,
+                    background_color=None
+                )
+                
+                rendered_lines = list(self._rich_console.render_lines(syntax))
+                if rendered_lines:
+                    line_segments = list(rendered_lines[0])
+                    
+                    # Add cursor if this is the cursor line
+                    if line_index == self.cursor_line:
+                        cursor_segments = self._add_cursor_to_segments(line_segments, line)
+                        content_segments = cursor_segments
+                    else:
+                        content_segments = line_segments
+                else:
+                    # Fallback to plain text
+                    if line_index == self.cursor_line:
+                        content_segments = self._add_cursor_to_plain_text(line)
+                    else:
+                        content_segments = [Segment(line)]
+                        
+            except Exception:
+                # Fallback to plain text on error
+                if line_index == self.cursor_line:
+                    content_segments = self._add_cursor_to_plain_text(line)
+                else:
+                    content_segments = [Segment(line)]
+        else:
+            # Plain text rendering with cursor
+            if line_index == self.cursor_line:
+                content_segments = self._add_cursor_to_plain_text(line)
+            else:
+                content_segments = [Segment(line)]
+        
+        # Apply horizontal scrolling to content segments
+        if content_scroll_x > 0:
+            content_segments = self._apply_horizontal_scroll(content_segments, content_scroll_x)
+        
+        segments.extend(content_segments)
+        
+        return Strip(segments, self.size.width)
+    
+    def load_file(self, file_path: Union[str, Path]) -> bool:
+        """Load a file into the editor."""
+        try:
+            path = Path(file_path)
+            
+            if not path.exists():
+                # Create new file
+                self.text = ""
+                self.current_file = path
+                self.is_modified = False
+                return True
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            self.text = content
+            self.current_file = path
+            self.is_modified = False
+            
+            # Set language based on file extension
+            extension = path.suffix.lower()
+            language = self._language_map.get(extension)
+            
+            if language:
+                self._syntax_language = language
+                if self._app_instance and hasattr(self._app_instance, 'logger'):
+                    self._app_instance.logger.info(f"CUSTOM EDITOR: Using syntax highlighting for language: {language}")
+            else:
+                self._syntax_language = None
+                if self._app_instance and hasattr(self._app_instance, 'logger'):
+                    self._app_instance.logger.info("CUSTOM EDITOR: No language mapping found, using plain text")
+            
+            if self._app_instance and hasattr(self._app_instance, 'logger'):
+                self._app_instance.logger.info(f"CUSTOM EDITOR: Successfully loaded file: {path}")
+            
+            # Force a refresh and update virtual size
+            self.update_virtual_size()
+            self.refresh()
+            return True
+            
+        except Exception as e:
+            if self._app_instance and hasattr(self._app_instance, 'logger'):
+                self._app_instance.logger.error(f"CUSTOM EDITOR: Error loading file {file_path}: {e}", exc_info=True)
+            return False
+    
+    def action_cursor_up(self) -> None:
+        """Move cursor up one line."""
+        if self.cursor_line > 0:
+            self.cursor_line -= 1
+            self._clamp_cursor()
+            self._ensure_cursor_visible()
+            self.refresh()
+    
+    def action_cursor_down(self) -> None:
+        """Move cursor down one line."""
+        lines = self.text.split('\n')
+        if self.cursor_line < len(lines) - 1:
+            self.cursor_line += 1
+            self._clamp_cursor()
+            self._ensure_cursor_visible()
+            self.refresh()
+    
+    def action_cursor_left(self) -> None:
+        """Move cursor left one character."""
+        if self.cursor_column > 0:
+            self.cursor_column -= 1
+        elif self.cursor_line > 0:
+            self.cursor_line -= 1
+            lines = self.text.split('\n')
+            self.cursor_column = len(lines[self.cursor_line]) if self.cursor_line < len(lines) else 0
+        self._ensure_cursor_visible()
+        self.refresh()
+    
+    def action_cursor_right(self) -> None:
+        """Move cursor right one character."""
+        lines = self.text.split('\n')
+        if self.cursor_line < len(lines):
+            line_length = len(lines[self.cursor_line])
+            if self.cursor_column < line_length:
+                self.cursor_column += 1
+            elif self.cursor_line < len(lines) - 1:
+                self.cursor_line += 1
+                self.cursor_column = 0
+        self._ensure_cursor_visible()
+        self.refresh()
+    
+    def action_cursor_home(self) -> None:
+        """Move cursor to start of line."""
+        self.cursor_column = 0
+        self.refresh()
+    
+    def action_cursor_end(self) -> None:
+        """Move cursor to end of line."""
+        lines = self.text.split('\n')
+        if self.cursor_line < len(lines):
+            self.cursor_column = len(lines[self.cursor_line])
+        self.refresh()
+    
+    def action_page_up(self) -> None:
+        """Move cursor up one page."""
+        page_size = self.size.height - 1
+        self.cursor_line = max(0, self.cursor_line - page_size)
+        self._clamp_cursor()
+        self._ensure_cursor_visible()
+        self.refresh()
+    
+    def action_page_down(self) -> None:
+        """Move cursor down one page."""
+        lines = self.text.split('\n')
+        page_size = self.size.height - 1
+        self.cursor_line = min(len(lines) - 1, self.cursor_line + page_size)
+        self._clamp_cursor()
+        self._ensure_cursor_visible()
+        self.refresh()
+    
+    def action_scroll_up(self) -> None:
+        """Scroll up without moving cursor."""
+        scroll_x, scroll_y = self.scroll_offset
+        new_scroll_y = max(0, scroll_y - 3)  # Scroll up by 3 lines
+        self.scroll_to(scroll_x, new_scroll_y, animate=False)
+    
+    def action_scroll_down(self) -> None:
+        """Scroll down without moving cursor."""
+        scroll_x, scroll_y = self.scroll_offset
+        max_scroll_y = max(0, self.get_content_height() - self.size.height)
+        new_scroll_y = min(max_scroll_y, scroll_y + 3)  # Scroll down by 3 lines
+        self.scroll_to(scroll_x, new_scroll_y, animate=False)
+    
+    def _clamp_cursor(self) -> None:
+        """Ensure cursor is within valid bounds."""
+        lines = self.text.split('\n')
+        if not lines:
+            self.cursor_line = 0
+            self.cursor_column = 0
+            return
+        
+        # Clamp line
+        self.cursor_line = max(0, min(self.cursor_line, len(lines) - 1))
+        
+        # Clamp column
+        if self.cursor_line < len(lines):
+            line_length = len(lines[self.cursor_line])
+            self.cursor_column = max(0, min(self.cursor_column, line_length))
+    
+    def _ensure_cursor_visible(self) -> None:
+        """Ensure the cursor is visible by adjusting scroll position."""
+        # Use Textual's built-in scrolling to ensure cursor is visible
+        cursor_y = self.cursor_line
+        cursor_x = self.cursor_column
+        
+        # Don't add line number offset - line numbers are fixed and don't scroll
+        # Only scroll the content area
+        
+        # Scroll to make cursor visible
+        self.scroll_to(cursor_x, cursor_y, animate=False)
+    
+    def on_click(self, event: Click) -> None:
+        """Handle mouse clicks to position cursor."""
+        # Calculate line and column from click position
+        scroll_x, scroll_y = self.scroll_offset
+        click_line = event.y + scroll_y
+        click_column = event.x
+        
+        # Adjust for line numbers
+        if self.show_line_numbers:
+            line_number_area_width = self._line_number_width + 3  # line number + space + separator
+            if click_column >= line_number_area_width:
+                click_column -= line_number_area_width
+            else:
+                click_column = 0
+        
+        lines = self.text.split('\n')
+        if click_line < len(lines):
+            self.cursor_line = click_line
+            self.cursor_column = min(click_column, len(lines[click_line]))
+            self._clamp_cursor()
+            self.refresh()
+    
+    def save_file(self, file_path: Optional[Union[str, Path]] = None) -> bool:
+        """Save the current content to a file."""
+        try:
+            if file_path:
+                path = Path(file_path)
+            elif self.current_file:
+                path = self.current_file
+            else:
+                return False
+            
+            # Ensure parent directory exists
+            path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(self.text)
+            
+            self.current_file = path
+            self.is_modified = False
+            return True
+            
+        except Exception as e:
+            if self._app_instance and hasattr(self._app_instance, 'logger'):
+                self._app_instance.logger.error(f"CUSTOM EDITOR: Error saving file: {e}")
+            return False
