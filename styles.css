@@ -27,7 +27,7 @@ Horizontal {
 }
 
 #main-panel {
-    width: 70%;
+    width: 1fr;
     border-right: solid #3b82f6;
     margin: 0;
     padding: 0;
@@ -57,7 +57,7 @@ Input:focus {
 }
 
 Vertical {
-    width: 30%;
+    width: 1fr;
     min-width: 30;
     margin: 0;
     padding: 0;
@@ -70,6 +70,15 @@ Vertical {
     color: #f1f5f9;
     text-align: center;
     padding: 0 1;
+}
+
+OutputPanel {
+    width: 25%;
+    min-width: 25;
+    max-width: 40;
+    background: #1e293b;
+    margin: 0;
+    padding: 0;
 }
 
 RichLog {
@@ -94,4 +103,37 @@ CustomSyntaxEditor {
 
 CustomSyntaxEditor:focus {
     border: none;
+}
+
+FileExplorer {
+    width: 25%;
+    min-width: 25;
+    max-width: 40;
+    background: #1e293b;
+    border-right: solid #3b82f6;
+    margin: 0;
+    padding: 0;
+}
+
+FileExplorer .tree--label {
+    color: #f1f5f9;
+    text-style: none;
+}
+
+FileExplorer .tree--cursor {
+    background: #3b82f6;
+    color: #f1f5f9;
+}
+
+FileExplorer .directory {
+    color: #60a5fa;
+    text-style: bold;
+}
+
+FileExplorer .file {
+    color: #f1f5f9;
+}
+
+FileExplorer .hidden {
+    color: #64748b;
 }

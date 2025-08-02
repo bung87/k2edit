@@ -21,6 +21,7 @@ from textual.logging import TextualHandler
 from custom_syntax_editor import CustomSyntaxEditor
 from views.command_bar import CommandBar
 from views.output_panel import OutputPanel
+from views.file_explorer import FileExplorer
 from agent.kimi_api import KimiAPI
 
 
@@ -100,6 +101,7 @@ class K2EditApp(App):
             self.editor = CustomSyntaxEditor(app_instance=self)
             self.command_bar = CommandBar()
             self.output_panel = OutputPanel()
+            self.file_explorer = FileExplorer()
             self.kimi_api = KimiAPI()
             self.initial_file = initial_file
             
@@ -117,6 +119,8 @@ class K2EditApp(App):
             self.command_bar.editor = self.editor
             self.command_bar.output_panel = self.output_panel
             self.command_bar.kimi_api = self.kimi_api
+            
+            # Listen for file selection messages from file explorer
             
             # Load initial file if provided
             if self.initial_file:
@@ -138,6 +142,7 @@ class K2EditApp(App):
         """Create the UI layout."""
         yield Header()
         with Horizontal():
+            yield self.file_explorer
             with Vertical(id="main-panel"):
                 yield self.editor
                 yield self.command_bar
@@ -188,6 +193,20 @@ class K2EditApp(App):
             self.editor.focus()
         except Exception as e:
             self.logger.error(f"Error focusing editor: {e}", exc_info=True)
+    
+    def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
+        """Handle file selection from the file explorer."""
+        try:
+            file_path = message.file_path
+            self.logger.info(f"File selected from explorer: {file_path}")
+            if self.editor.load_file(file_path):
+                self.output_panel.add_info(f"Opened file: {file_path}")
+                self.editor.focus()
+            else:
+                self.output_panel.add_error(f"Failed to open file: {file_path}")
+        except Exception as e:
+            self.logger.error(f"Error handling file selection: {e}", exc_info=True)
+            self.notify(f"Error opening file: {e}", severity="error")
 
 
 def main():
