@@ -12,6 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict
 import hashlib
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+import re
 
 
 @dataclass
@@ -38,8 +41,10 @@ class MemoryStore:
         self.db_path = None
         self.project_root = None
         
-    async def initialize(self, project_root: str):
+    async def initialize(self, project_root: str = None):
         """Initialize memory store for a project"""
+        if project_root is None:
+            project_root = "."
         self.project_root = Path(project_root)
         self.db_path = self.project_root / ".k2edit" / "memory.db"
         
@@ -284,35 +289,184 @@ class MemoryStore:
     def _hash_content(self, content: str) -> str:
         """Generate hash for content"""
         return hashlib.md5(content.encode()).hexdigest()
+    
+    def _generate_embedding(self, content: str) -> List[float]:
+        """Generate semantic embedding for content using simple TF-IDF approach"""
+        # Simple word-based embedding for now
+        # In production, use sentence-transformers or similar
+        words = re.findall(r'\b\w+\b', content.lower())
+        word_freq = {}
+        for word in words:
+            word_freq[word] = word_freq.get(word, 0) + 1
         
-    async def cleanup_old_memories(self, days: int = 30):
-        """Clean up memories older than specified days"""
-        cutoff_date = datetime.now().timestamp() - (days * 24 * 60 * 60)
+        # Create a simple 100-dimensional embedding
+        embedding = [0.0] * 100
+        for i, (word, freq) in enumerate(word_freq.items()):
+            if i < 100:
+                # Use word hash to create consistent but varied values
+                embedding[i] = float(freq) * (hash(word) % 1000) / 1000.0
+        
+        return embedding
+    
+    async def semantic_search(self, query: str, limit: int = 10, threshold: float = 0.7) -> List[Dict[str, Any]]:
+        """Perform semantic search using embeddings"""
+        query_embedding = self._generate_embedding(query)
+        
+        async with self._get_connection() as conn:
+            cursor = await conn.execute("""
+                SELECT id, content, embedding, timestamp, type, file_path, tags, semantic_score
+                FROM memories
+                WHERE embedding IS NOT NULL
+                ORDER BY timestamp DESC
+            """)
+            
+            results = await cursor.fetchall()
+            
+            semantic_matches = []
+            for row in results:
+                try:
+                    stored_embedding = json.loads(row[2])
+                    similarity = self._cosine_similarity(query_embedding, stored_embedding)
+                    
+                    if similarity >= threshold:
+                        semantic_matches.append({
+                            "id": row[0],
+                            "content": json.loads(row[1]),
+                            "timestamp": row[3],
+                            "type": row[4],
+                            "file_path": row[5],
+                            "tags": json.loads(row[6]) if row[6] else [],
+                            "similarity": similarity,
+                            "semantic_score": row[7]
+                        })
+                except (json.JSONDecodeError, IndexError):
+                    continue
+            
+            # Sort by similarity and return top results
+            semantic_matches.sort(key=lambda x: x["similarity"], reverse=True)
+            return semantic_matches[:limit]
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors"""
+        if len(vec1) != len(vec2):
+            return 0.0
+        
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        magnitude1 = sum(a * a for a in vec1) ** 0.5
+        magnitude2 = sum(b * b for b in vec2) ** 0.5
+        
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+        
+        return dot_product / (magnitude1 * magnitude2)
+    
+    async def update_memory_score(self, memory_id: str, score_change: float):
+        """Update the semantic score of a memory based on usage"""
+        async with self._get_connection() as conn:
+            await conn.execute("""
+                UPDATE memories 
+                SET semantic_score = semantic_score + ?, access_count = access_count + 1, last_accessed = ?
+                WHERE id = ?
+            """, (score_change, datetime.now().isoformat(), memory_id))
+            await conn.commit()
+    
+    async def add_context_relationship(self, source_id: str, target_id: str, relationship_type: str, weight: float = 1.0, metadata: Dict[str, Any] = None):
+        """Add a relationship between two context items"""
+        relationship_id = self._generate_id()
         
         async with self._get_connection() as conn:
             await conn.execute("""
+                INSERT INTO context_relationships (id, source_id, target_id, relationship_type, weight, timestamp, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                relationship_id,
+                source_id,
+                target_id,
+                relationship_type,
+                weight,
+                datetime.now().isoformat(),
+                json.dumps(metadata) if metadata else None
+            ))
+            await conn.commit()
+    
+    async def get_related_context(self, memory_id: str, relationship_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get related context items based on relationships"""
+        async with self._get_connection() as conn:
+            if relationship_type:
+                cursor = await conn.execute("""
+                    SELECT cr.target_id, m.content, m.timestamp, m.type, cr.relationship_type, cr.weight
+                    FROM context_relationships cr
+                    JOIN memories m ON cr.target_id = m.id
+                    WHERE cr.source_id = ? AND cr.relationship_type = ?
+                    ORDER BY cr.weight DESC
+                    LIMIT ?
+                """, (memory_id, relationship_type, limit))
+            else:
+                cursor = await conn.execute("""
+                    SELECT cr.target_id, m.content, m.timestamp, m.type, cr.relationship_type, cr.weight
+                    FROM context_relationships cr
+                    JOIN memories m ON cr.target_id = m.id
+                    WHERE cr.source_id = ?
+                    ORDER BY cr.weight DESC
+                    LIMIT ?
+                """, (memory_id, limit))
+            
+            results = await cursor.fetchall()
+            
+            return [{
+                "id": row[0],
+                "content": json.loads(row[1]),
+                "timestamp": row[2],
+                "type": row[3],
+                "relationship_type": row[4],
+                "weight": row[5]
+            } for row in results]
+    
+    async def cleanup_old_memories(self, days: int = 30):
+        """Clean up memories older than specified days with semantic scoring consideration"""
+        cutoff_date = datetime.now().timestamp() - (days * 24 * 60 * 60)
+        
+        async with self._get_connection() as conn:
+            # Keep high-scoring memories even if old
+            await conn.execute("""
                 DELETE FROM memories
                 WHERE timestamp < datetime(?, 'unixepoch')
+                AND semantic_score < 0.5
             """, (cutoff_date,))
             await conn.commit()
             
     async def export_memories(self, output_path: str):
-        """Export all memories to JSON file"""
+        """Export all memories to JSON file including relationships"""
         async with self._get_connection() as conn:
             cursor = await conn.execute("SELECT * FROM memories ORDER BY timestamp")
-            results = await cursor.fetchall()
+            memories = await cursor.fetchall()
             
-            memories = []
-            for row in results:
-                memories.append({
+            relationships_cursor = await conn.execute("SELECT * FROM context_relationships ORDER BY timestamp")
+            relationships = await relationships_cursor.fetchall()
+            
+            export_data = {
+                "memories": [{
                     "id": row[0],
                     "type": row[1],
                     "content": json.loads(row[2]),
                     "timestamp": row[3],
                     "file_path": row[4],
                     "tags": json.loads(row[5]) if row[5] else [],
-                    "embedding": json.loads(row[6]) if row[6] else None
-                })
-                
+                    "embedding": json.loads(row[6]) if row[6] else None,
+                    "semantic_score": row[7],
+                    "access_count": row[8],
+                    "last_accessed": row[9]
+                } for row in memories],
+                "relationships": [{
+                    "id": row[0],
+                    "source_id": row[1],
+                    "target_id": row[2],
+                    "relationship_type": row[3],
+                    "weight": row[4],
+                    "timestamp": row[5],
+                    "metadata": json.loads(row[6]) if row[6] else None
+                } for row in relationships]
+            }
+            
             with open(output_path, 'w') as f:
-                json.dump(memories, f, indent=2, default=str)
+                json.dump(export_data, f, indent=2, default=str)

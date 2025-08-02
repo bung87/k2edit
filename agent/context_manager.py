@@ -6,7 +6,9 @@ Handles AI agent interactions, context management, and orchestration
 import asyncio
 import json
 import logging
-from typing import Dict, List, Optional, Any
+import ast
+import re
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
@@ -84,10 +86,11 @@ class AgenticContextManager:
         await self.memory_store.store_context(file_path, asdict(self.current_context))
         
     async def get_enhanced_context(self, query: str) -> Dict[str, Any]:
-        """Get enhanced context for AI agent based on query"""
+        """Get enhanced context for AI agent based on query including semantic search and hierarchical data"""
         if not self.current_context:
             return {}
             
+        # Get basic context
         context = {
             "current_file": self.current_context.file_path,
             "language": self.current_context.language,
@@ -98,22 +101,157 @@ class AgenticContextManager:
             "recent_changes": self.current_context.recent_changes
         }
         
-        # Add relevant historical context
+        # Parse hierarchical code structure for current file
+        code_hierarchy = []
+        if self.current_context.file_path:
+            try:
+                with open(self.current_context.file_path, 'r') as f:
+                    content = f.read()
+                code_hierarchy = self._parse_code_hierarchy(content)
+            except Exception:
+                pass
+        
+        # Get semantic search results
+        semantic_results = await self.memory_store.semantic_search(query)
+        context["semantic_context"] = semantic_results
+        
+        # Get relevant historical context
         relevant_history = await self.memory_store.search_relevant_context(query)
         context["relevant_history"] = relevant_history
         
-        # Add similar code patterns
+        # Get similar code patterns
         similar_patterns = await self.memory_store.find_similar_code(
             self.current_context.selected_code or ""
         )
         context["similar_patterns"] = similar_patterns
         
-        # Add project-wide symbols if needed
+        # Get project-wide symbols if needed
         if "project" in query.lower() or "global" in query.lower():
             project_symbols = await self.lsp_indexer.get_project_symbols()
             context["project_symbols"] = project_symbols
             
+        # Add hierarchical context for current position
+        if self.current_context.cursor_position:
+            relevant_hierarchy = self._get_relevant_hierarchy(
+                self.current_context.cursor_position.get('line', 1),
+                code_hierarchy
+            )
+            context["relevant_hierarchy"] = relevant_hierarchy
+            
+        # Add file structure analysis
+        if self.current_context.project_root:
+            file_structure = await self._analyze_file_structure(self.current_context.project_root)
+            context["file_structure"] = file_structure
+            
         return context
+        
+    def _get_relevant_hierarchy(self, line_number: int, code_hierarchy: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Get code hierarchy relevant to the given line number"""
+        relevant = []
+        for element in code_hierarchy:
+            if element.get('start_line', 0) <= line_number <= element.get('end_line', 0):
+                relevant.append(element)
+        return relevant
+
+    def _parse_code_hierarchy(self, content: str) -> List[Dict[str, Any]]:
+        """Parse code hierarchy from file content"""
+        try:
+            tree = ast.parse(content)
+            elements = []
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    elements.append({
+                        "name": node.name,
+                        "type": "class",
+                        "start_line": node.lineno,
+                        "end_line": getattr(node, 'end_lineno', node.lineno),
+                        "signature": f"class {node.name}",
+                        "docstring": ast.get_docstring(node),
+                        "complexity": 1
+                    })
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    parent = None
+                    for parent_node in ast.walk(tree):
+                        if isinstance(parent_node, ast.ClassDef) and node in ast.walk(parent_node):
+                            parent = parent_node.name
+                            break
+                    
+                    elements.append({
+                        "name": node.name,
+                        "type": "method" if parent else "function",
+                        "start_line": node.lineno,
+                        "end_line": getattr(node, 'end_lineno', node.lineno),
+                        "signature": f"def {node.name}({ast.unparse(node.args) if hasattr(ast, 'unparse') else '...'})",
+                        "docstring": ast.get_docstring(node),
+                        "complexity": len([n for n in ast.walk(node) if isinstance(n, (ast.If, ast.For, ast.While, ast.Try))])
+                    })
+            
+            return elements
+        except SyntaxError:
+            return []
+
+    async def _analyze_file_structure(self, project_root: str) -> Dict[str, Any]:
+        """Analyze project file structure"""
+        import os
+        structure = {
+            "root": project_root,
+            "files": [],
+            "directories": [],
+            "language_stats": {}
+        }
+        
+        for root, dirs, files in os.walk(project_root):
+            # Skip hidden directories and common ignore patterns
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'dist', 'build', '.git']]
+            
+            for file in files:
+                if not file.startswith('.'):
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, project_root)
+                    
+                    # Determine language
+                    lang = self._detect_language_from_filename(file)
+                    structure["files"].append({
+                        "path": rel_path,
+                        "language": lang,
+                        "size": os.path.getsize(file_path)
+                    })
+                    
+                    structure["language_stats"][lang] = structure["language_stats"].get(lang, 0) + 1
+        
+        return structure
+
+    def _detect_language_from_filename(self, filename: str) -> str:
+        """Detect programming language from filename"""
+        import os
+        ext_map = {
+            '.py': 'python',
+            '.js': 'javascript',
+            '.ts': 'typescript',
+            '.jsx': 'javascript',
+            '.tsx': 'typescript',
+            '.java': 'java',
+            '.cpp': 'cpp',
+            '.c': 'c',
+            '.go': 'go',
+            '.rs': 'rust',
+            '.rb': 'ruby',
+            '.php': 'php',
+            '.html': 'html',
+            '.css': 'css',
+            '.scss': 'scss',
+            '.json': 'json',
+            '.yaml': 'yaml',
+            '.yml': 'yaml',
+            '.xml': 'xml',
+            '.sql': 'sql',
+            '.sh': 'shell',
+            '.md': 'markdown'
+        }
+        
+        _, ext = os.path.splitext(filename)
+        return ext_map.get(ext.lower(), 'unknown')
         
     async def process_agent_request(self, query: str, user_input: str) -> Dict[str, Any]:
         """Process an AI agent request with full context"""
@@ -183,6 +321,23 @@ class AgenticContextManager:
             new_content.splitlines(),
             lineterm=''
         ))
+
+    def _generate_embedding(self, content: str) -> List[float]:
+        """Generate semantic embedding for content using simple TF-IDF approach"""
+        import re
+        # Simple word-based embedding for now
+        words = re.findall(r'\b\w+\b', content.lower())
+        word_freq = {}
+        for word in words:
+            word_freq[word] = word_freq.get(word, 0) + 1
+        
+        # Create a simple 100-dimensional embedding
+        embedding = [0.0] * 100
+        for i, (word, freq) in enumerate(word_freq.items()):
+            if i < 100:
+                embedding[i] = float(freq) * (hash(word) % 1000) / 1000.0
+        
+        return embedding
 
 
 # Global context manager instance
