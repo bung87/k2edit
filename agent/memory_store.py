@@ -67,12 +67,16 @@ class MemoryStore:
                     timestamp TEXT NOT NULL,
                     file_path TEXT,
                     tags TEXT,
-                    embedding TEXT
+                    embedding TEXT,
+                    semantic_score REAL DEFAULT 1.0,
+                    access_count INTEGER DEFAULT 0,
+                    last_accessed TEXT
                 );
                 
                 CREATE INDEX IF NOT EXISTS idx_type ON memories(type);
                 CREATE INDEX IF NOT EXISTS idx_timestamp ON memories(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_file_path ON memories(file_path);
+                CREATE INDEX IF NOT EXISTS idx_semantic_score ON memories(semantic_score);
                 
                 CREATE TABLE IF NOT EXISTS code_patterns (
                     id TEXT PRIMARY KEY,
@@ -337,7 +341,7 @@ class MemoryStore:
                             "file_path": row[5],
                             "tags": json.loads(row[6]) if row[6] else [],
                             "similarity": similarity,
-                            "semantic_score": row[7]
+                            "semantic_score": row[7] if len(row) > 7 else 1.0
                         })
                 except (json.JSONDecodeError, IndexError):
                     continue

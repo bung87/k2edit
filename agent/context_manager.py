@@ -6,7 +6,6 @@ Handles AI agent interactions, context management, and orchestration
 import asyncio
 import json
 import logging
-import ast
 import re
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
@@ -101,15 +100,31 @@ class AgenticContextManager:
             "recent_changes": self.current_context.recent_changes
         }
         
-        # Parse hierarchical code structure for current file
-        code_hierarchy = []
+        # Get LSP-based outline and enhanced context
+        lsp_context = {}
         if self.current_context.file_path:
             try:
-                with open(self.current_context.file_path, 'r') as f:
-                    content = f.read()
-                code_hierarchy = self._parse_code_hierarchy(content)
-            except Exception:
-                pass
+                line = None
+                if self.current_context.cursor_position:
+                    line = self.current_context.cursor_position.get('line')
+                
+                lsp_context = await self.lsp_indexer.get_enhanced_context_for_file(
+                    self.current_context.file_path, 
+                    line
+                )
+                context["lsp_outline"] = lsp_context.get("outline", [])
+                context["lsp_symbols"] = lsp_context.get("symbols", [])
+                context["lsp_metadata"] = lsp_context.get("metadata", {})
+                
+                # Override symbols with LSP data if available
+                if lsp_context.get("symbols"):
+                    context["symbols"] = lsp_context["symbols"]
+                    self.current_context.symbols = lsp_context["symbols"]
+                    
+            except Exception as e:
+                self.logger.error(f"Failed to get LSP context: {e}")
+                # Return empty context instead of AST fallback
+                return context
         
         # Get semantic search results
         semantic_results = await self.memory_store.semantic_search(query)
@@ -130,13 +145,22 @@ class AgenticContextManager:
             project_symbols = await self.lsp_indexer.get_project_symbols()
             context["project_symbols"] = project_symbols
             
-        # Add hierarchical context for current position
-        if self.current_context.cursor_position:
-            relevant_hierarchy = self._get_relevant_hierarchy(
-                self.current_context.cursor_position.get('line', 1),
-                code_hierarchy
-            )
-            context["relevant_hierarchy"] = relevant_hierarchy
+        # Add LSP-based context for current position
+            if self.current_context.cursor_position:
+                line_num = self.current_context.cursor_position.get('line', 1)
+                symbols = lsp_context.get("symbols", [])
+                
+                # Find symbols relevant to current line
+                relevant_symbols = []
+                for symbol in symbols:
+                    if symbol.get('range', {}).get('start', {}).get('line', 0) <= line_num <= symbol.get('range', {}).get('end', {}).get('line', 0):
+                        relevant_symbols.append(symbol)
+                
+                context["relevant_hierarchy"] = relevant_symbols
+            
+            # Add line-specific context from LSP
+            if lsp_context.get("line_context"):
+                context["line_context"] = lsp_context["line_context"]
             
         # Add file structure analysis
         if self.current_context.project_root:
@@ -145,52 +169,6 @@ class AgenticContextManager:
             
         return context
         
-    def _get_relevant_hierarchy(self, line_number: int, code_hierarchy: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Get code hierarchy relevant to the given line number"""
-        relevant = []
-        for element in code_hierarchy:
-            if element.get('start_line', 0) <= line_number <= element.get('end_line', 0):
-                relevant.append(element)
-        return relevant
-
-    def _parse_code_hierarchy(self, content: str) -> List[Dict[str, Any]]:
-        """Parse code hierarchy from file content"""
-        try:
-            tree = ast.parse(content)
-            elements = []
-            
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    elements.append({
-                        "name": node.name,
-                        "type": "class",
-                        "start_line": node.lineno,
-                        "end_line": getattr(node, 'end_lineno', node.lineno),
-                        "signature": f"class {node.name}",
-                        "docstring": ast.get_docstring(node),
-                        "complexity": 1
-                    })
-                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    parent = None
-                    for parent_node in ast.walk(tree):
-                        if isinstance(parent_node, ast.ClassDef) and node in ast.walk(parent_node):
-                            parent = parent_node.name
-                            break
-                    
-                    elements.append({
-                        "name": node.name,
-                        "type": "method" if parent else "function",
-                        "start_line": node.lineno,
-                        "end_line": getattr(node, 'end_lineno', node.lineno),
-                        "signature": f"def {node.name}({ast.unparse(node.args) if hasattr(ast, 'unparse') else '...'})",
-                        "docstring": ast.get_docstring(node),
-                        "complexity": len([n for n in ast.walk(node) if isinstance(n, (ast.If, ast.For, ast.While, ast.Try))])
-                    })
-            
-            return elements
-        except SyntaxError:
-            return []
-
     async def _analyze_file_structure(self, project_root: str) -> Dict[str, Any]:
         """Analyze project file structure"""
         import os

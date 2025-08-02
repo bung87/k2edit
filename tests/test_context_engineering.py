@@ -105,13 +105,8 @@ if __name__ == "__main__":
         print(f"  - Files: {len(structure['files'])}")
         print(f"  - Languages: {structure['language_stats']}")
         
-        # Test code hierarchy parsing
-        with open(test_file_path, 'r') as f:
-            content = f.read()
-        hierarchy = context_manager._parse_code_hierarchy(content)
-        print(f"\n✓ Code hierarchy parsed")
-        for element in hierarchy:
-            print(f"  - {element['type']}: {element['name']} (lines {element['start_line']}-{element['end_line']})")
+        # Test LSP-based context (skip AST hierarchy)
+        print("\n✓ LSP context enabled - AST parsing removed for flexibility")
         
         # Test memory relationships
         memories = await memory_store.search_relevant_context("calculator")

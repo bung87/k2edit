@@ -213,7 +213,7 @@ class LSPIndexer:
             self.logger.error(f"Failed to index file {file_path}: {e}")
             
     async def _get_document_symbols(self, file_path: str, language: str) -> List[Dict[str, Any]]:
-        """Get symbols from a specific file"""
+        """Get symbols from a specific file via LSP"""
         if language not in self.language_servers:
             return []
             
@@ -231,13 +231,112 @@ class LSPIndexer:
             }
         }
         
-        # This would normally wait for response, simplified for demo
-        symbols = []
-        
+        try:
+            # Send request and wait for response
+            response = await self._send_lsp_request(language, request)
+            server_info["message_id"] += 1
+            
+            if response and "result" in response:
+                return self._parse_lsp_symbols(response["result"])
+        except Exception as e:
+            self.logger.error(f"LSP request failed for {file_path}: {e}")
+            
         # Fallback: parse basic symbols using regex if LSP not available
         file_path_obj = self.project_root / file_path
         if file_path_obj.exists():
             symbols = await self._parse_basic_symbols(file_path_obj)
+            
+        return symbols
+        
+    async def _send_lsp_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Send LSP request and wait for response"""
+        if language not in self.language_servers:
+            return None
+            
+        server_info = self.language_servers[language]
+        process = server_info["process"]
+        
+        try:
+            # Send the request
+            message_str = json.dumps(request)
+            content_length = len(message_str.encode('utf-8'))
+            header = f"Content-Length: {content_length}\r\n\r\n"
+            
+            process.stdin.write((header + message_str).encode('utf-8'))
+            process.stdin.flush()
+            
+            # Read response
+            return await self._read_lsp_response(process)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to send LSP request: {e}")
+            return None
+            
+    async def _read_lsp_response(self, process: subprocess.Popen) -> Optional[Dict[str, Any]]:
+        """Read response from LSP server"""
+        try:
+            # Read headers
+            headers = {}
+            while True:
+                line = process.stdout.readline().decode('utf-8').strip()
+                if not line:
+                    break
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    headers[key.strip()] = value.strip()
+            
+            # Read content
+            if 'Content-Length' in headers:
+                content_length = int(headers['Content-Length'])
+                content = process.stdout.read(content_length).decode('utf-8')
+                return json.loads(content)
+                
+        except Exception as e:
+            self.logger.error(f"Failed to read LSP response: {e}")
+            return None
+            
+    def _parse_lsp_symbols(self, lsp_symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Parse LSP symbols into our format"""
+        symbols = []
+        
+        def parse_symbol(symbol: Dict[str, Any], parent: str = None):
+            kind_map = {
+                1: "file", 2: "module", 3: "namespace", 4: "package",
+                5: "class", 6: "method", 7: "property", 8: "field",
+                9: "constructor", 10: "enum", 11: "interface", 12: "function",
+                13: "variable", 14: "constant", 15: "string", 16: "number",
+                17: "boolean", 18: "array", 19: "object", 20: "key",
+                21: "null", 22: "enum_member", 23: "struct", 24: "event",
+                25: "operator", 26: "type_parameter"
+            }
+            
+            name = symbol.get("name", "")
+            kind = kind_map.get(symbol.get("kind", 0), "unknown")
+            location = symbol.get("location", {})
+            range_info = location.get("range", {})
+            start_line = range_info.get("start", {}).get("line", 0) + 1
+            end_line = range_info.get("end", {}).get("line", 0) + 1
+            
+            symbol_data = {
+                "name": name,
+                "kind": kind,
+                "type": kind,
+                "start_line": start_line,
+                "end_line": end_line,
+                "parent": parent,
+                "detail": symbol.get("detail", ""),
+                "children": []
+            }
+            
+            symbols.append(symbol_data)
+            
+            # Handle nested symbols
+            children = symbol.get("children", [])
+            for child in children:
+                parse_symbol(child, name)
+                
+        for symbol in lsp_symbols:
+            parse_symbol(symbol)
             
         return symbols
         
@@ -473,6 +572,92 @@ class LSPIndexer:
                 all_symbols.append(symbol)
                 
         return all_symbols
+        
+    async def get_document_outline(self, file_path: str) -> Dict[str, Any]:
+        """Get structured outline for a document via LSP"""
+        language = await self._detect_language()
+        if language == "unknown":
+            return {"outline": [], "error": "Unsupported language"}
+            
+        relative_path = str(Path(file_path).relative_to(self.project_root))
+        symbols = await self._get_document_symbols(relative_path, language)
+        
+        # Build hierarchical outline
+        outline = self._build_hierarchical_outline(symbols)
+        
+        return {
+            "file_path": relative_path,
+            "language": language,
+            "outline": outline,
+            "symbol_count": len(symbols),
+            "classes": [s for s in symbols if s.get("kind") == "class"],
+            "functions": [s for s in symbols if s.get("kind") in ["function", "method"]],
+            "variables": [s for s in symbols if s.get("kind") in ["variable", "constant", "property"]]
+        }
+        
+    def _build_hierarchical_outline(self, symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build hierarchical outline from flat symbol list"""
+        outline = []
+        symbol_map = {s["name"]: s for s in symbols}
+        
+        # Build hierarchy
+        for symbol in symbols:
+            if not symbol.get("parent"):
+                # Top-level symbol
+                outline.append(self._build_symbol_tree(symbol, symbols))
+                
+        return outline
+        
+    def _build_symbol_tree(self, symbol: Dict[str, Any], all_symbols: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build symbol tree with nested children"""
+        tree = symbol.copy()
+        tree["children"] = []
+        
+        # Find children (symbols with this symbol as parent)
+        for child in all_symbols:
+            if child.get("parent") == symbol["name"]:
+                tree["children"].append(self._build_symbol_tree(child, all_symbols))
+                
+        return tree
+        
+    async def get_enhanced_context_for_file(self, file_path: str, line: int = None) -> Dict[str, Any]:
+        """Get enhanced context for a file including LSP outline"""
+        outline = await self.get_document_outline(file_path)
+        
+        # Get additional LSP information
+        language = await self._detect_language()
+        relative_path = str(Path(file_path).relative_to(self.project_root))
+        
+        context = {
+            "file_path": relative_path,
+            "language": language,
+            "outline": outline["outline"],
+            "symbols": outline["outline"],
+            "metadata": {
+                "total_symbols": outline["symbol_count"],
+                "classes": len(outline["classes"]),
+                "functions": len(outline["functions"]),
+                "variables": len(outline["variables"])
+            }
+        }
+        
+        # If line is provided, get symbols at that line
+        if line:
+            context["line_context"] = self._get_symbols_at_line(outline.get("classes", []) + outline.get("functions", []), line)
+            
+        return context
+        
+    def _get_symbols_at_line(self, symbols: List[Dict[str, Any]], line: int) -> List[Dict[str, Any]]:
+        """Get symbols that contain the given line"""
+        matching_symbols = []
+        
+        for symbol in symbols:
+            start_line = symbol.get("start_line", 0)
+            end_line = symbol.get("end_line", 0)
+            if start_line <= line <= end_line:
+                matching_symbols.append(symbol)
+                
+        return matching_symbols
         
     async def find_symbol_references(self, symbol_name: str) -> List[Dict[str, Any]]:
         """Find all references to a symbol"""

@@ -176,10 +176,9 @@ Please think step by step and use tools to accomplish the goal.
                 else:
                     # No more tool calls, return final response
                     logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations")
-            response["iterations"] = iteration + 1
-            return response
+                    response["iterations"] = iteration + 1
+                    return response
             
-
             except OpenAIError as e:
                 error_msg = str(e)
                 if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
