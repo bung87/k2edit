@@ -74,6 +74,16 @@ def setup_logging(log_level: str = "DEBUG") -> logging.Logger:
     
     # Prevent propagation to root logger to avoid duplicate messages
     logger.propagate = False
+
+    # Set httpx and httpcore loggers to WARNING to avoid excessive INFO logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    
+    # Set OpenAI client loggers to WARNING to prevent console output in TUI
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+    logging.getLogger("openai.api_requestor").setLevel(logging.WARNING)
+    logging.getLogger("openai.api_resources").setLevel(logging.WARNING)
     
     logger.info(f"Logging initialized - Log file: {log_file}")
     return logger
@@ -134,13 +144,18 @@ class K2EditApp(App):
             # Load initial file if provided
             if self.initial_file:
                 self.logger.info(f"Loading initial file: {self.initial_file}")
-                if self.editor.load_file(self.initial_file):
-                    self.output_panel.add_info(f"Loaded file: {self.initial_file}")
-                    self.logger.info(f"Successfully loaded file: {self.initial_file}")
-                else:
-                    error_msg = f"Failed to load file: {self.initial_file}"
-                    self.output_panel.add_error(error_msg)
-                    self.logger.error(error_msg)
+                if Path(self.initial_file).is_file():
+                    if self.editor.load_file(self.initial_file):
+                        self.output_panel.add_info(f"Loaded file: {self.initial_file}")
+                        self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
+                        self.editor.focus()
+                        
+                        # Notify agentic system about file open
+                        asyncio.create_task(self._on_file_open_with_agent(self.initial_file))
+                    else:
+                        error_msg = f"Failed to load file: {self.initial_file}"
+                        self.output_panel.add_error(error_msg)
+                        self.logger.error(error_msg)
             
             self.logger.info("K2EditApp mounted successfully")
         except Exception as e:
@@ -153,6 +168,9 @@ class K2EditApp(App):
             self.agent_integration = K2EditAgentIntegration(str(Path.cwd()))
             await self.agent_integration.initialize()
             self.output_panel.add_info("Agentic system initialized")
+            # Update command bar with agent integration
+            if hasattr(self, 'command_bar') and self.command_bar:
+                self.command_bar.set_agent_integration(self.agent_integration)
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
             self.logger.info("Agentic system initialized successfully")
@@ -204,6 +222,10 @@ class K2EditApp(App):
             # self.output_panel.styles.max_width = "30%"
             yield self.output_panel
         yield Footer()
+        
+    def on_command_bar_command_executed(self, message) -> None:
+        """Handle command executed messages from the command bar."""
+        self.output_panel.on_command_bar_command_executed(message)
 
     def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
         """Handle file selection from the file explorer."""

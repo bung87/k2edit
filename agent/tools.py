@@ -99,8 +99,11 @@ class ToolExecutor:
             
             matches = []
             
+            # Determine file search pattern
+            search_pattern = f"**/{pattern}" if pattern else "**/*"
+            
             # Find files matching the file pattern
-            for file_path in dir_path.rglob(file_pattern):
+            for file_path in dir_path.rglob(search_pattern):
                 if not file_path.is_file():
                     continue
                 
@@ -345,8 +348,7 @@ class ToolExecutor:
             "eval_usage": r'\beval\s*\(',
             "exec_usage": r'\bexec\s*\(',
             "shell_injection": r'os\.system\s*\(|subprocess\.[^\s]*\s*\([^)]*shell\s*=\s*True',
-            "hardcoded_secrets": r'(?i)(password|secret|key|token)\s*=\s*["\'][^"\'
-]{8,}',
+            "hardcoded_secrets": r'(?i)(password|secret|key|token)\s*=\s*["\'][^"\'\n]{8,}["\']',
             "sql_injection": r'["\']\s*\+\s*\w+\s*\+\s*["\']|%s.*%\s*\(',
         }
         

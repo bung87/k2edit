@@ -5,7 +5,7 @@ Handles persistent storage of conversations, code context, and learned patterns
 
 import json
 import logging
-import sqlite3
+import aiosqlite as sqlite3
 import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -53,7 +53,7 @@ class MemoryStore:
         
     async def _init_database(self):
         """Initialize the SQLite database with required tables"""
-        async with self._get_connection() as conn:
+        async with sqlite3.connect(self.db_path) as conn:
             await conn.executescript("""
                 CREATE TABLE IF NOT EXISTS memories (
                     id TEXT PRIMARY KEY,
@@ -84,9 +84,7 @@ class MemoryStore:
             """)
             await conn.commit()
             
-    def _get_connection(self):
-        """Get database connection with async support"""
-        return sqlite3.connect(self.db_path)
+
         
     async def store_conversation(self, conversation: Dict[str, Any]):
         """Store a conversation entry"""
@@ -134,7 +132,7 @@ class MemoryStore:
         """Store a code pattern for future reference"""
         pattern_hash = self._hash_content(content)
         
-        async with self._get_connection() as conn:
+        async with sqlite3.connect(self.db_path) as conn:
             # Check if pattern already exists
             cursor = await conn.execute(
                 "SELECT usage_count FROM code_patterns WHERE pattern_hash = ?",
@@ -163,7 +161,7 @@ class MemoryStore:
         # Simple keyword-based search for now
         keywords = query.lower().split()
         
-        async with self._get_connection() as conn:
+        async with sqlite3.connect(self.db_path) as conn:
             # Search in conversations and context
             cursor = await conn.execute("""
                 SELECT content, timestamp, type, file_path, tags
@@ -279,8 +277,12 @@ class MemoryStore:
         prefix_str = f"{prefix}_" if prefix else ""
         return f"{prefix_str}{uuid.uuid4().hex[:12]}"
         
+    def _get_connection(self):
+        """Get database connection with async support"""
+        return sqlite3.connect(self.db_path)
+
     def _hash_content(self, content: str) -> str:
-        """Generate hash for content-based lookups"""
+        """Generate hash for content"""
         return hashlib.md5(content.encode()).hexdigest()
         
     async def cleanup_old_memories(self, days: int = 30):

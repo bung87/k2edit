@@ -1,14 +1,16 @@
 """Kimi API integration with support for chat, agent mode, and tool calling."""
 
-import os
-import json
 import asyncio
+import json
+import logging
+import os
+import time
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
 
 try:
     from openai import AsyncOpenAI
-    from openai import OpenAIError
+    from openai import OpenAIError, RateLimitError
 except ImportError:
     raise ImportError("OpenAI library not found. Please install with: pip install openai")
 from dotenv import load_dotenv
@@ -47,6 +49,11 @@ class KimiAPI:
     ) -> Dict[str, Any]:
         """Send a chat message to Kimi API."""
         
+        import uuid
+        request_id = str(uuid.uuid4())[:8]
+        logger = logging.getLogger("k2edit")
+        logger.info(f"Kimi API chat request [{request_id}]: {message[:50]}...")
+        
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
         
@@ -65,22 +72,52 @@ class KimiAPI:
         
         try:
             if stream:
-                return await self._stream_chat(payload)
+                result = await self._stream_chat(payload)
+                logger.info(f"Kimi API chat completed [{request_id}]")
+                return result
             else:
-                return await self._single_chat(payload)
-        
+                result = await self._single_chat(payload)
+                logger.info(f"Kimi API chat completed [{request_id}]")
+                return result
         except OpenAIError as e:
-            raise Exception(f"API request failed: {str(e)}")
+            # Handle other OpenAI errors
+            error_msg = str(e)
+            logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
+            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                raise Exception("Too many requests. Please wait a moment and try again.")
+            else:
+                raise Exception(f"API request failed: {error_msg}")
         except Exception as e:
-            raise Exception(f"API error: {str(e)}")
+            # Handle unexpected errors
+            error_msg = str(e)
+            logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
+            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                raise Exception("Too many requests. Please wait a moment and try again.")
+            else:
+                raise Exception(f"API error: {error_msg}")
     
     async def run_agent(
         self,
         goal: str,
         context: Optional[Dict] = None,
-        max_iterations: int = 5
+        max_iterations: int = 5,
+        progress_callback=None
     ) -> Dict[str, Any]:
-        """Run Kimi in agent mode with multi-step reasoning."""
+        """Run Kimi in agent mode with multi-step reasoning.
+        
+        Args:
+            goal: The goal or question for the agent
+            context: Optional context dictionary with file information
+            max_iterations: Maximum number of iterations (default: 5)
+            progress_callback: Optional callback function for progress updates
+                            Should accept (request_id, current_iteration, max_iterations, status)
+        
+        Returns:
+            Dict containing the final response and metadata
+        """
+        import uuid
+        request_id = str(uuid.uuid4())[:8]
+        logger = logging.getLogger("k2edit")
         
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
@@ -98,6 +135,7 @@ Please think step by step and use tools to accomplish the goal.
 """
         
         messages = [{"role": "user", "content": agent_prompt}]
+        logger.info(f"Kimi agent started [{request_id}]: {goal[:50]}...")
         
         for iteration in range(max_iterations):
             payload = {
@@ -109,6 +147,9 @@ Please think step by step and use tools to accomplish the goal.
             }
             
             try:
+                logger.info(f"Kimi agent iteration {iteration + 1}/{max_iterations} [{request_id}]")
+                if progress_callback:
+                    progress_callback(request_id, iteration + 1, max_iterations, "processing")
                 response = await self._single_chat(payload)
                 
                 # Add assistant response to conversation
@@ -134,100 +175,163 @@ Please think step by step and use tools to accomplish the goal.
                     continue
                 else:
                     # No more tool calls, return final response
-                    return response
+                    logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations")
+            response["iterations"] = iteration + 1
+            return response
             
+
+            except OpenAIError as e:
+                error_msg = str(e)
+                if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                    return {
+                        "content": "Too many requests. Please wait a moment and try again.",
+                        "error": "Rate limit exceeded"
+                    }
+                else:
+                    return {
+                        "content": f"Agent execution failed: {error_msg}",
+                        "error": error_msg
+                    }
             except Exception as e:
-                return {
-                    "content": f"Agent execution failed: {str(e)}",
-                    "error": str(e)
-                }
+                error_msg = str(e)
+                if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                    return {
+                        "content": "Too many requests. Please wait a moment and try again.",
+                        "error": "Rate limit exceeded"
+                    }
+                else:
+                    return {
+                        "content": f"Agent execution failed: {error_msg}",
+                        "error": error_msg
+                    }
         
+        logger.info(f"Kimi agent reached max iterations [{request_id}]: {max_iterations} iterations")
         return {
             "content": "Agent reached maximum iterations without completion",
             "error": "Max iterations exceeded"
         }
     
     async def _single_chat(self, payload: Dict) -> Dict[str, Any]:
-        """Send a single chat request."""
-        response = await self.client.chat.completions.create(**payload)
-        
-        message = response.choices[0].message
-        
-        result = {
-            "content": message.content or "",
-            "role": message.role
-        }
-        
-        # Handle tool calls
-        if message.tool_calls:
-            result["tool_calls"] = [
-                {
-                    "id": tool_call.id,
-                    "type": tool_call.type,
-                    "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments
-                    }
-                }
-                for tool_call in message.tool_calls
-            ]
-        
-        # Include usage information if available
-        if response.usage:
-            result["usage"] = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens
+        """Send a single chat request without retry logic to prevent duplicate requests."""
+        try:
+            response = await self.client.chat.completions.create(**payload)
+            
+            message = response.choices[0].message
+            
+            result = {
+                "content": message.content or "",
+                "role": message.role
             }
-        
-        return result
+            
+            # Handle tool calls
+            if message.tool_calls:
+                result["tool_calls"] = [
+                    {
+                        "id": tool_call.id,
+                        "type": tool_call.type,
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    }
+                    for tool_call in message.tool_calls
+                ]
+            
+            # Include usage information if available
+            if response.usage:
+                result["usage"] = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            
+            return result
+            
+        except RateLimitError as e:
+            raise Exception("Too many requests. Please wait a moment and try again.")
+        except OpenAIError as e:
+            raise Exception(f"API request failed: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Unexpected error: {str(e)}")
     
     async def _stream_chat(self, payload: Dict) -> Dict[str, Any]:
-        """Send a streaming chat request."""
+        """Send a streaming chat request without retry logic to prevent duplicate requests."""
         payload["stream"] = True
         
-        content_parts = []
-        tool_calls = []
-        usage_info = None
-        
-        stream = await self.client.chat.completions.create(**payload)
-        
-        async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                content_parts.append(chunk.choices[0].delta.content)
+        try:
+            content_parts = []
+            tool_calls = []
+            usage_info = None
             
-            if chunk.choices and chunk.choices[0].delta.tool_calls:
-                tool_calls.extend(chunk.choices[0].delta.tool_calls)
+            stream = await self.client.chat.completions.create(**payload)
             
-            if hasattr(chunk, 'usage') and chunk.usage:
-                usage_info = {
-                    "prompt_tokens": chunk.usage.prompt_tokens,
-                    "completion_tokens": chunk.usage.completion_tokens,
-                    "total_tokens": chunk.usage.total_tokens
-                }
-        
-        result = {
-            "content": "".join(content_parts),
-            "role": "assistant"
-        }
-        
-        if tool_calls:
-            result["tool_calls"] = [
-                {
-                    "id": tool_call.id,
-                    "type": tool_call.type,
-                    "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments
+            async for chunk in stream:
+                # Skip the final [DONE] chunk
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    
+                    # Handle content
+                    if delta.content:
+                        content_parts.append(delta.content)
+                    
+                    # Handle tool calls
+                    if delta.tool_calls:
+                        for tool_call in delta.tool_calls:
+                            if tool_call.id:  # New tool call
+                                tool_calls.append(tool_call)
+                            elif tool_call.function:  # Update existing tool call
+                                if tool_calls:
+                                    last_tool = tool_calls[-1]
+                                    if last_tool.function.arguments is None:
+                                        last_tool.function.arguments = tool_call.function.arguments or ""
+                                    else:
+                                        last_tool.function.arguments += tool_call.function.arguments or ""
+                
+                # Handle usage information from the last chunk
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    usage_info = {
+                        "prompt_tokens": chunk.usage.prompt_tokens,
+                        "completion_tokens": chunk.usage.completion_tokens,
+                        "total_tokens": chunk.usage.total_tokens
                     }
-                }
-                for tool_call in tool_calls
-            ]
-        
-        if usage_info:
-            result["usage"] = usage_info
-        
-        return result
+            
+            result = {
+                "content": "".join(content_parts),
+                "role": "assistant"
+            }
+            
+            if tool_calls:
+                result["tool_calls"] = [
+                    {
+                        "id": tool_call.id,
+                        "type": tool_call.type,
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    }
+                    for tool_call in tool_calls
+                ]
+            
+            if usage_info:
+                result["usage"] = usage_info
+            
+            return result
+            
+        except RateLimitError as e:
+            raise Exception("Too many requests. Please wait a moment and try again.")
+        except OpenAIError as e:
+            error_msg = str(e)
+            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                raise Exception("Too many requests. Please wait a moment and try again.")
+            else:
+                raise Exception(f"API request failed: {error_msg}")
+        except Exception as e:
+            error_msg = str(e)
+            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                raise Exception("Too many requests. Please wait a moment and try again.")
+            else:
+                raise Exception(f"Unexpected error: {error_msg}")
     
     def _build_messages(self, message: str, context: Optional[Dict] = None) -> List[Dict]:
         """Build message list with context."""

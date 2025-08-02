@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -81,7 +81,7 @@ class AgenticContextManager:
         self.current_context.dependencies = dependencies
         
         # Store context in memory
-        await self.memory_store.store_context(file_path, self.current_context)
+        await self.memory_store.store_context(file_path, asdict(self.current_context))
         
     async def get_enhanced_context(self, query: str) -> Dict[str, Any]:
         """Get enhanced context for AI agent based on query"""
