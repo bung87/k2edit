@@ -241,7 +241,7 @@ class CommandBar(Input):
         if instructions:
             refactor_prompt += f" with the following requirements: {instructions}"
         
-        query = f"Please refactor this code:\n\n```\n{selected_text}\n```\n\n{args}"
+        query = f"Please refactor this code:\n\n```\n{selected_text}\n```\n\n{instructions}"
         
         # Display refactor command in output panel
         if hasattr(self, 'output_panel') and self.output_panel:

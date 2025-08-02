@@ -106,39 +106,30 @@ class FileExplorer(Static):
     
     def _build_tree(self, tree: Tree) -> None:
         """Build the file tree starting from root_path."""
-        try:
-            self._add_directory(tree.root, self.root_path)
-        except Exception as e:
-            self.logger.error(f"Error building tree: {e}")
+        self._add_directory(tree.root, self.root_path)
     
     def _add_directory(self, parent: TreeNode, path: Path) -> None:
         """Add a directory and its contents to the tree."""
-        try:
-            if not path.exists() or not path.is_dir():
-                return
-                
-            # Get directory contents
-            contents = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        if not path.exists() or not path.is_dir():
+            return
             
-            for item in contents:
-                # Skip hidden files and directories
-                if item.name.startswith('.'):
-                    continue
-                    
-                if item.is_dir():
-                    dir_node = parent.add(item.name, expand=False)
-                    dir_node.label_style = "directory"
-                    dir_node.data = {"type": "directory", "path": str(item)}
-                    # Recursively add subdirectories
-                    self._add_directory(dir_node, item)
-                else:
-                    file_node = parent.add_leaf(item.name, data={"type": "file", "path": str(item)})
-                    file_node.label_style = "file"
-                    
-        except PermissionError:
-            self.logger.warning(f"Permission denied accessing {path}")
-        except Exception as e:
-            self.logger.error(f"Error adding directory {path}: {e}")
+        # Get directory contents
+        contents = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        
+        for item in contents:
+            # Skip hidden files and directories
+            if item.name.startswith('.'):
+                continue
+                
+            if item.is_dir():
+                dir_node = parent.add(item.name, expand=False)
+                dir_node.label_style = "directory"
+                dir_node.data = {"type": "directory", "path": str(item)}
+                # Recursively add subdirectories
+                self._add_directory(dir_node, item)
+            else:
+                file_node = parent.add_leaf(item.name, data={"type": "file", "path": str(item)})
+                file_node.label_style = "file"
     
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         """Handle tree node selection."""
