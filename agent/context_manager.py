@@ -16,7 +16,8 @@ import json
 import logging
 import re
 import threading
-import time
+from aiologger import Logger
+from aiologger.levels import LogLevel
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -77,7 +78,7 @@ class AgenticContextManager:
         
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize the context manager with project root and progress updates"""
-        self.logger.info(f"Initializing agentic context manager for {project_root}")
+        await self.logger.info(f"Initializing agentic context manager for {project_root}")
         
         if progress_callback:
             await progress_callback("Initializing memory store...")
@@ -128,7 +129,7 @@ class AgenticContextManager:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     file_content = f.read()
             except Exception as e:
-                self.logger.error(f"Error reading file {file_path}: {e}")
+                await self.logger.error(f"Error reading file {file_path}: {e}")
                 return False
         
         # Store the file as additional context
@@ -148,7 +149,7 @@ class AgenticContextManager:
             "timestamp": datetime.now().isoformat()
         })
         
-        self.logger.info(f"Added file to context: {file_path}")
+        await self.logger.info(f"Added file to context: {file_path}")
         return True
         
     async def _analyze_file_structure(self, project_root: str, max_depth: int = 3) -> List[str]:
@@ -195,7 +196,7 @@ class AgenticContextManager:
                     # Simple summary: first 15 lines
                     overview["readme_summary"] = "\n".join(readme_content.splitlines()[:15])
             except Exception as e:
-                self.logger.warning(f"Could not read {readme_path.name}: {e}")
+                await self.logger.warning(f"Could not read {readme_path.name}: {e}")
         
         return overview
 

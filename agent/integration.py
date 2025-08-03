@@ -6,7 +6,7 @@ to add agentic context, memory, and LSP indexing capabilities.
 """
 
 import asyncio
-import logging
+from aiologger import Logger
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -18,26 +18,22 @@ from agent import (
     shutdown_agentic_system
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("k2edit")
-
-
 class K2EditAgentIntegration:
     """Simple integration class for K2Edit agentic system"""
     
-    def __init__(self, project_root: str):
+    def __init__(self, project_root: str, logger: Logger):
         self.project_root = Path(project_root)
+        self.logger = logger
         self.agent_initialized = False
         
     async def initialize(self, progress_callback=None):
         """Initialize the agentic system with progress updates"""
         try:
-            await initialize_agentic_system(str(self.project_root), logger, progress_callback)
+            await initialize_agentic_system(str(self.project_root), self.logger, progress_callback)
             self.agent_initialized = True
-            logger.info("K2Edit agentic system initialized successfully")
+            await self.logger.info("K2Edit agentic system initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize agentic system: {e}")
+            await self.logger.error(f"Failed to initialize agentic system: {e}")
             self.agent_initialized = False
     
     async def on_file_open(self, file_path: str):
@@ -51,9 +47,9 @@ class K2EditAgentIntegration:
             agent = await get_agent_context()
             if agent:
                 await agent.update_context(file_path)
-                logger.info(f"Context updated for file: {file_path}")
+                await self.logger.info(f"Context updated for file: {file_path}")
         except Exception as e:
-            logger.error(f"Error updating context for {file_path}: {e}")
+            await self.logger.error(f"Error updating context for {file_path}: {e}")
     
     async def on_file_change(self, file_path: str, old_content: str, new_content: str):
         """Called when file content changes"""
@@ -67,9 +63,9 @@ class K2EditAgentIntegration:
                 old_content=old_content,
                 new_content=new_content
             )
-            logger.info(f"Change recorded for file: {file_path}")
+            await self.logger.info(f"Change recorded for file: {file_path}")
         except Exception as e:
-            logger.error(f"Error recording change for {file_path}: {e}")
+            await self.logger.error(f"Error recording change for {file_path}: {e}")
     
     async def on_ai_query(self, query: str, file_path: str = None, 
                          selected_text: str = None, cursor_position: Dict[str, int] = None) -> Dict[str, Any]:
@@ -90,7 +86,7 @@ class K2EditAgentIntegration:
             )
             return result
         except Exception as e:
-            logger.error(f"Error processing AI query: {e}")
+            await self.logger.error(f"Error processing AI query: {e}")
             return {
                 "error": str(e),
                 "suggestions": [],
@@ -105,7 +101,7 @@ class K2EditAgentIntegration:
         try:
             return await get_code_intelligence(file_path)
         except Exception as e:
-            logger.error(f"Error getting code intelligence: {e}")
+            await self.logger.error(f"Error getting code intelligence: {e}")
             return {}
     
     async def add_context_file(self, file_path: str, file_content: str = None) -> bool:
@@ -120,7 +116,7 @@ class K2EditAgentIntegration:
                 return await agent.add_context_file(file_path, file_content)
             return False
         except Exception as e:
-            logger.error(f"Error adding file to context: {e}")
+            await self.logger.error(f"Error adding file to context: {e}")
             return False
     
     async def shutdown(self):
@@ -128,7 +124,7 @@ class K2EditAgentIntegration:
         if self.agent_initialized:
             await shutdown_agentic_system()
             self.agent_initialized = False
-            logger.info("Agentic system shutdown")
+            await self.logger.info("Agentic system shutdown")
 
 
 # Global integration instance

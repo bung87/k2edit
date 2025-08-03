@@ -693,5 +693,6 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 import logging
                 logger = logging.getLogger("k2edit")
                 logger.warning(f"Error during KimiAPI cleanup: {e}")
-            except Exception as e:
-                logger.warning(f"Error during KimiAPI cleanup: {e}")
+            except Exception:
+                # If logging fails, just silently ignore
+                pass

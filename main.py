@@ -6,12 +6,17 @@ A terminal-based code editor with AI integration using Textual framework.
 
 import os
 import sys
-import logging
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 import asyncio
 from typing import Dict, Any
+
+from aiologger import Logger
+from aiologger.levels import LogLevel
+from aiologger.handlers.files import AsyncTimedRotatingFileHandler
+from aiologger.handlers.streams import AsyncStreamHandler
+from aiologger.formatters.base import Formatter
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -28,7 +33,7 @@ from agent.kimi_api import KimiAPI
 from agent.integration import K2EditAgentIntegration
 
 
-def setup_logging(log_level: str = "DEBUG") -> logging.Logger:
+def setup_logging(log_level: str = "DEBUG") -> Logger:
     """Setup logging configuration with both file and Textual handlers.
     
     Args:
@@ -42,50 +47,39 @@ def setup_logging(log_level: str = "DEBUG") -> logging.Logger:
     log_dir.mkdir(exist_ok=True)
     
     # Create log filename with timestamp
-    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"k2edit.log"
+    log_file = log_dir / "k2edit.log"
     
     # Configure root logger
-    logger = logging.getLogger("k2edit")
-    logger.setLevel(getattr(logging, log_level.upper()))
+    logger = Logger(name="k2edit")
     
-    # Clear any existing handlers
-    logger.handlers.clear()
+    # Set log level
+    level = LogLevel.DEBUG if log_level.upper() == "DEBUG" else \
+            LogLevel.INFO if log_level.upper() == "INFO" else \
+            LogLevel.WARNING if log_level.upper() == "WARNING" else \
+            LogLevel.ERROR if log_level.upper() == "ERROR" else \
+            LogLevel.CRITICAL
     
-    # Create formatters
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    # Create handlers
+    file_handler = AsyncTimedRotatingFileHandler(
+        filename=str(log_file),
+        interval=1,
+        backup_count=7,
+        encoding="utf-8"
     )
-    console_formatter = logging.Formatter(
-        '%(levelname)s - %(message)s'
+    console_handler = AsyncStreamHandler()
+    
+    # Set formatter
+    formatter = Formatter(
+        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
     )
+    file_handler.formatter = formatter
+    console_handler.formatter = formatter
     
-    # File handler for persistent logging <mcreference link="https://docs.python.org/3/library/logging.html" index="1">1</mcreference>
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)  # Log everything to file
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
+    # Add handlers to logger
+    logger.add_handler(file_handler)
+    # logger.add_handler(console_handler)
     
-    # Textual handler for in-app logging <mcreference link="https://textual.textualize.io/api/logging/" index="3">3</mcreference>
-    textual_handler = TextualHandler()
-    textual_handler.setLevel(getattr(logging, log_level.upper()))
-    textual_handler.setFormatter(console_formatter)
-    logger.addHandler(textual_handler)
-    
-    # Prevent propagation to root logger to avoid duplicate messages
-    logger.propagate = False
-
-    # Set httpx and httpcore loggers to WARNING to avoid excessive INFO logs
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    
-    # Set OpenAI client loggers to WARNING to prevent console output in TUI
-    logging.getLogger("openai").setLevel(logging.WARNING)
-    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
-    logging.getLogger("openai.api_requestor").setLevel(logging.WARNING)
-    logging.getLogger("openai.api_resources").setLevel(logging.WARNING)
-    
-    logger.info(f"Logging initialized - Log file: {log_file}")
     return logger
 
 
@@ -103,11 +97,11 @@ class K2EditApp(App):
         Binding("escape", "focus_editor", "Editor"),
     ]
     
-    def __init__(self, initial_file: str = None, logger: logging.Logger = None, **kwargs):
+    def __init__(self, initial_file: str = None, logger: Logger = None, **kwargs):
         super().__init__(**kwargs)
         
         # Setup logging
-        self.logger = logger or logging.getLogger("k2edit")
+        self.logger = logger or Logger(name="k2edit")
         
         # Initialize components
         self.editor = CustomSyntaxEditor(app_instance=self)
@@ -117,12 +111,10 @@ class K2EditApp(App):
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file
-        
-        self.logger.info("K2EditApp initialized successfully")
     
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         """Called when the app is mounted."""
-        self.logger.info("Mounting K2EditApp")
+        await self.logger.info("Mounting K2EditApp")
         
         # Connect command bar to other components
         self.command_bar.editor = self.editor
@@ -131,38 +123,39 @@ class K2EditApp(App):
         self.command_bar.set_agent_integration(self.agent_integration)
         
         # Initialize agentic system
-        asyncio.create_task(self._initialize_agent_system())
+        await self._initialize_agent_system()
         
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
 
         # Load initial file if provided
         if self.initial_file:
-            self.logger.info(f"Loading initial file: {self.initial_file}")
+            await self.logger.info(f"Loading initial file: {self.initial_file}")
             if Path(self.initial_file).is_file():
                 if self.editor.load_file(self.initial_file):
                     self.output_panel.add_info(f"Loaded file: {self.initial_file}")
-                    self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
+                    await self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
                     self.editor.focus()
                     
                     # Notify agentic system about file open
-                    asyncio.create_task(self._on_file_open_with_agent(self.initial_file))
+                    await self._on_file_open_with_agent(self.initial_file)
                 else:
                     error_msg = f"Failed to load file: {self.initial_file}"
                     self.output_panel.add_error(error_msg)
-                    self.logger.error(error_msg)
+                    await self.logger.error(error_msg)
         
-        self.logger.info("K2EditApp mounted successfully")
+        await self.logger.info("K2EditApp mounted successfully")
     
     async def _initialize_agent_system(self):
         """Initialize the agentic system asynchronously with progress updates"""
+        await self.logger.info("Initializing agentic system...")
         try:
-            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()))
+            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger)
             
             # Define progress callback to update output panel
             async def progress_callback(message):
                 self.output_panel.add_info(message)
-                self.logger.info(message)
+                await self.logger.info(message)
             
             await self.agent_integration.initialize(progress_callback)
             
@@ -172,9 +165,9 @@ class K2EditApp(App):
             
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
-            self.logger.info("Agentic system initialized successfully")
+            await self.logger.info("Agentic system initialized successfully")
         except Exception as e:
-            self.logger.error(f"Failed to initialize agentic system: {e}")
+            await self.logger.error(f"Failed to initialize agentic system: {e}")
             self.output_panel.add_error(f"Agentic system initialization failed: {e}")
     
     async def _on_file_open_with_agent(self, file_path: str):
@@ -226,31 +219,31 @@ class K2EditApp(App):
         """Handle command executed messages from the command bar."""
         self.output_panel.on_command_bar_command_executed(message)
 
-    def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
+    async def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
         """Handle file selection from the file explorer."""
         file_path = message.file_path
-        self.logger.info(f"File selected from explorer: {file_path}")
+        await self.logger.info(f"File selected from explorer: {file_path}")
         
         if Path(file_path).is_file():
             if self.editor.load_file(file_path):
                 self.output_panel.add_info(f"Loaded file: {file_path}")
-                self.logger.info(f"Successfully loaded file from explorer: {file_path}")
+                await self.logger.info(f"Successfully loaded file from explorer: {file_path}")
                 self.editor.focus()
                 
                 # Notify agentic system about file open
-                asyncio.create_task(self._on_file_open_with_agent(file_path))
+                await self._on_file_open_with_agent(file_path)
             else:
                 error_msg = f"Failed to load file: {file_path}"
                 self.output_panel.add_error(error_msg)
-                self.logger.error(error_msg)
+                asyncio.create_task(self.logger.error(error_msg))
         else:
             # It's a directory, keep the tree view
-            self.logger.debug(f"Directory selected: {file_path}")
+            asyncio.create_task(self.logger.debug(f"Directory selected: {file_path}"))
     
     def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
         """Handle adding file to AI context from file explorer."""
         file_path = message.file_path
-        self.logger.info(f"Adding file to AI context: {file_path}")
+        asyncio.create_task(self.logger.info(f"Adding file to AI context: {file_path}"))
         
         if Path(file_path).is_file():
             # Add file to agent context
@@ -258,14 +251,14 @@ class K2EditApp(App):
             self.output_panel.add_info(f"Added to AI context: {Path(file_path).name}")
         else:
             error_msg = f"Cannot add directory to context: {file_path}"
-            self.logger.error(error_msg)
+            asyncio.create_task(self.logger.error(error_msg))
             self.output_panel.add_error(error_msg)
     
     async def _add_file_to_context(self, file_path: str) -> None:
         """Add file to AI agent context."""
         if not self.agent_integration:
             error_msg = "Agentic system not initialized"
-            self.logger.error(error_msg)
+            await self.logger.error(error_msg)
             self.output_panel.add_error(error_msg)
             return
         
@@ -277,44 +270,44 @@ class K2EditApp(App):
             # Add to agent context via integration
             success = await self.agent_integration.add_context_file(file_path, content)
             if success:
-                self.logger.info(f"Successfully added {file_path} to AI context")
+                await self.logger.info(f"Successfully added {file_path} to AI context")
             else:
                 error_msg = "Failed to add file to context"
-                self.logger.error(error_msg)
+                await self.logger.error(error_msg)
                 self.output_panel.add_error(error_msg)
                 
         except Exception as e:
-            self.logger.error(f"Error adding file to context: {e}")
+            await self.logger.error(f"Error adding file to context: {e}")
             self.output_panel.add_error(f"Failed to add file to context: {e}")
     
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         """Quit the application."""
-        self.logger.info("User initiated quit")
+        await self.logger.info("User initiated quit")
         # Shutdown agentic system
         if self.agent_integration:
-            asyncio.create_task(self.agent_integration.shutdown())
+            await self.agent_integration.shutdown()
         self.exit()
     
-    def action_open_file(self) -> None:
+    async def action_open_file(self) -> None:
         """Focus command bar with open command."""
-        self.logger.debug("User triggered open file action")
+        await self.logger.debug("User triggered open file action")
         self.command_bar.focus()
         self.command_bar.set_text("/open ")
     
-    def action_save_file(self) -> None:
+    async def action_save_file(self) -> None:
         """Focus command bar with save command."""
-        self.logger.debug("User triggered save file action")
+        await self.logger.debug("User triggered save file action")
         self.command_bar.focus()
         self.command_bar.set_text("/save")
     
     def action_focus_command(self) -> None:
         """Focus the command bar."""
-        self.logger.debug("Focusing command bar")
+        asyncio.create_task(self.logger.debug("Focusing command bar"))
         self.command_bar.focus()
     
     def action_focus_editor(self) -> None:
         """Focus the editor."""
-        self.logger.debug("Focusing editor")
+        asyncio.create_task(self.logger.debug("Focusing editor"))
         self.editor.focus()
     
     async def process_agent_query(self, query: str) -> dict[str, any]:
@@ -334,35 +327,37 @@ class K2EditApp(App):
         )
         
         return result
+    
+    async def on_unmount(self) -> None:
+        """Called when the app is unmounted."""
+        await self.logger.info("Shutting down K2EditApp")
+        if self.agent_integration:
+            await self.agent_integration.shutdown()
+        await self.logger.shutdown()
 
 
 def main():
     """Main entry point."""
     # Load environment variables
     load_dotenv()
-    
+
     # Setup logging - can be configured via environment variable
     log_level = os.getenv("K2EDIT_LOG_LEVEL", "DEBUG")
     logger = setup_logging(log_level)
-    
-    logger.info("Starting K2Edit application")
-    
+
     # Check for command line arguments
     initial_file = None
     if len(sys.argv) > 1:
         initial_file = sys.argv[1]
-        logger.info(f"Initial file specified: {initial_file}")
-        
-        # Validate file exists
+
+        # Validate file exists before starting the app
         if not Path(initial_file).exists():
-            error_msg = f"File '{initial_file}' not found."
-            logger.error(error_msg)
-            print(f"Error: {error_msg}")
+            print(f"Error: File '{initial_file}' not found.")
+            # Use a simple print for pre-flight errors as logger is async
             sys.exit(1)
-    
+
     # Create and run the application
     app = K2EditApp(initial_file=initial_file, logger=logger)
-    logger.info("Starting application main loop")
     app.run()
 
 

@@ -3,7 +3,8 @@ K2Edit Agentic System
 Comprehensive solution for agentic context, memory, and LSP indexing
 """
 
-import logging
+from aiologger import Logger
+import asyncio
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -23,7 +24,7 @@ __all__ = [
 _agentic_system = None
 
 
-async def initialize_agentic_system(project_root: str, logger: logging.Logger = None, progress_callback=None):
+async def initialize_agentic_system(project_root: str, logger: Logger = None, progress_callback=None):
     """
     Initialize the complete agentic system with progress updates
     
@@ -35,7 +36,7 @@ async def initialize_agentic_system(project_root: str, logger: logging.Logger = 
     global _agentic_system
     
     if logger is None:
-        logger = logging.getLogger("k2edit")
+        logger = Logger(name="k2edit")
         
     logger.info("Initializing K2Edit agentic system...")
     
@@ -211,7 +212,7 @@ async def shutdown_agentic_system():
     
     if _agentic_system:
         if hasattr(_agentic_system, 'lsp_indexer'):
-            _agentic_system.lsp_indexer.shutdown()
+            await _agentic_system.lsp_indexer.shutdown()
         _agentic_system = None
 
 

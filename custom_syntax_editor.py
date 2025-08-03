@@ -216,21 +216,7 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
     
 
     
-    def render_lines(self, crop: Region) -> list[Strip]:
-        """Render multiple lines within the crop region."""
-        strips = []
-        start_line = self.scroll_offset.y + crop.y
-        end_line = start_line + crop.height
 
-        for i in range(start_line, end_line):
-            if i < self.get_content_height():
-                strip = self.render_line(i)
-                strips.append(strip)
-            else:
-                # Render empty strips for lines beyond the content
-                strips.append(Strip([]))
-        
-        return strips
     
     def get_content_width(self) -> int:
         """Get the width of the content for horizontal scrolling."""
@@ -268,12 +254,13 @@ class CustomSyntaxEditor(ScrollView, can_focus=True):
     
     def render_line(self, y: int) -> Strip:
         """Render a single line with line numbers."""
+        line_index = self.scroll_offset.y + y
+
         if not self.current_file and not self.text:
             return self._render_welcome_screen(y)
 
-        scroll_x, scroll_y = self.scroll_offset
+        scroll_x, _ = self.scroll_offset
         lines = self.text.split('\n')
-        line_index = y + scroll_y
 
         if line_index >= len(lines):
             return Strip.blank(self.size.width)

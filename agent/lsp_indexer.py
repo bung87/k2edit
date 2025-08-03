@@ -4,7 +4,8 @@ Handles Language Server Protocol integration for code intelligence
 """
 
 import json
-import logging
+from aiologger import Logger
+from aiologger.levels import LogLevel
 import asyncio
 import subprocess
 import threading
@@ -17,8 +18,8 @@ import uuid
 class LSPIndexer:
     """Language Server Protocol indexer for code intelligence"""
     
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger or logging.getLogger("k2edit")
+    def __init__(self, logger: Logger = None):
+        self.logger = logger or Logger(name="k2edit")
         self.project_root = None
         self.language_servers = {}
         self.symbol_index = {}
@@ -93,7 +94,7 @@ class LSPIndexer:
         # Build initial index with progress updates
         await self._build_initial_index(progress_callback)
         
-        self.logger.info(f"LSP indexer initialized for {language}")
+        await self.logger.info(f"LSP indexer initialized for {language}")
         if progress_callback:
             await progress_callback("Symbol indexing completed")
         
@@ -103,6 +104,16 @@ class LSPIndexer:
             for ext in config["extensions"]:
                 if any(self.project_root.rglob(f"*{ext}")):
                     return language
+        return "unknown"
+    
+    async def _detect_file_language(self, file_path: str) -> str:
+        """Detect the language of a specific file based on extension"""
+        file_path = Path(file_path)
+        extension = file_path.suffix.lower()
+        
+        for language, config in self.server_configs.items():
+            if extension in config["extensions"]:
+                return language
         return "unknown"
         
     async def _start_language_server(self, language: str):
@@ -133,7 +144,7 @@ class LSPIndexer:
             await self._initialize_lsp_connection(language)
             
         except Exception as e:
-            self.logger.error(f"Failed to start {language} language server: {e}")
+            await self.logger.error(f"Failed to start {language} language server: {e}")
             
     async def _initialize_lsp_connection(self, language: str):
         """Initialize LSP connection with capabilities"""
@@ -188,13 +199,13 @@ class LSPIndexer:
             process.stdin.flush()
             
         except Exception as e:
-            self.logger.error(f"Failed to send LSP message: {e}")
+            await self.logger.error(f"Failed to send LSP message: {e}")
             
     async def _build_initial_index(self, progress_callback=None):
         """Build initial symbol index for all files with progress updates"""
         language = await self._detect_language()
         if language == "unknown":
-            self.logger.info("Unknown language detected, skipping initial indexing")
+            await self.logger.info("Unknown language detected, skipping initial indexing")
             if progress_callback:
                 await progress_callback("Unknown language detected, skipping indexing")
             return
@@ -205,8 +216,8 @@ class LSPIndexer:
         for ext in extensions:
             files.extend(self.project_root.rglob(f"*{ext}"))
             
-        self.logger.info(f"Starting initial symbol indexing for {language} project")
-        self.logger.info(f"Found {len(files)} files to index with extensions: {extensions}")
+        await self.logger.info(f"Starting initial symbol indexing for {language} project")
+        await self.logger.info(f"Found {len(files)} files to index with extensions: {extensions}")
         
         if progress_callback:
             await progress_callback(f"Found {len(files)} files to index")
@@ -227,13 +238,13 @@ class LSPIndexer:
                 
                 # Log progress every 10 files
                 if indexed_count % 10 == 0:
-                    self.logger.info(f"Indexed {indexed_count}/{len(files)} files...")
+                    await self.logger.info(f"Indexed {indexed_count}/{len(files)} files...")
                     
             except Exception as e:
                 failed_count += 1
-                self.logger.warning(f"Failed to index {file_path}: {e}")
+                await self.logger.warning(f"Failed to index {file_path}: {e}")
                 
-        self.logger.info(f"Initial indexing complete: {indexed_count} successful, {failed_count} failed")
+        await self.logger.info(f"Initial indexing complete: {indexed_count} successful, {failed_count} failed")
         if progress_callback:
             await progress_callback(f"Indexing complete: {indexed_count} files indexed, {failed_count} failed")
             
@@ -242,7 +253,7 @@ class LSPIndexer:
         try:
             relative_path = file_path.relative_to(self.project_root)
             
-            self.logger.debug(f"Indexing symbols for file: {relative_path}")
+            await self.logger.debug(f"Indexing symbols for file: {relative_path}")
             
             # Request document symbols
             symbols = await self._get_document_symbols(str(relative_path), language)
@@ -253,7 +264,7 @@ class LSPIndexer:
                 symbol_type = symbol.get("kind", "unknown")
                 symbol_types[symbol_type] = symbol_types.get(symbol_type, 0) + 1
             
-            self.logger.debug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
+            await self.logger.debug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
             
             # Store in index
             self.symbol_index[str(relative_path)] = symbols
@@ -267,14 +278,26 @@ class LSPIndexer:
             }
             
         except Exception as e:
-            self.logger.error(f"Failed to index file {file_path}: {e}")
+            await self.logger.error(f"Failed to index file {file_path}: {e}")
             
     async def _get_document_symbols(self, file_path: str, language: str) -> List[Dict[str, Any]]:
         """Get symbols from a specific file via LSP"""
-        if language not in self.language_servers:
+        # Ensure the correct language server for this file is running
+        file_language = await self._detect_file_language(file_path)
+        if file_language == "unknown":
+            file_language = language
+            
+        if file_language not in self.language_servers:
+            await self._start_language_server(file_language)
+            
+        if file_language not in self.language_servers:
+            # Fallback to regex parsing if server still not available
+            file_path_obj = self.project_root / file_path
+            if file_path_obj.exists():
+                return await self._parse_basic_symbols(file_path_obj)
             return []
             
-        server_info = self.language_servers[language]
+        server_info = self.language_servers[file_language]
         
         # Request document symbols
         request = {
@@ -290,19 +313,19 @@ class LSPIndexer:
         
         try:
             # Send request and wait for response
-            response = await self._send_lsp_request(language, request)
+            response = await self._send_lsp_request(file_language, request)
             server_info["message_id"] += 1
             
             if response and "result" in response:
-                self.logger.debug(f"LSP response for {file_path}: {response}")
+                await self.logger.debug(f"LSP response for {file_path}: {response}")
                 result = response["result"]
                 if isinstance(result, list):
-                    return self._parse_lsp_symbols(result)
+                    return await self._parse_lsp_symbols(result)
                 else:
-                    self.logger.debug(f"Unexpected LSP result format: {type(result)} - {result}")
+                    await self.logger.debug(f"Unexpected LSP result format: {type(result)} - {result}")
                     return []
         except Exception as e:
-            self.logger.error(f"LSP request failed for {file_path}: {e}")
+            await self.logger.error(f"LSP request failed for {file_path}: {e}")
             
         # Fallback: parse basic symbols using regex if LSP not available
         file_path_obj = self.project_root / file_path
@@ -332,7 +355,7 @@ class LSPIndexer:
             return await self._read_lsp_response(process)
             
         except Exception as e:
-            self.logger.error(f"Failed to send LSP request: {e}")
+            await self.logger.error(f"Failed to send LSP request: {e}")
             return None
             
     async def _read_lsp_response(self, process: subprocess.Popen) -> Optional[Dict[str, Any]]:
@@ -355,10 +378,10 @@ class LSPIndexer:
                 return json.loads(content)
                 
         except Exception as e:
-            self.logger.error(f"Failed to read LSP response: {e}")
+            await self.logger.error(f"Failed to read LSP response: {e}")
             return None
             
-    def _parse_lsp_symbols(self, lsp_symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _parse_lsp_symbols(self, lsp_symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Parse LSP symbols into our format"""
         symbols = []
 
@@ -405,15 +428,18 @@ class LSPIndexer:
                     parse_symbol(child, name)
                     
             except Exception as e:
-                self.logger.debug(f"Skipping malformed symbol: {symbol} - {e}")
-                return
+                # Log will be handled at async level
+                pass
 
         # Handle both list and dict formats
-        if isinstance(lsp_symbols, list):
-            for symbol in lsp_symbols:
-                parse_symbol(symbol)
-        elif isinstance(lsp_symbols, dict):
-            parse_symbol(lsp_symbols)
+        try:
+            if isinstance(lsp_symbols, list):
+                for symbol in lsp_symbols:
+                    parse_symbol(symbol)
+            elif isinstance(lsp_symbols, dict):
+                parse_symbol(lsp_symbols)
+        except Exception as e:
+            await self.logger.debug(f"Skipping malformed symbols: {e}")
 
         return symbols
         
@@ -434,7 +460,7 @@ class LSPIndexer:
                 symbols = await self._parse_nim_symbols(lines)
                 
         except Exception as e:
-            self.logger.error(f"Failed to parse symbols from {file_path}: {e}")
+            await self.logger.error(f"Failed to parse symbols from {file_path}: {e}")
             
         return symbols
         
@@ -589,7 +615,7 @@ class LSPIndexer:
                 imports.extend(matches)
                 
         except Exception as e:
-            self.logger.warning(f"Failed to parse Python imports from {file_path}: {e}")
+            await self.logger.warning(f"Failed to parse Python imports from {file_path}: {e}")
             
         return imports
         
@@ -612,7 +638,7 @@ class LSPIndexer:
                 imports.extend(matches)
                 
         except Exception as e:
-            self.logger.warning(f"Failed to parse JavaScript imports from {file_path}: {e}")
+            await self.logger.warning(f"Failed to parse JavaScript imports from {file_path}: {e}")
             
         return imports
         
@@ -635,20 +661,20 @@ class LSPIndexer:
                 imports.extend(matches)
                 
         except Exception as e:
-            self.logger.warning(f"Failed to parse Nim imports from {file_path}: {e}")
+            await self.logger.warning(f"Failed to parse Nim imports from {file_path}: {e}")
             
         return imports
         
     async def get_project_symbols(self, top_level_only: bool = False) -> List[Dict[str, Any]]:
         """Get symbols across the project, optionally filtering for top-level symbols only"""
-        self.logger.info(f"Starting project-wide symbol fetching (top_level_only={top_level_only})...")
+        await self.logger.info(f"Starting project-wide symbol fetching (top_level_only={top_level_only})...")
         
         all_symbols = []
         total_files = len(self.symbol_index)
         total_symbols_count = 0
         
         # Log indexing status
-        self.logger.info(f"Symbol index contains {total_files} files")
+        await self.logger.info(f"Symbol index contains {total_files} files")
         
         # Count symbols by type for detailed logging
         symbol_type_counts = {}
@@ -672,17 +698,17 @@ class LSPIndexer:
             total_symbols_count += file_symbol_count
         
         # Log detailed summary
-        self.logger.info(f"Fetched {total_symbols_count} total symbols from {total_files} files")
-        self.logger.info(f"Symbol type breakdown: {symbol_type_counts}")
+        await self.logger.info(f"Fetched {total_symbols_count} total symbols from {total_files} files")
+        await self.logger.info(f"Symbol type breakdown: {symbol_type_counts}")
         
         # Log top files by symbol count
         file_symbol_counts = [(fp, len(syms)) for fp, syms in self.symbol_index.items()]
         file_symbol_counts.sort(key=lambda x: x[1], reverse=True)
         
         if file_symbol_counts:
-            self.logger.info("Top 5 files by symbol count:")
+            await self.logger.info("Top 5 files by symbol count:")
             for file_path, count in file_symbol_counts[:5]:
-                self.logger.info(f"  - {file_path}: {count} symbols")
+                await self.logger.info(f"  - {file_path}: {count} symbols")
         
         return all_symbols
         
@@ -735,6 +761,11 @@ class LSPIndexer:
         
     async def get_enhanced_context_for_file(self, file_path: str, line: int = None) -> Dict[str, Any]:
         """Get enhanced context for a file including LSP outline"""
+        # Ensure appropriate language server is running for this file
+        file_language = await self._detect_file_language(file_path)
+        if file_language != "unknown" and file_language not in self.language_servers:
+            await self._start_language_server(file_language)
+        
         outline = await self.get_document_outline(file_path)
         
         # Get additional LSP information
@@ -807,16 +838,18 @@ class LSPIndexer:
         
     async def refresh_index(self, file_path: str = None):
         """Refresh the symbol index"""
-        language = await self._detect_language()
-        
         if file_path:
-            # Refresh specific file
-            await self._index_file(Path(file_path), language)
+            # Refresh specific file - detect its specific language
+            file_language = await self._detect_file_language(file_path)
+            if file_language != "unknown" and file_language not in self.language_servers:
+                await self._start_language_server(file_language)
+            await self._index_file(Path(file_path), file_language or await self._detect_language())
         else:
             # Refresh entire project
+            language = await self._detect_language()
             await self._build_initial_index()
             
-    def shutdown(self):
+    async def shutdown(self):
         """Shutdown all language servers"""
         for language, server_info in self.language_servers.items():
             try:
@@ -824,6 +857,6 @@ class LSPIndexer:
                     server_info["process"].terminate()
                     server_info["process"].wait()
             except Exception as e:
-                self.logger.error(f"Error shutting down {language} server: {e}")
+                await self.logger.error(f"Error shutting down {language} server: {e}")
                 
         self.language_servers.clear()
