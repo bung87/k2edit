@@ -87,10 +87,6 @@ async def process_agent_query(query: str, file_path: str = None,
     # Process the query
     return await _agentic_system.process_agent_request(query)
 
-
-
-
-
 async def record_code_change(file_path: str, change_type: str, 
                            old_content: str, new_content: str):
     """

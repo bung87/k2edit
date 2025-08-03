@@ -235,23 +235,23 @@ class K2EditApp(App):
             else:
                 error_msg = f"Failed to load file: {file_path}"
                 self.output_panel.add_error(error_msg)
-                asyncio.create_task(self.logger.error(error_msg))
+                await self.logger.error(error_msg)
         else:
             # It's a directory, keep the tree view
-            asyncio.create_task(self.logger.debug(f"Directory selected: {file_path}"))
+            await self.logger.debug(f"Directory selected: {file_path}")
     
-    def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
+    async def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
         """Handle adding file to AI context from file explorer."""
         file_path = message.file_path
-        asyncio.create_task(self.logger.info(f"Adding file to AI context: {file_path}"))
+        await self.logger.info(f"Adding file to AI context: {file_path}")
         
         if Path(file_path).is_file():
             # Add file to agent context
-            asyncio.create_task(self._add_file_to_context(file_path))
+            await self._add_file_to_context(file_path)
             self.output_panel.add_info(f"Added to AI context: {Path(file_path).name}")
         else:
             error_msg = f"Cannot add directory to context: {file_path}"
-            asyncio.create_task(self.logger.error(error_msg))
+            await self.logger.error(error_msg)
             self.output_panel.add_error(error_msg)
     
     async def _add_file_to_context(self, file_path: str) -> None:
@@ -300,14 +300,14 @@ class K2EditApp(App):
         self.command_bar.focus()
         self.command_bar.set_text("/save")
     
-    def action_focus_command(self) -> None:
+    async def action_focus_command(self) -> None:
         """Focus the command bar."""
-        asyncio.create_task(self.logger.debug("Focusing command bar"))
+        await self.logger.debug("Focusing command bar")
         self.command_bar.focus()
     
-    def action_focus_editor(self) -> None:
+    async def action_focus_editor(self) -> None:
         """Focus the editor."""
-        asyncio.create_task(self.logger.debug("Focusing editor"))
+        await self.logger.debug("Focusing editor")
         self.editor.focus()
     
     async def process_agent_query(self, query: str) -> dict[str, any]:

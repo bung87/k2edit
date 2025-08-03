@@ -71,6 +71,7 @@ class LSPIndexer:
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize LSP indexer for project with optional progress callback"""
         self.project_root = Path(project_root)
+        await self.logger.info(f"Initializing LSP indexer for project: {self.project_root}")
         
         # Add a small delay to show progress messages
         if progress_callback:
@@ -79,17 +80,21 @@ class LSPIndexer:
         
         # Detect language and start appropriate server
         language = await self._detect_language()
+        await self.logger.info(f"Detected language: {language}")
         if progress_callback:
             await progress_callback(f"Detected language: {language}")
             await asyncio.sleep(0.3)
         
         if language in self.server_configs:
+            await self.logger.info(f"Starting language server for {language}...")
             await self._start_language_server(language)
             if progress_callback:
                 await progress_callback(f"Started {language} language server")
                 await asyncio.sleep(0.3)
-        elif progress_callback:
-            await progress_callback(f"No language server configured for {language}")
+        else:
+            await self.logger.warning(f"No language server configured for {language}")
+            if progress_callback:
+                await progress_callback(f"No language server configured for {language}")
             
         # Build initial index with progress updates
         await self._build_initial_index(progress_callback)
@@ -115,36 +120,49 @@ class LSPIndexer:
             if extension in config["extensions"]:
                 return language
         return "unknown"
-        
     async def _start_language_server(self, language: str):
         """Start the language server for the detected language"""
         if language not in self.server_configs:
+            await self.logger.error(f"Cannot start language server: no configuration for {language}")
             return
-            
+
         config = self.server_configs[language]
-        
+        await self.logger.info(f"Starting {language} language server with command: {' '.join(config['command'])}")
+
         try:
-            # Start language server process
-            process = subprocess.Popen(
-                config["command"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            # Start language server process using asyncio
+            process = await asyncio.create_subprocess_exec(
+                *config["command"],
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.project_root)
             )
-            
+
             self.language_servers[language] = {
                 "process": process,
                 "config": config,
                 "message_id": 0,
-                "response_queue": queue.Queue()
+                "response_queue": asyncio.Queue()
             }
-            
+
+            await self.logger.info(f"{language} language server started with PID: {process.pid}")
+
+            # Create a task to log stderr
+            asyncio.create_task(self._log_stderr(language, process.stderr))
+
             # Initialize LSP connection
             await self._initialize_lsp_connection(language)
-            
+
         except Exception as e:
-            await self.logger.error(f"Failed to start {language} language server: {e}")
+            await self.logger.error(f"Failed to start {language} language server: {e}", exc_info=True)
+
+    async def _log_stderr(self, language: str, stderr):
+        """Log stderr from language server process."""
+        while not stderr.at_eof():
+            line = await stderr.readline()
+            if line:
+                await self.logger.error(f"[{language}-lsp-stderr] {line.decode().strip()}")
             
     async def _initialize_lsp_connection(self, language: str):
         """Initialize LSP connection with capabilities"""
@@ -196,7 +214,7 @@ class LSPIndexer:
             # LSP protocol format
             header = f"Content-Length: {content_length}\r\n\r\n"
             process.stdin.write((header + message_str).encode('utf-8'))
-            process.stdin.flush()
+            await process.stdin.drain()
             
         except Exception as e:
             await self.logger.error(f"Failed to send LSP message: {e}")
@@ -349,7 +367,7 @@ class LSPIndexer:
             header = f"Content-Length: {content_length}\r\n\r\n"
             
             process.stdin.write((header + message_str).encode('utf-8'))
-            process.stdin.flush()
+            await process.stdin.drain()
             
             # Read response
             return await self._read_lsp_response(process)
@@ -358,13 +376,16 @@ class LSPIndexer:
             await self.logger.error(f"Failed to send LSP request: {e}")
             return None
             
-    async def _read_lsp_response(self, process: subprocess.Popen) -> Optional[Dict[str, Any]]:
+    async def _read_lsp_response(self, process: asyncio.subprocess.Process) -> Optional[Dict[str, Any]]:
         """Read response from LSP server"""
         try:
             # Read headers
             headers = {}
             while True:
-                line = process.stdout.readline().decode('utf-8').strip()
+                line = await process.stdout.readline()
+                if not line:
+                    return None
+                line = line.decode('utf-8').strip()
                 if not line:
                     break
                 if ':' in line:
@@ -374,8 +395,8 @@ class LSPIndexer:
             # Read content
             if 'Content-Length' in headers:
                 content_length = int(headers['Content-Length'])
-                content = process.stdout.read(content_length).decode('utf-8')
-                return json.loads(content)
+                content = await process.stdout.read(content_length)
+                return json.loads(content.decode('utf-8'))
                 
         except Exception as e:
             await self.logger.error(f"Failed to read LSP response: {e}")
@@ -853,9 +874,9 @@ class LSPIndexer:
         """Shutdown all language servers"""
         for language, server_info in self.language_servers.items():
             try:
-                if "process" in server_info:
+                if "process" in server_info and server_info["process"].returncode is None:
                     server_info["process"].terminate()
-                    server_info["process"].wait()
+                    await server_info["process"].wait()
             except Exception as e:
                 await self.logger.error(f"Error shutting down {language} server: {e}")
                 
