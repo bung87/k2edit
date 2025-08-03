@@ -241,8 +241,8 @@ class AgenticContextManager:
         # Always include a project overview for broader context
         context["project_overview"] = await self._get_project_overview()
 
-        # If the query seems general (not focused on specific code), add project-wide context.
-        is_general_query = not self.current_context.file_path or not self.current_context.selected_code
+        # Only include project-wide symbols when there's no specific file context
+        is_general_query = not self.current_context.file_path
         if is_general_query:
             self.logger.info("General query detected, initiating project-wide symbol collection...")
             self.logger.info("Query context: {} file_path, {} selected code".format(
@@ -251,11 +251,11 @@ class AgenticContextManager:
             ))
             
             start_time = time.time()
-            project_symbols = await self.lsp_indexer.get_project_symbols()
+            project_symbols = await self.lsp_indexer.get_project_symbols(top_level_only=True)
             elapsed_time = time.time() - start_time
             
             self.logger.info(f"Completed project-wide symbol collection in {elapsed_time:.2f}s")
-            self.logger.info(f"Adding {len(project_symbols)} project symbols to context")
+            self.logger.info(f"Adding {len(project_symbols)} top-level project symbols to context")
             
             # Log sample of symbols for debugging
             if project_symbols:

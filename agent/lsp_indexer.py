@@ -393,10 +393,7 @@ class LSPIndexer:
                     "name": name,
                     "kind": kind,
                     "type": kind,
-                    "start_line": start_line,
-                    "end_line": end_line,
                     "parent": parent,
-                    "detail": symbol.get("detail", ""),
                     "children": []
                 }
 
@@ -642,9 +639,9 @@ class LSPIndexer:
             
         return imports
         
-    async def get_project_symbols(self) -> List[Dict[str, Any]]:
-        """Get all symbols across the project"""
-        self.logger.info("Starting project-wide symbol fetching...")
+    async def get_project_symbols(self, top_level_only: bool = False) -> List[Dict[str, Any]]:
+        """Get symbols across the project, optionally filtering for top-level symbols only"""
+        self.logger.info(f"Starting project-wide symbol fetching (top_level_only={top_level_only})...")
         
         all_symbols = []
         total_files = len(self.symbol_index)
@@ -657,16 +654,22 @@ class LSPIndexer:
         symbol_type_counts = {}
         
         for file_path, symbols in self.symbol_index.items():
-            file_symbol_count = len(symbols)
-            total_symbols_count += file_symbol_count
+            file_symbol_count = 0
             
             # Track symbol types
             for symbol in symbols:
+                # Filter for top-level symbols only if requested
+                if top_level_only and symbol.get("parent"):
+                    continue
+                    
                 symbol_type = symbol.get("kind", "unknown")
                 symbol_type_counts[symbol_type] = symbol_type_counts.get(symbol_type, 0) + 1
                 
                 symbol["file_path"] = file_path
                 all_symbols.append(symbol)
+                file_symbol_count += 1
+            
+            total_symbols_count += file_symbol_count
         
         # Log detailed summary
         self.logger.info(f"Fetched {total_symbols_count} total symbols from {total_files} files")
