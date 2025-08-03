@@ -207,9 +207,9 @@ class CustomContextManager(AgenticContextManager):
 ### Memory Extensions
 
 ```python
-from agent.memory_store import MemoryStore
+from agent.chroma_memory_store import ChromaMemoryStore
 
-class CustomMemoryStore(MemoryStore):
+class CustomMemoryStore(ChromaMemoryStore):
     async def store_custom_data(self, data_type: str, data: dict):
         # Store custom data types
         await self.store_memory(
@@ -229,8 +229,8 @@ class CustomMemoryStore(MemoryStore):
    - Verify project structure
 
 2. **Memory Database Issues**
-   - Check file permissions for `.k2edit_memory.db`
-   - Clear memory with: `rm .k2edit_memory.db`
+   - Check file permissions for `.k2edit/chroma_db/` directory
+   - Clear memory with: `rm -rf .k2edit/chroma_db/`
 
 3. **Performance Issues**
    - Reduce symbol refresh interval

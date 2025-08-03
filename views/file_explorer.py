@@ -91,7 +91,7 @@ class FileExplorer(Static):
         
         self.root_path = root_path or Path.cwd()
         self.current_path = self.root_path
-        self.logger = logging.getLogger("k2edit.file_explorer")
+        self.logger = logging.getLogger("k2edit")
     
     def compose(self):
         """Compose the file explorer."""

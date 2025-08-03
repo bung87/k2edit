@@ -20,7 +20,7 @@ from agent import (
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("k2edit.integration")
+logger = logging.getLogger("k2edit")
 
 
 class K2EditAgentIntegration:

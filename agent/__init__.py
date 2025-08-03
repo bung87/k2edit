@@ -8,12 +8,10 @@ from typing import Dict, List, Any, Optional
 from pathlib import Path
 
 from .context_manager import AgenticContextManager
-from .memory_store import MemoryStore
 from .lsp_indexer import LSPIndexer
 
 __all__ = [
     'AgenticContextManager',
-    'MemoryStore', 
     'LSPIndexer',
     'initialize_agentic_system',
     'get_agent_context',
@@ -36,7 +34,7 @@ async def initialize_agentic_system(project_root: str, logger: logging.Logger = 
     global _agentic_system
     
     if logger is None:
-        logger = logging.getLogger("k2edit.agent")
+        logger = logging.getLogger("k2edit")
         
     logger.info("Initializing K2Edit agentic system...")
     

@@ -18,7 +18,7 @@ class LSPIndexer:
     """Language Server Protocol indexer for code intelligence"""
     
     def __init__(self, logger: logging.Logger = None):
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger("k2edit")
         self.project_root = None
         self.language_servers = {}
         self.symbol_index = {}
@@ -511,8 +511,8 @@ class LSPIndexer:
                 matches = re.findall(pattern, content, re.MULTILINE)
                 imports.extend(matches)
                 
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Failed to parse Python imports from {file_path}: {e}")
             
         return imports
         
@@ -534,8 +534,8 @@ class LSPIndexer:
                 matches = re.findall(pattern, content)
                 imports.extend(matches)
                 
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Failed to parse JavaScript imports from {file_path}: {e}")
             
         return imports
         
@@ -557,8 +557,8 @@ class LSPIndexer:
                 matches = re.findall(pattern, content, re.MULTILINE)
                 imports.extend(matches)
                 
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Failed to parse Nim imports from {file_path}: {e}")
             
         return imports
         

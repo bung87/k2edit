@@ -57,6 +57,9 @@ class KimiAPI:
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
         
+        # Log detailed context information
+        self._log_context_details(context, logger)
+        
         messages = self._build_messages(message, context)
         
         payload = {
@@ -100,7 +103,7 @@ class KimiAPI:
         self,
         goal: str,
         context: Optional[Dict] = None,
-        max_iterations: int = 5,
+        max_iterations: int = 10,
         progress_callback=None
     ) -> Dict[str, Any]:
         """Run Kimi in agent mode with multi-step reasoning.
@@ -108,7 +111,7 @@ class KimiAPI:
         Args:
             goal: The goal or question for the agent
             context: Optional context dictionary with file information
-            max_iterations: Maximum number of iterations (default: 5)
+            max_iterations: Maximum number of iterations (default: 10)
             progress_callback: Optional callback function for progress updates
                             Should accept (request_id, current_iteration, max_iterations, status)
         
@@ -122,6 +125,9 @@ class KimiAPI:
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
         
+        # Log detailed context information
+        self._log_context_details(context, logger)
+        
         agent_prompt = f"""
 You are an AI coding assistant with access to tools. Your goal is: {goal}
 
@@ -132,10 +138,15 @@ Context:
 {json.dumps(context, indent=2) if context else 'No additional context'}
 
 Please think step by step and use tools to accomplish the goal.
+When you have completed the goal, clearly state "TASK COMPLETED" in your response.
 """
         
         messages = [{"role": "user", "content": agent_prompt}]
+        # Validate and truncate context if necessary
+        messages = self._validate_context_length(messages, logger)
         logger.info(f"Kimi agent started [{request_id}]: {goal[:50]}...")
+        
+        consecutive_no_tools = 0  # Track iterations without tool calls
         
         for iteration in range(max_iterations):
             payload = {
@@ -161,6 +172,7 @@ Please think step by step and use tools to accomplish the goal.
                 
                 # Execute tool calls if present
                 if response.get("tool_calls"):
+                    consecutive_no_tools = 0  # Reset counter when tools are used
                     tool_results = await self._execute_tools(response["tool_calls"])
                     
                     # Add tool results to conversation
@@ -171,13 +183,33 @@ Please think step by step and use tools to accomplish the goal.
                             "content": json.dumps(result)
                         })
                     
-                    # Continue the conversation to get final response
+                    # Continue to next iteration to get AI's response to tool results
                     continue
                 else:
-                    # No more tool calls, return final response
-                    logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations")
-                    response["iterations"] = iteration + 1
-                    return response
+                    consecutive_no_tools += 1
+                    content = response.get("content", "").strip()
+                    
+                    # Check for explicit completion signal
+                    if "TASK COMPLETED" in content.upper():
+                        logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations (explicit completion)")
+                        response["iterations"] = iteration + 1
+                        return response
+                    
+                    # Check if this looks like a final response
+                    if content and not content.lower().startswith(("i need to", "let me", "i'll", "i will", "first", "next", "now i")):
+                        # This appears to be a final answer
+                        logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations (final response detected)")
+                        response["iterations"] = iteration + 1
+                        return response
+                    
+                    # If we've had 2 consecutive iterations without tools, likely done
+                    if consecutive_no_tools >= 2:
+                        logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations (no tools for {consecutive_no_tools} iterations)")
+                        response["iterations"] = iteration + 1
+                        return response
+                    
+                    # Continue for one more iteration
+                    continue
             
             except OpenAIError as e:
                 error_msg = str(e)
@@ -205,13 +237,21 @@ Please think step by step and use tools to accomplish the goal.
                     }
         
         logger.info(f"Kimi agent reached max iterations [{request_id}]: {max_iterations} iterations")
+        if progress_callback:
+            progress_callback(request_id, max_iterations, max_iterations, "max_iterations")
         return {
-            "content": "Agent reached maximum iterations without completion",
-            "error": "Max iterations exceeded"
+            "content": f"Analysis stopped after reaching maximum iteration limit of {max_iterations} iterations. The task may be too complex or require more iterations to complete.",
+            "error": f"Maximum iterations ({max_iterations}) reached without completion"
         }
     
     async def _single_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a single chat request without retry logic to prevent duplicate requests."""
+        logger = logging.getLogger("k2edit")
+        
+        # Validate and truncate context if necessary
+        if "messages" in payload:
+            payload["messages"] = self._validate_context_length(payload["messages"], logger)
+        
         try:
             response = await self.client.chat.completions.create(**payload)
             
@@ -253,9 +293,24 @@ Please think step by step and use tools to accomplish the goal.
         except Exception as e:
             raise Exception(f"Unexpected error: {str(e)}")
     
+    async def _single_chat_with_messages(self, messages: List[Dict]) -> Dict[str, Any]:
+        """Send a single chat request with pre-validated messages."""
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4000
+        }
+        return await self._single_chat(payload)
+    
     async def _stream_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a streaming chat request without retry logic to prevent duplicate requests."""
+        logger = logging.getLogger("k2edit")
         payload["stream"] = True
+        
+        # Validate and truncate context if necessary
+        if "messages" in payload:
+            payload["messages"] = self._validate_context_length(payload["messages"], logger)
         
         try:
             content_parts = []
@@ -385,6 +440,123 @@ Please think step by step and use tools to accomplish the goal.
         
         return messages
     
+    def _estimate_token_count(self, text: str) -> int:
+        """Estimate token count for text (rough approximation)."""
+        # Rough estimation: 1 token ≈ 4 characters for most languages
+        # This is a conservative estimate for context validation
+        return len(text) // 4
+    
+    def _validate_context_length(self, messages: List[Dict], logger: logging.Logger) -> List[Dict]:
+        """Validate and truncate context if it exceeds limits."""
+        # Kimi API context limit is approximately 200K tokens
+        # We'll use a conservative limit of 150K tokens to be safe
+        MAX_TOKENS = 150000
+        
+        total_tokens = 0
+        validated_messages = []
+        
+        # Calculate total token count
+        for msg in messages:
+            content = msg.get("content", "")
+            tokens = self._estimate_token_count(content)
+            total_tokens += tokens
+        
+        logger.info(f"Estimated total context tokens: {total_tokens}")
+        
+        if total_tokens <= MAX_TOKENS:
+            logger.info("Context within limits, proceeding with full context")
+            return messages
+        
+        logger.warning(f"Context exceeds limit ({total_tokens} > {MAX_TOKENS}), truncating...")
+        
+        # Keep system message and user message, truncate middle content
+        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+        user_msg = messages[-1] if messages and messages[-1].get("role") == "user" else None
+        
+        if system_msg:
+            validated_messages.append(system_msg)
+            remaining_tokens = MAX_TOKENS - self._estimate_token_count(system_msg.get("content", ""))
+        else:
+            remaining_tokens = MAX_TOKENS
+        
+        if user_msg:
+            user_tokens = self._estimate_token_count(user_msg.get("content", ""))
+            remaining_tokens -= user_tokens
+        
+        # Add middle messages within remaining token budget
+        middle_messages = messages[1:-1] if len(messages) > 2 else []
+        for msg in middle_messages:
+            content = msg.get("content", "")
+            tokens = self._estimate_token_count(content)
+            
+            if tokens <= remaining_tokens:
+                validated_messages.append(msg)
+                remaining_tokens -= tokens
+            else:
+                # Truncate this message to fit
+                if remaining_tokens > 100:  # Only truncate if we have reasonable space
+                    max_chars = remaining_tokens * 4  # Convert back to characters
+                    truncated_content = content[:max_chars] + "\n... (truncated due to context limit)"
+                    # Ensure the truncated message doesn't exceed remaining tokens
+                    truncated_tokens = self._estimate_token_count(truncated_content)
+                    if truncated_tokens <= remaining_tokens:
+                        validated_messages.append({
+                            **msg,
+                            "content": truncated_content
+                        })
+                break
+        
+        if user_msg:
+            validated_messages.append(user_msg)
+        
+        final_tokens = sum(self._estimate_token_count(msg.get("content", "")) for msg in validated_messages)
+        logger.info(f"Context truncated to {final_tokens} tokens")
+        
+        return validated_messages
+    
+    def _log_context_details(self, context: Optional[Dict], logger: logging.Logger) -> None:
+        """Log detailed context information for debugging."""
+        if not context:
+            logger.info("No context provided")
+            return
+        
+        logger.info("=== Context Details ===")
+        
+        # Log basic context info
+        if context.get("current_file"):
+            logger.info(f"Current file: {context['current_file']}")
+        
+        if context.get("language"):
+            logger.info(f"Language: {context['language']}")
+        
+        if context.get("selected_text"):
+            selected_len = len(context["selected_text"])
+            logger.info(f"Selected text length: {selected_len} characters")
+        
+        # Log file content info
+        if context.get("file_content"):
+            content_len = len(context["file_content"])
+            logger.info(f"File content length: {content_len} characters")
+        
+        # Log conversation history
+        if context.get("conversation_history"):
+            history_len = len(context["conversation_history"])
+            total_history_chars = sum(len(str(msg)) for msg in context["conversation_history"])
+            logger.info(f"Conversation history: {history_len} messages, {total_history_chars} characters")
+        
+        # Log enhanced context from agent system
+        enhanced_keys = ["semantic_context", "relevant_history", "similar_patterns", "project_symbols"]
+        for key in enhanced_keys:
+            if context.get(key):
+                if isinstance(context[key], list):
+                    logger.info(f"{key}: {len(context[key])} items")
+                elif isinstance(context[key], dict):
+                    logger.info(f"{key}: {len(context[key])} keys")
+                else:
+                    logger.info(f"{key}: {type(context[key]).__name__}")
+        
+        logger.info("=== End Context Details ===")
+    
     async def _execute_tools(self, tool_calls: List[Dict]) -> List[Dict]:
         """Execute tool calls locally."""
         results = []
@@ -435,6 +607,8 @@ Please think step by step and use tools to accomplish the goal.
             }
         
         except Exception as e:
+            logger = logging.getLogger("k2edit")
+            logger.error(f"Failed to read file: {str(e)}")
             return {"error": f"Failed to read file: {str(e)}"}
     
     async def _tool_write_file(self, path: str, content: str) -> Dict:
@@ -453,6 +627,8 @@ Please think step by step and use tools to accomplish the goal.
             }
         
         except Exception as e:
+            logger = logging.getLogger("k2edit")
+            logger.error(f"Failed to write file: {str(e)}")
             return {"error": f"Failed to write file: {str(e)}"}
     
     async def _tool_replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict:
@@ -479,5 +655,5 @@ Please think step by step and use tools to accomplish the goal.
                 import logging
                 logger = logging.getLogger("k2edit")
                 logger.warning(f"Error during KimiAPI cleanup: {e}")
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Error during KimiAPI cleanup: {e}")

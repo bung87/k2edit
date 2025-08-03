@@ -230,6 +230,8 @@ class OutputPanel(Vertical):
             progress_text.append(f"Analysis completed [" + request_id[:8] + "]", style="green")
         elif status == "max_iterations":
             progress_text.append(f"Reached max iterations [" + request_id[:8] + "]", style="yellow")
+        elif status == "error":
+            progress_text.append(f"Analysis failed [" + request_id[:8] + "]", style="red")
         
         log = self.query_one("#output-log", RichLog)
         if log:

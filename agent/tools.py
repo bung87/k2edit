@@ -4,6 +4,7 @@ import os
 import glob
 import subprocess
 import re
+import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 
@@ -14,6 +15,7 @@ class ToolExecutor:
     def __init__(self, editor_widget=None):
         self.editor = editor_widget
         self.current_directory = Path.cwd()
+        self.logger = logging.getLogger("k2edit")
     
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool by name with given arguments."""
@@ -32,6 +34,7 @@ class ToolExecutor:
                 return {"error": f"Unknown tool: {tool_name}"}
         
         except Exception as e:
+            self.logger.error(f"Tool execution failed: {str(e)}")
             return {"error": f"Tool execution failed: {str(e)}"}
     
     async def list_files(self, directory: str = ".", pattern: str = "*") -> Dict[str, Any]:
@@ -88,6 +91,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
+            self.logger.error(f"Failed to list files: {str(e)}")
             return {"error": f"Failed to list files: {str(e)}"}
     
     async def search_code(self, pattern: str, directory: str = ".", file_types: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -137,6 +141,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
+            self.logger.error(f"Search failed: {str(e)}")
             return {"error": f"Search failed: {str(e)}"}
     
     async def run_command(self, command: str, working_directory: str = ".") -> Dict[str, Any]:
@@ -171,8 +176,10 @@ class ToolExecutor:
             }
         
         except subprocess.TimeoutExpired:
+            self.logger.error("Command timed out after 30 seconds")
             return {"error": "Command timed out after 30 seconds"}
         except Exception as e:
+            self.logger.error(f"Command execution failed: {str(e)}")
             return {"error": f"Command execution failed: {str(e)}"}
     
     async def analyze_code(self, analysis_type: str, scope: str = "selection") -> Dict[str, Any]:
@@ -209,6 +216,7 @@ class ToolExecutor:
                 return {"error": f"Unknown analysis type: {analysis_type}"}
         
         except Exception as e:
+            self.logger.error(f"Analysis failed: {str(e)}")
             return {"error": f"Analysis failed: {str(e)}"}
     
     async def insert_code(self, line_number: int, code: str) -> Dict[str, Any]:
@@ -234,6 +242,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
+            self.logger.error(f"Code insertion failed: {str(e)}")
             return {"error": f"Code insertion failed: {str(e)}"}
     
     def _analyze_structure(self, code: str) -> Dict[str, Any]:

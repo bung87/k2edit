@@ -310,7 +310,7 @@ class CommandBar(Input):
         if hasattr(self, 'output_panel') and self.output_panel:
             self.output_panel.add_ai_response(goal, "", streaming=True)
             self.app.query_one("#output-panel").scroll_visible()
-            self.output_panel.add_agent_progress(request_id, 0, 5, "started")
+            self.output_panel.add_agent_progress(request_id, 0, 10, "started")
 
         try:
             # Get current editor state
@@ -334,17 +334,17 @@ class CommandBar(Input):
             response = await self.kimi_api.run_agent(
                 goal=goal,
                 context=context,
-                max_iterations=5,
+                max_iterations=10,
                 progress_callback=progress_callback
             )
 
             # Format and display response
             content = response.get('content', str(response))
-            final_iterations = response.get('iterations', 5)
+            final_iterations = response.get('iterations', 10)
             if response.get('error'):
                 content = f"Error: {response['error']}"
                 if hasattr(self, 'output_panel') and self.output_panel:
-                    self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "max_iterations")
+                    self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "error")
             else:
                 if hasattr(self, 'output_panel') and self.output_panel:
                     self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "completed")
@@ -408,8 +408,8 @@ Tips:
                 if hasattr(self.editor, 'get_selected_lines'):
                     start_line, end_line = self.editor.get_selected_lines()
                     context["selected_lines"] = {"start": start_line, "end": end_line}
-        except (AttributeError, ValueError):
-            pass
+        except (AttributeError, ValueError) as e:
+            self.logger.warning(f"Error getting editor context: {e}")
         
         return context
     

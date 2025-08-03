@@ -1,18 +1,29 @@
-"""
-Agentic Context Manager for K2Edit
+"""Agentic Context Manager for K2Edit
 Handles AI agent interactions, context management, and orchestration
 """
+
+# Configure multiprocessing FIRST to avoid fork issues on macOS
+import os
+import multiprocessing
+if os.name == 'posix':
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError as e:
+        logger.warning(f"Multiprocessing start method already set: {e}")  # Already set
 
 import asyncio
 import json
 import logging
 import re
+import threading
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
-from .memory_store import MemoryStore
+from sentence_transformers import SentenceTransformer
+
+from .memory_config import create_memory_store
 from .lsp_indexer import LSPIndexer
 
 
@@ -41,11 +52,27 @@ class AgenticContextManager:
     """Manages AI agent context, memory, and LSP integration"""
     
     def __init__(self, logger: logging.Logger = None):
-        self.logger = logger or logging.getLogger(__name__)
-        self.memory_store = MemoryStore(logger)
+        self.logger = logger or logging.getLogger("k2edit")
+        self.memory_store = create_memory_store(self, logger)
         self.lsp_indexer = LSPIndexer(logger)
         self.current_context: Optional[AgentContext] = None
         self.conversation_history: List[Dict[str, Any]] = []
+        self.embedding_model = None
+        self._embedding_lock = None
+        
+        # Initialize embedding model
+        try:
+            model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'all-MiniLM-L6-v2')
+            # Disable multiprocessing completely to avoid macOS fork issues
+            os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+            os.environ['OMP_NUM_THREADS'] = '1'
+            self.embedding_model = SentenceTransformer(model_path)
+            self._embedding_lock = threading.Lock()
+            self.logger.info("Successfully loaded local SentenceTransformer model")
+        except Exception as e:
+            self.logger.error(f"Error loading local SentenceTransformer model: {e}")
+            self.embedding_model = None
+            self._embedding_lock = None
         
     async def initialize(self, project_root: str):
         """Initialize the context manager with project root"""
@@ -114,12 +141,60 @@ class AgenticContextManager:
         self.logger.info(f"Added file to context: {file_path}")
         return True
         
+    async def _analyze_file_structure(self, project_root: str, max_depth: int = 3) -> List[str]:
+        """Analyze and return the file structure of the project."""
+        structure = []
+        root = Path(project_root)
+        # Simple ignore list
+        ignore_dirs = ['.git', '__pycache__', 'node_modules', '.vscode']
+        
+        for path in sorted(root.rglob('*')):
+            # Skip ignored directories
+            if any(part in path.parts for part in ignore_dirs):
+                continue
+
+            depth = len(path.relative_to(root).parts)
+            if depth > max_depth:
+                continue
+
+            indent = '  ' * (depth - 1)
+            if path.is_dir():
+                structure.append(f"{indent}├── {path.name}/")
+            else:
+                structure.append(f"{indent}├── {path.name}")
+        return structure
+
+    async def _get_project_overview(self) -> Dict[str, Any]:
+        """Get a high-level overview of the project."""
+        if not self.current_context or not self.current_context.project_root:
+            return {}
+
+        project_root = Path(self.current_context.project_root)
+        overview = {
+            "file_structure": await self._analyze_file_structure(self.current_context.project_root),
+            "readme_summary": None
+        }
+
+        # Find and summarize README
+        readme_files = [p for p in project_root.glob('README*') if p.is_file()]
+        if readme_files:
+            readme_path = readme_files[0]
+            try:
+                with open(readme_path, 'r', encoding='utf-8') as f:
+                    readme_content = f.read()
+                    # Simple summary: first 15 lines
+                    overview["readme_summary"] = "\n".join(readme_content.splitlines()[:15])
+            except Exception as e:
+                self.logger.warning(f"Could not read {readme_path.name}: {e}")
+        
+        return overview
+
     async def get_enhanced_context(self, query: str) -> Dict[str, Any]:
         """Get enhanced context for AI agent based on query including semantic search and hierarchical data"""
         if not self.current_context:
             return {}
             
-        # Get basic context
+        # Get basic context from the current file
         context = {
             "current_file": self.current_context.file_path,
             "language": self.current_context.language,
@@ -130,72 +205,53 @@ class AgenticContextManager:
             "recent_changes": self.current_context.recent_changes
         }
         
-        # Get LSP-based outline and enhanced context
-        lsp_context = {}
+        # Get LSP-based outline and enhanced context for the current file
         if self.current_context.file_path:
             try:
-                line = None
-                if self.current_context.cursor_position:
-                    line = self.current_context.cursor_position.get('line')
+                line = self.current_context.cursor_position.get('line') if self.current_context.cursor_position else None
                 
                 lsp_context = await self.lsp_indexer.get_enhanced_context_for_file(
                     self.current_context.file_path, 
                     line
                 )
-                context["lsp_outline"] = lsp_context.get("outline", [])
-                context["lsp_symbols"] = lsp_context.get("symbols", [])
-                context["lsp_metadata"] = lsp_context.get("metadata", {})
+                context.update({
+                    "lsp_outline": lsp_context.get("outline", []),
+                    "lsp_symbols": lsp_context.get("symbols", []),
+                    "lsp_metadata": lsp_context.get("metadata", {}),
+                    "line_context": lsp_context.get("line_context")
+                })
                 
-                # Override symbols with LSP data if available
                 if lsp_context.get("symbols"):
                     context["symbols"] = lsp_context["symbols"]
                     self.current_context.symbols = lsp_context["symbols"]
                     
             except Exception as e:
-                self.logger.error(f"Failed to get LSP context: {e}")
-                # Return empty context instead of AST fallback
-                return context
-        
-        # Get semantic search results
+                self.logger.error(f"Failed to get LSP context for file: {e}")
+
+        # Always include a project overview for broader context
+        context["project_overview"] = await self._get_project_overview()
+
+        # If the query seems general (not focused on specific code), add project-wide context.
+        is_general_query = not self.current_context.file_path or not self.current_context.selected_code
+        if is_general_query:
+            self.logger.info("General query detected, fetching project-wide symbols.")
+            project_symbols = await self.lsp_indexer.get_project_symbols()
+            context["project_symbols"] = project_symbols
+
+        # Get semantic search results from memory
         semantic_results = await self.memory_store.semantic_search(query)
         context["semantic_context"] = semantic_results
         
-        # Get relevant historical context
+        # Get relevant historical context from memory
         relevant_history = await self.memory_store.search_relevant_context(query)
         context["relevant_history"] = relevant_history
         
-        # Get similar code patterns
-        similar_patterns = await self.memory_store.find_similar_code(
-            self.current_context.selected_code or ""
-        )
-        context["similar_patterns"] = similar_patterns
-        
-        # Get project-wide symbols if needed
-        if "project" in query.lower() or "global" in query.lower():
-            project_symbols = await self.lsp_indexer.get_project_symbols()
-            context["project_symbols"] = project_symbols
-            
-        # Add LSP-based context for current position
-            if self.current_context.cursor_position:
-                line_num = self.current_context.cursor_position.get('line', 1)
-                symbols = lsp_context.get("symbols", [])
-                
-                # Find symbols relevant to current line
-                relevant_symbols = []
-                for symbol in symbols:
-                    if symbol.get('range', {}).get('start', {}).get('line', 0) <= line_num <= symbol.get('range', {}).get('end', {}).get('line', 0):
-                        relevant_symbols.append(symbol)
-                
-                context["relevant_hierarchy"] = relevant_symbols
-            
-            # Add line-specific context from LSP
-            if lsp_context.get("line_context"):
-                context["line_context"] = lsp_context["line_context"]
-            
-        # Add file structure analysis
-        if self.current_context.project_root:
-            file_structure = await self._analyze_file_structure(self.current_context.project_root)
-            context["file_structure"] = file_structure
+        # Find similar code patterns if there is a selection
+        if self.current_context.selected_code:
+            similar_patterns = await self.memory_store.find_similar_code(
+                self.current_context.selected_code
+            )
+            context["similar_patterns"] = similar_patterns
             
         return context
         
@@ -331,21 +387,39 @@ class AgenticContextManager:
         ))
 
     def _generate_embedding(self, content: str) -> List[float]:
-        """Generate semantic embedding for content using simple TF-IDF approach"""
-        import re
-        # Simple word-based embedding for now
-        words = re.findall(r'\b\w+\b', content.lower())
-        word_freq = {}
-        for word in words:
-            word_freq[word] = word_freq.get(word, 0) + 1
-        
-        # Create a simple 100-dimensional embedding
-        embedding = [0.0] * 100
-        for i, (word, freq) in enumerate(word_freq.items()):
-            if i < 100:
-                embedding[i] = float(freq) * (hash(word) % 1000) / 1000.0
-        
-        return embedding
+        """Generate semantic embedding for content using SentenceTransformer."""
+        if not self.embedding_model:
+            self.logger.warning("Embedding model not available, returning zero vector.")
+            return [0.0] * 384  # Dimension of all-MiniLM-L6-v2 is 384
+
+        try:
+            # Use threading lock to prevent concurrent access issues
+            # Disable multiprocessing entirely to avoid macOS fork issues
+            if self._embedding_lock:
+                with self._embedding_lock:
+                    embedding = self.embedding_model.encode(
+                        content, 
+                        convert_to_tensor=False,
+                        show_progress_bar=False,
+                        batch_size=1,
+                        device='cpu',
+                        normalize_embeddings=True,
+                        num_workers=0  # Explicitly disable multiprocessing
+                    )
+            else:
+                embedding = self.embedding_model.encode(
+                    content, 
+                    convert_to_tensor=False,
+                    show_progress_bar=False,
+                    batch_size=1,
+                    device='cpu',
+                    normalize_embeddings=True,
+                    num_workers=0  # Explicitly disable multiprocessing
+                )
+            return embedding.tolist()
+        except Exception as e:
+            self.logger.error(f"Error generating embedding: {e}")
+            return [0.0] * 384
 
 
 # Global context manager instance
