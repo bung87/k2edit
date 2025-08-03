@@ -319,12 +319,15 @@ class CommandBar(Input):
             cursor_pos = {"line": self.editor.cursor_line, "column": self.editor.cursor_column}
 
             # Get enhanced context from agentic system
-            context = await self.agent_integration.on_ai_query(
+            agent_result = await self.agent_integration.on_ai_query(
                 query=goal,
                 file_path=current_file,
                 selected_text=selected_text,
                 cursor_position=cursor_pos
             )
+
+            # Extract the actual context data from agent result
+            context = agent_result.get("context", {})
 
             # Use Kimi API's agent mode with enhanced context
             def progress_callback(req_id, current, max_iter, status):

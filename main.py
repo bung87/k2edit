@@ -250,12 +250,16 @@ class K2EditApp(App):
             asyncio.create_task(self._add_file_to_context(file_path))
             self.output_panel.add_info(f"Added to AI context: {Path(file_path).name}")
         else:
-            self.output_panel.add_error(f"Cannot add directory to context: {file_path}")
+            error_msg = f"Cannot add directory to context: {file_path}"
+            self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
     
     async def _add_file_to_context(self, file_path: str) -> None:
         """Add file to AI agent context."""
         if not self.agent_integration:
-            self.output_panel.add_error("Agentic system not initialized")
+            error_msg = "Agentic system not initialized"
+            self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
             return
         
         try:
@@ -268,7 +272,9 @@ class K2EditApp(App):
             if success:
                 self.logger.info(f"Successfully added {file_path} to AI context")
             else:
-                self.output_panel.add_error("Failed to add file to context")
+                error_msg = "Failed to add file to context"
+                self.logger.error(error_msg)
+                self.output_panel.add_error(error_msg)
                 
         except Exception as e:
             self.logger.error(f"Error adding file to context: {e}")

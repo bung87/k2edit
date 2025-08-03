@@ -301,3 +301,64 @@ class Class_{i}:
         from agent import get_agent_context
         agent = await get_agent_context()
         assert agent is None
+
+    @pytest.mark.asyncio
+    async def test_agent_context_extraction_for_kimi_api(self, temp_project_dir, logger):
+        """Test that agentic system context is properly extracted for Kimi API."""
+        await initialize_agentic_system(str(temp_project_dir), logger)
+        
+        # Create a test file
+        test_file = temp_project_dir / "context_extraction_test.py"
+        test_file.write_text('''
+def process_data(data):
+    """Process input data"""
+    return [item * 2 for item in data]
+
+class DataProcessor:
+    def __init__(self):
+        self.cache = {}
+    
+    def process(self, data):
+        if str(data) in self.cache:
+            return self.cache[str(data)]
+        result = process_data(data)
+        self.cache[str(data)] = result
+        return result
+''')
+        
+        # Test agentic system integration
+        integration = K2EditAgentIntegration(str(temp_project_dir))
+        await integration.initialize()
+        
+        # Simulate the context extraction that happens in command_bar.py
+        agent_result = await integration.on_ai_query(
+            query="review this code for optimization opportunities",
+            file_path=str(test_file),
+            selected_text="def process(self, data):\n    if str(data) in self.cache:",
+            cursor_position={"line": 10, "column": 8}
+        )
+        
+        # Verify the structure matches what command_bar.py expects
+        assert isinstance(agent_result, dict)
+        assert "context" in agent_result
+        assert "suggestions" in agent_result
+        assert "related_files" in agent_result
+        
+        # Extract context like command_bar.py does
+        context = agent_result.get("context", {})
+        
+        # Verify context has agentic system data
+        assert isinstance(context, dict)
+        
+        # Should have enhanced context from agentic system
+        has_agent_context = any(key in context for key in [
+            "project_symbols", "semantic_context", "relevant_history", 
+            "similar_patterns", "file_context", "project_context"
+        ])
+        assert has_agent_context, f"Expected agentic context keys, got: {list(context.keys())}"
+        
+        # Should NOT have the wrapper structure
+        assert "suggestions" not in context
+        assert "related_files" not in context
+        
+        await integration.shutdown()

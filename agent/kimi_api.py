@@ -38,6 +38,8 @@ class KimiAPI:
             base_url=self.base_url,
             timeout=60.0
         )
+        self.last_request_time = 0
+        self.min_request_interval = float(os.getenv("KIMI_REQUEST_INTERVAL", "0.5"))  # Minimum interval between requests in seconds
     
     async def chat(
         self,
@@ -56,6 +58,12 @@ class KimiAPI:
         
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
+        
+        # Rate limiting: ensure minimum interval between requests
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < self.min_request_interval:
+            await asyncio.sleep(self.min_request_interval - time_since_last)
         
         # Log detailed context information
         self._log_context_details(context, logger)
@@ -82,22 +90,19 @@ class KimiAPI:
                 result = await self._single_chat(payload)
                 logger.info(f"Kimi API chat completed [{request_id}]")
                 return result
+        except RateLimitError as e:
+            logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
+            raise Exception("Rate limit exceeded. Please wait a moment and try again.")
         except OpenAIError as e:
             # Handle other OpenAI errors
             error_msg = str(e)
             logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
-                raise Exception("Too many requests. Please wait a moment and try again.")
-            else:
-                raise Exception(f"API request failed: {error_msg}")
+            raise Exception(f"API request failed: {error_msg}")
         except Exception as e:
             # Handle unexpected errors
             error_msg = str(e)
             logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
-                raise Exception("Too many requests. Please wait a moment and try again.")
-            else:
-                raise Exception(f"API error: {error_msg}")
+            raise Exception(f"API error: {error_msg}")
     
     async def run_agent(
         self,
@@ -157,6 +162,12 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 "tool_choice": "auto"
             }
             
+            # Rate limiting: ensure minimum interval between requests
+            current_time = time.time()
+            time_since_last = current_time - self.last_request_time
+            if time_since_last < self.min_request_interval:
+                await asyncio.sleep(self.min_request_interval - time_since_last)
+            
             try:
                 logger.info(f"Kimi agent iteration {iteration + 1}/{max_iterations} [{request_id}]")
                 if progress_callback:
@@ -211,30 +222,26 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     # Continue for one more iteration
                     continue
             
+            except RateLimitError as e:
+                logger.error(f"Kimi agent rate limit hit [{request_id}]: {str(e)}")
+                return {
+                    "content": "Rate limit exceeded. Please wait a moment and try again.",
+                    "error": "Rate limit exceeded"
+                }
             except OpenAIError as e:
                 error_msg = str(e)
-                if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
-                    return {
-                        "content": "Too many requests. Please wait a moment and try again.",
-                        "error": "Rate limit exceeded"
-                    }
-                else:
-                    return {
-                        "content": f"Agent execution failed: {error_msg}",
-                        "error": error_msg
-                    }
+                logger.error(f"Kimi agent execution failed [{request_id}]: {error_msg}")
+                return {
+                    "content": f"Agent execution failed: {error_msg}",
+                    "error": error_msg
+                }
             except Exception as e:
                 error_msg = str(e)
-                if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
-                    return {
-                        "content": "Too many requests. Please wait a moment and try again.",
-                        "error": "Rate limit exceeded"
-                    }
-                else:
-                    return {
-                        "content": f"Agent execution failed: {error_msg}",
-                        "error": error_msg
-                    }
+                logger.error(f"Kimi agent execution failed [{request_id}]: {error_msg}")
+                return {
+                    "content": f"Agent execution failed: {error_msg}",
+                    "error": error_msg
+                }
         
         logger.info(f"Kimi agent reached max iterations [{request_id}]: {max_iterations} iterations")
         if progress_callback:
@@ -248,12 +255,20 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         """Send a single chat request without retry logic to prevent duplicate requests."""
         logger = logging.getLogger("k2edit")
         
+        # Rate limiting: ensure minimum interval between requests
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < self.min_request_interval:
+            await asyncio.sleep(self.min_request_interval - time_since_last)
+        
         # Validate and truncate context if necessary
         if "messages" in payload:
             payload["messages"] = self._validate_context_length(payload["messages"], logger)
         
         try:
+            logger.info(f"Making API request with {len(payload.get('messages', []))} messages")
             response = await self.client.chat.completions.create(**payload)
+            self.last_request_time = time.time()
             
             message = response.choices[0].message
             
@@ -283,11 +298,13 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens
                 }
+                logger.info(f"API usage: {response.usage.total_tokens} total tokens")
             
             return result
             
         except RateLimitError as e:
-            raise Exception("Too many requests. Please wait a moment and try again.")
+            logger.error(f"Rate limit exceeded - details: {str(e)}")
+            raise Exception(f"Rate limit exceeded. Please wait a moment and try again. Details: {str(e)}")
         except OpenAIError as e:
             raise Exception(f"API request failed: {str(e)}")
         except Exception as e:
@@ -308,16 +325,24 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         logger = logging.getLogger("k2edit")
         payload["stream"] = True
         
+        # Rate limiting: ensure minimum interval between requests
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < self.min_request_interval:
+            await asyncio.sleep(self.min_request_interval - time_since_last)
+        
         # Validate and truncate context if necessary
         if "messages" in payload:
             payload["messages"] = self._validate_context_length(payload["messages"], logger)
         
         try:
+            logger.info(f"Making streaming API request with {len(payload.get('messages', []))} messages")
             content_parts = []
             tool_calls = []
             usage_info = None
             
             stream = await self.client.chat.completions.create(**payload)
+            self.last_request_time = time.time()
             
             async for chunk in stream:
                 # Skip the final [DONE] chunk
@@ -369,23 +394,17 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             
             if usage_info:
                 result["usage"] = usage_info
+                logger.info(f"Streaming API usage: {usage_info['total_tokens']} total tokens")
             
             return result
             
         except RateLimitError as e:
-            raise Exception("Too many requests. Please wait a moment and try again.")
+            logger.error(f"Rate limit exceeded in streaming - details: {str(e)}")
+            raise Exception(f"Rate limit exceeded. Please wait a moment and try again. Details: {str(e)}")
         except OpenAIError as e:
-            error_msg = str(e)
-            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
-                raise Exception("Too many requests. Please wait a moment and try again.")
-            else:
-                raise Exception(f"API request failed: {error_msg}")
+            raise Exception(f"API request failed: {str(e)}")
         except Exception as e:
-            error_msg = str(e)
-            if "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
-                raise Exception("Too many requests. Please wait a moment and try again.")
-            else:
-                raise Exception(f"Unexpected error: {error_msg}")
+            raise Exception(f"Unexpected error: {str(e)}")
     
     def _build_messages(self, message: str, context: Optional[Dict] = None) -> List[Dict]:
         """Build message list with context."""
