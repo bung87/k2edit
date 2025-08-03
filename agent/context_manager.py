@@ -62,20 +62,6 @@ class AgenticContextManager:
         self.embedding_model = None
         self._embedding_lock = None
         
-        # Initialize embedding model
-        try:
-            model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'all-MiniLM-L6-v2')
-            # Disable multiprocessing completely to avoid macOS fork issues
-            os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-            os.environ['OMP_NUM_THREADS'] = '1'
-            self.embedding_model = SentenceTransformer(model_path)
-            self._embedding_lock = threading.Lock()
-            self.logger.info("Successfully loaded local SentenceTransformer model")
-        except Exception as e:
-            self.logger.error(f"Error loading local SentenceTransformer model: {e}")
-            self.embedding_model = None
-            self._embedding_lock = None
-        
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize the context manager with project root and progress updates"""
         await self.logger.info(f"Initializing agentic context manager for {project_root}")
@@ -83,8 +69,10 @@ class AgenticContextManager:
         if progress_callback:
             await progress_callback("Initializing memory store...")
         
-        # Initialize memory store
+        # Initialize memory store and embedding model
         await self.memory_store.initialize(project_root)
+        await self._initialize_embedding_model()
+
         
         if progress_callback:
             await progress_callback("Starting symbol indexing...")
@@ -458,6 +446,30 @@ class AgenticContextManager:
         except Exception as e:
             self.logger.error(f"Error generating embedding: {e}")
             return [0.0] * 384
+
+
+    async def _initialize_embedding_model(self):
+        """Initialize the SentenceTransformer model asynchronously."""
+        if self.embedding_model:
+            return
+
+        try:
+            await self.logger.info("Loading SentenceTransformer model...")
+            model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'all-MiniLM-L6-v2')
+            os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+            os.environ['OMP_NUM_THREADS'] = '1'
+            
+            loop = asyncio.get_running_loop()
+            self.embedding_model = await loop.run_in_executor(
+                None, lambda: SentenceTransformer(model_path)
+            )
+            
+            self._embedding_lock = threading.Lock()
+            await self.logger.info("Successfully loaded local SentenceTransformer model")
+        except Exception as e:
+            await self.logger.error(f"Error loading SentenceTransformer model: {e}")
+            self.embedding_model = None
+            self._embedding_lock = None
 
 
 # Global context manager instance

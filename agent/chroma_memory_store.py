@@ -52,8 +52,10 @@ class ChromaMemoryStore:
         chroma_path = self.project_root / ".k2edit" / "chroma_db"
         chroma_path.mkdir(parents=True, exist_ok=True)
         
-        # Initialize ChromaDB client with persistent storage
-        self.client = chromadb.PersistentClient(path=str(chroma_path))
+        # Initialize ChromaDB client in a background thread to avoid blocking
+        self.client = await asyncio.to_thread(
+            chromadb.PersistentClient, path=str(chroma_path)
+        )
         
         # Initialize collections
         await self._init_collections()
@@ -71,7 +73,8 @@ class ChromaMemoryStore:
         for name, description in collection_configs.items():
             try:
                 # Get or create collection
-                collection = self.client.get_or_create_collection(
+                collection = await asyncio.to_thread(
+                    self.client.get_or_create_collection,
                     name=name,
                     metadata={"description": description}
                 )
