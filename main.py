@@ -128,10 +128,11 @@ class K2EditApp(App):
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
 
-        # Load initial file if provided
+        # Load initial file if provided, otherwise start with an empty editor
         if self.initial_file:
-            await self.logger.info(f"Loading initial file: {self.initial_file}")
-            if Path(self.initial_file).is_file():
+            file_path = Path(self.initial_file)
+            if file_path.is_file():
+                await self.logger.info(f"Loading initial file: {self.initial_file}")
                 if self.editor.load_file(self.initial_file):
                     self.output_panel.add_info(f"Loaded file: {self.initial_file}")
                     await self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
@@ -143,6 +144,18 @@ class K2EditApp(App):
                     error_msg = f"Failed to load file: {self.initial_file}"
                     self.output_panel.add_error(error_msg)
                     await self.logger.error(error_msg)
+            elif file_path.is_dir():
+                await self.logger.warning(f"Initial path is a directory, not a file: {self.initial_file}")
+                self.output_panel.add_warning(f"Cannot open a directory: {self.initial_file}")
+            else:
+                # Path doesn't exist, treat as a new file
+                await self.logger.info(f"Initial file does not exist, creating new file: {self.initial_file}")
+                self.editor.load_file(self.initial_file) # This will create a new buffer
+                self.output_panel.add_info(f"New file: {self.initial_file}")
+                self.editor.focus()
+        else:
+            await self.logger.info("No initial file provided, starting with an empty editor.")
+            self.editor.focus()
         
         await self.logger.info("K2EditApp mounted successfully")
     
@@ -349,12 +362,6 @@ def main():
     initial_file = None
     if len(sys.argv) > 1:
         initial_file = sys.argv[1]
-
-        # Validate file exists before starting the app
-        if not Path(initial_file).exists():
-            print(f"Error: File '{initial_file}' not found.")
-            # Use a simple print for pre-flight errors as logger is async
-            sys.exit(1)
 
     # Create and run the application
     app = K2EditApp(initial_file=initial_file, logger=logger)

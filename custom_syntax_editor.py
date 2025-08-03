@@ -1,8 +1,10 @@
 from pathlib import Path
 from typing import Union, Optional
 
+# Import tree-sitter patch FIRST to fix QueryCursor issue
+import tree_sitter_patch
+
 from textual.widgets import TextArea
-from tree_sitter_languages import get_language
 import logging
 
 class CustomSyntaxEditor(TextArea):
@@ -53,7 +55,7 @@ class CustomSyntaxEditor(TextArea):
   │                                             │
   │  Press Ctrl+O to open a file                │
   │  Use file explorer (left) to browse         │
-  │  Press Ctrl+K for command bar             │
+  │  Press Ctrl+K for command bar               │
   │                                             │
   ╰─────────────────────────────────────────────╯
 
@@ -70,43 +72,81 @@ class CustomSyntaxEditor(TextArea):
             
             if not path.exists():
                 # Create new file
-                self.load_text("")
                 self.current_file = path
                 self.is_modified = False
                 self.read_only = False
-                self.language = self._language_map.get(path.suffix.lower(), "text")
+                
+                # Try to set language and load content with fallback to plain text if parsing fails
+                language = self._language_map.get(path.suffix.lower(), "text")
+                try:
+                    # Use tree-sitter_languages to verify the language is available
+                    if language and language != "text":
+                        try:
+                            import tree_sitter_languages
+                            # Verify the language is available
+                            ts_language = tree_sitter_languages.get_language(language)
+                            # Set the document with the language string, not the Language object
+                            self._set_document("", language)
+                        except ImportError:
+                            # tree_sitter_languages not available, fall back to plain text
+                            self._set_document("", None)
+                        except Exception as e:
+                            # Language not supported or other error, fall back to plain text
+                            if self._app_instance and hasattr(self._app_instance, 'logger'):
+                                self._app_instance.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
+                            self._set_document("", None)
+                    else:
+                        self._set_document("", None)
+                except ValueError as e:
+                    if "Parsing failed" in str(e):
+                        if self._app_instance and hasattr(self._app_instance, 'logger'):
+                            self._app_instance.logger.warning(f"CUSTOM EDITOR: Tree-sitter parsing failed for new file {path}, falling back to plain text mode")
+                        self._set_document("", None)  # Fall back to plain text
+                    else:
+                        raise  # Re-raise if it's a different ValueError
+                
                 if self._app_instance and hasattr(self._app_instance, 'logger'):
                     self._app_instance.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
                 return True
             
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
             
             # Set language based on file extension
             extension = path.suffix.lower()
             language = self._language_map.get(extension)
-
+            
+            # Try to load content with syntax highlighting, fall back to plain text if parsing fails
             try:
-                self.language = get_language(language)
-            except Exception as e:
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.error(f"CUSTOM EDITOR: Failed to load language '{language}': {e}")
-                self.language = None
-            self.load_text(content)
+                # Use tree-sitter_languages to verify the language is available
+                if language and language != "text":
+                    try:
+                        import tree_sitter_languages
+                        # Verify the language is available
+                        ts_language = tree_sitter_languages.get_language(language)
+                        # Set the document with the language string, not the Language object
+                        self._set_document(content, language)
+                    except ImportError:
+                        # tree_sitter_languages not available, fall back to plain text
+                        self._set_document(content, None)
+                    except Exception as e:
+                        # Language not supported or other error, fall back to plain text
+                        if self._app_instance and hasattr(self._app_instance, 'logger'):
+                            self._app_instance.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
+                        self._set_document(content, None)
+                else:
+                    self._set_document(content, None)
+            except ValueError as e:
+                if "Parsing failed" in str(e):
+                    if self._app_instance and hasattr(self._app_instance, 'logger'):
+                        self._app_instance.logger.warning(f"CUSTOM_EDITOR: Tree-sitter parsing failed for {path}, falling back to plain text mode")
+                    self._set_document(content, None)  # Fall back to plain text
+                else:
+                    raise  # Re-raise if it's a different ValueError
+            
             self.current_file = path
             self.is_modified = False
             self.read_only = False
-            
-            if language:
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.info(f"CUSTOM EDITOR: Using syntax highlighting for language: {language}")
-            else:
-                self.language = None # Default to plain text
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.info("CUSTOM EDITOR: No language mapping found, using plain text highlighting")
             
             if self._app_instance and hasattr(self._app_instance, 'logger'):
                 self._app_instance.logger.info(f"CUSTOM EDITOR: Successfully loaded file: {path}")

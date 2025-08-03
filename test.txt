@@ -1,8 +1,0 @@
-This is a test text file.
-
-It contains multiple lines of text to verify that the editor can properly display .txt file content.
-
-Line 1: Hello World
-Line 2: This is a test
-Line 3: Text file content should be visible
-Line 4: The editor should handle this correctly

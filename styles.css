@@ -105,7 +105,6 @@ RichLog {
 CustomSyntaxEditor {
     border: solid #3b82f6;
     background: #1e293b;
-    color: #f1f5f9;
     scrollbar-background: #1e293b;
     scrollbar-color: #3b82f6;
     scrollbar-corner-color: #1e293b;
@@ -143,4 +142,247 @@ FileExplorer .file {
 
 FileExplorer .hidden {
     color: #64748b;
+}
+
+/* Syntax Highlighting Styles for TextArea */
+/* Based on Monokai theme colors */
+TextArea .tok-keyword {
+    color: #f92672;
+    text-style: bold;
+}
+
+TextArea .tok-string {
+    color: #e6db74;
+}
+
+TextArea .tok-comment {
+    color: #75715e;
+    text-style: italic;
+}
+
+TextArea .tok-number {
+    color: #ae81ff;
+}
+
+TextArea .tok-operator {
+    color: #f92672;
+}
+
+TextArea .tok-function {
+    color: #a6e22e;
+}
+
+TextArea .tok-class {
+    color: #a6e22e;
+    text-style: bold;
+}
+
+TextArea .tok-variable {
+    color: #f8f8f2;
+}
+
+TextArea .tok-builtin {
+    color: #66d9ef;
+}
+
+TextArea .tok-constant {
+    color: #ae81ff;
+}
+
+TextArea .tok-decorator {
+    color: #66d9ef;
+}
+
+TextArea .tok-import {
+    color: #f92672;
+}
+
+TextArea .tok-exception {
+    color: #f92672;
+}
+
+TextArea .tok-punctuation {
+    color: #f8f8f2;
+}
+
+TextArea .tok-bracket {
+    color: #f8f8f2;
+}
+
+TextArea .tok-delimiter {
+    color: #f8f8f2;
+}
+
+/* Additional syntax highlighting tokens */
+TextArea .tok-type {
+    color: #66d9ef;
+}
+
+TextArea .tok-property {
+    color: #a6e22e;
+}
+
+TextArea .tok-attribute {
+    color: #a6e22e;
+}
+
+TextArea .tok-tag {
+    color: #f92672;
+}
+
+TextArea .tok-escape {
+    color: #ae81ff;
+}
+
+TextArea .tok-regex {
+    color: #e6db74;
+}
+
+TextArea .tok-url {
+    color: #66d9ef;
+    text-style: underline;
+}
+
+TextArea .tok-heading {
+    color: #f92672;
+    text-style: bold;
+}
+
+TextArea .tok-link {
+    color: #66d9ef;
+    text-style: underline;
+}
+
+TextArea .tok-emphasis {
+    text-style: italic;
+}
+
+TextArea .tok-strong {
+    text-style: bold;
+}
+
+TextArea .tok-code {
+    color: #e6db74;
+    background: #3e3d32;
+}
+
+/* Syntax Highlighting Styles for CustomSyntaxEditor */
+/* Based on Monokai theme colors */
+CustomSyntaxEditor .tok-keyword {
+    color: #f92672;
+    text-style: bold;
+}
+
+CustomSyntaxEditor .tok-string {
+    color: #e6db74;
+}
+
+CustomSyntaxEditor .tok-comment {
+    color: #75715e;
+    text-style: italic;
+}
+
+CustomSyntaxEditor .tok-number {
+    color: #ae81ff;
+}
+
+CustomSyntaxEditor .tok-operator {
+    color: #f92672;
+}
+
+CustomSyntaxEditor .tok-function {
+    color: #a6e22e;
+}
+
+CustomSyntaxEditor .tok-class {
+    color: #a6e22e;
+    text-style: bold;
+}
+
+CustomSyntaxEditor .tok-variable {
+    color: #f8f8f2;
+}
+
+CustomSyntaxEditor .tok-builtin {
+    color: #66d9ef;
+}
+
+CustomSyntaxEditor .tok-constant {
+    color: #ae81ff;
+}
+
+CustomSyntaxEditor .tok-decorator {
+    color: #66d9ef;
+}
+
+CustomSyntaxEditor .tok-import {
+    color: #f92672;
+}
+
+CustomSyntaxEditor .tok-exception {
+    color: #f92672;
+}
+
+CustomSyntaxEditor .tok-punctuation {
+    color: #f8f8f2;
+}
+
+CustomSyntaxEditor .tok-bracket {
+    color: #f8f8f2;
+}
+
+CustomSyntaxEditor .tok-delimiter {
+    color: #f8f8f2;
+}
+
+CustomSyntaxEditor .tok-type {
+    color: #66d9ef;
+}
+
+CustomSyntaxEditor .tok-property {
+    color: #a6e22e;
+}
+
+CustomSyntaxEditor .tok-attribute {
+    color: #a6e22e;
+}
+
+CustomSyntaxEditor .tok-tag {
+    color: #f92672;
+}
+
+CustomSyntaxEditor .tok-escape {
+    color: #ae81ff;
+}
+
+CustomSyntaxEditor .tok-regex {
+    color: #e6db74;
+}
+
+CustomSyntaxEditor .tok-url {
+    color: #66d9ef;
+    text-style: underline;
+}
+
+CustomSyntaxEditor .tok-heading {
+    color: #f92672;
+    text-style: bold;
+}
+
+CustomSyntaxEditor .tok-link {
+    color: #66d9ef;
+    text-style: underline;
+}
+
+CustomSyntaxEditor .tok-emphasis {
+    text-style: italic;
+}
+
+CustomSyntaxEditor .tok-strong {
+    text-style: bold;
+}
+
+CustomSyntaxEditor .tok-code {
+    color: #e6db74;
+    background: #3e3d32;
 }
