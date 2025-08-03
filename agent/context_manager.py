@@ -89,8 +89,11 @@ class AgenticContextManager:
         if progress_callback:
             await progress_callback("Starting symbol indexing...")
         
-        # Initialize LSP indexer with progress updates
-        await self.lsp_indexer.initialize(project_root, progress_callback)
+        # Initialize LSP indexer in the background
+        asyncio.create_task(self.lsp_indexer.initialize(project_root, progress_callback))
+        
+        if progress_callback:
+            await progress_callback("LSP indexing started in background...")
         
         # Set initial context
         self.current_context = AgentContext(
