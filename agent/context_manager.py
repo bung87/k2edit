@@ -69,9 +69,9 @@ class AgenticContextManager:
         if progress_callback:
             await progress_callback("Initializing memory store...")
         
-        # Initialize memory store and embedding model
-        await self.memory_store.initialize(project_root)
-        await self._initialize_embedding_model()
+        # Initialize memory store and embedding model in the background
+        asyncio.create_task(self.memory_store.initialize(project_root))
+        asyncio.create_task(self._initialize_embedding_model())
 
         
         if progress_callback:
@@ -343,7 +343,7 @@ class AgenticContextManager:
         _, ext = os.path.splitext(filename)
         return ext_map.get(ext.lower(), 'unknown')
         
-    async def process_agent_request(self, query: str, user_input: str, max_semantic_distance: float = 1.2) -> Dict[str, Any]:
+    async def process_agent_request(self, query: str, max_semantic_distance: float = 1.2) -> Dict[str, Any]:
         """Process an AI agent request with full context"""
         enhanced_context = await self.get_enhanced_context(query, max_semantic_distance=max_semantic_distance)
         
@@ -351,14 +351,62 @@ class AgenticContextManager:
         conversation_entry = {
             "timestamp": datetime.now().isoformat(),
             "query": query,
-            "user_input": user_input,
             "context": enhanced_context
         }
         
         await self.memory_store.store_conversation(conversation_entry)
         self.conversation_history.append(conversation_entry)
         
-        return enhanced_context
+        return {
+            "query": query,
+            "context": enhanced_context,
+            "suggestions": await self._generate_suggestions(query, enhanced_context),
+            "related_files": await self._find_related_files(query, enhanced_context)
+        }
+
+    async def _generate_suggestions(self, query: str, context: Dict[str, Any]) -> List[str]:
+        """Generate AI suggestions based on query and context"""
+        suggestions = []
+        
+        # Code completion suggestions
+        if "completion" in query.lower() or "suggest" in query.lower():
+            if context.get("symbols"):
+                suggestions.extend([
+                    f"Consider using existing symbol: {s['name']}"
+                    for s in context["symbols"][:3]
+                ])
+                
+        # Error fixing suggestions
+        if "error" in query.lower() or "fix" in query.lower():
+            suggestions.append("Check for syntax errors in the current file")
+            suggestions.append("Verify all imports are available")
+            
+        # Refactoring suggestions
+        if "refactor" in query.lower() or "improve" in query.lower():
+            suggestions.append("Consider extracting repeated code into functions")
+            suggestions.append("Add type annotations for better code clarity")
+            
+        return suggestions
+
+
+    async def _find_related_files(self, query: str, context: Dict[str, Any]) -> List[str]:
+        """Find files related to the query"""
+        related_files = []
+        
+        # Based on dependencies
+        if context.get("dependencies"):
+            related_files.extend([
+                f"Check dependency: {dep}"
+                for dep in context["dependencies"][:3]
+            ])
+            
+        # Based on similar patterns
+        if context.get("similar_patterns"):
+            for pattern in context["similar_patterns"][:2]:
+                if pattern.get("context", {}).get("file_path"):
+                    related_files.append(f"Similar pattern in: {pattern['context']['file_path']}")
+                    
+        return related_files
         
     async def record_change(self, file_path: str, change_type: str, 
                           old_content: str, new_content: str):
@@ -459,10 +507,10 @@ class AgenticContextManager:
             os.environ['TOKENIZERS_PARALLELISM'] = 'false'
             os.environ['OMP_NUM_THREADS'] = '1'
             
-            loop = asyncio.get_running_loop()
-            self.embedding_model = await loop.run_in_executor(
-                None, lambda: SentenceTransformer(model_path)
-            )
+            def _load_model():
+                return SentenceTransformer(model_path)
+            
+            self.embedding_model = await asyncio.to_thread(_load_model)
             
             self._embedding_lock = threading.Lock()
             await self.logger.info("Successfully loaded local SentenceTransformer model")

@@ -85,59 +85,10 @@ async def process_agent_query(query: str, file_path: str = None,
         )
         
     # Process the query
-    context = await _agentic_system.get_enhanced_context(query)
-    
-    return {
-        "query": query,
-        "context": context,
-        "suggestions": await _generate_suggestions(query, context),
-        "related_files": await _find_related_files(query, context)
-    }
+    return await _agentic_system.process_agent_request(query)
 
 
-async def _generate_suggestions(query: str, context: Dict[str, Any]) -> List[str]:
-    """Generate AI suggestions based on query and context"""
-    suggestions = []
-    
-    # Code completion suggestions
-    if "completion" in query.lower() or "suggest" in query.lower():
-        if context.get("symbols"):
-            suggestions.extend([
-                f"Consider using existing symbol: {s['name']}"
-                for s in context["symbols"][:3]
-            ])
-            
-    # Error fixing suggestions
-    if "error" in query.lower() or "fix" in query.lower():
-        suggestions.append("Check for syntax errors in the current file")
-        suggestions.append("Verify all imports are available")
-        
-    # Refactoring suggestions
-    if "refactor" in query.lower() or "improve" in query.lower():
-        suggestions.append("Consider extracting repeated code into functions")
-        suggestions.append("Add type annotations for better code clarity")
-        
-    return suggestions
 
-
-async def _find_related_files(query: str, context: Dict[str, Any]) -> List[str]:
-    """Find files related to the query"""
-    related_files = []
-    
-    # Based on dependencies
-    if context.get("dependencies"):
-        related_files.extend([
-            f"Check dependency: {dep}"
-            for dep in context["dependencies"][:3]
-        ])
-        
-    # Based on similar patterns
-    if context.get("similar_patterns"):
-        for pattern in context["similar_patterns"][:2]:
-            if pattern.get("context", {}).get("file_path"):
-                related_files.append(f"Similar pattern in: {pattern['context']['file_path']}")
-                
-    return related_files
 
 
 async def record_code_change(file_path: str, change_type: str, 
