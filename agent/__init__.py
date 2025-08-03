@@ -23,13 +23,14 @@ __all__ = [
 _agentic_system = None
 
 
-async def initialize_agentic_system(project_root: str, logger: logging.Logger = None):
+async def initialize_agentic_system(project_root: str, logger: logging.Logger = None, progress_callback=None):
     """
-    Initialize the complete agentic system
+    Initialize the complete agentic system with progress updates
     
     Args:
         project_root: Path to the project root directory
         logger: Logger instance for debugging
+        progress_callback: Async callback function for progress updates
     """
     global _agentic_system
     
@@ -38,11 +39,17 @@ async def initialize_agentic_system(project_root: str, logger: logging.Logger = 
         
     logger.info("Initializing K2Edit agentic system...")
     
+    if progress_callback:
+        await progress_callback("Initializing agentic system...")
+    
     # Initialize context manager
     _agentic_system = AgenticContextManager(logger)
-    await _agentic_system.initialize(project_root)
+    await _agentic_system.initialize(project_root, progress_callback)
     
     logger.info("Agentic system initialized successfully")
+    
+    if progress_callback:
+        await progress_callback("Agentic system initialized")
     
     return _agentic_system
 

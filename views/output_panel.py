@@ -209,7 +209,7 @@ class OutputPanel(Vertical):
         self._display_content(content)
     
     def add_agent_progress(self, request_id: str, current_iteration: int, max_iterations: int = None, status: str = "processing") -> None:
-        """Add agent iteration progress indicator to output panel using dot indicators."""
+        """Add agent iteration progress indicator to output panel with simple dots."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         
         progress_text = Text()
@@ -217,21 +217,19 @@ class OutputPanel(Vertical):
         progress_text.append("Agent: ", style="bold cyan")
         
         if status == "started":
-            progress_text.append(f"Started analysis [" + request_id[:8] + "]", style="cyan")
+            progress_text.append(f"Analysis started", style="cyan")
         elif status == "processing":
-            dots = "●" * current_iteration
-            if max_iterations:
-                dots += "○" * (max_iterations - current_iteration)
-                progress_text.append(f"Processing... {current_iteration}/{max_iterations} [" + request_id[:8] + "]", style="cyan")
-            else:
-                progress_text.append(f"Processing... {current_iteration} [" + request_id[:8] + "]", style="cyan")
-            progress_text.append(f"\n{dots}", style="dim")
+            dots = "." * current_iteration
+            progress_text.append(f"Analyzing{dots}", style="cyan")
         elif status == "completed":
-            progress_text.append(f"Analysis completed [" + request_id[:8] + "]", style="green")
-        elif status == "max_iterations":
-            progress_text.append(f"Reached max iterations [" + request_id[:8] + "]", style="yellow")
+            progress_text.append(f"Analysis completed", style="green")
+        elif "Analysis reached maximum iteration limit" in str(status):
+            progress_text.append(f"Analysis completed (max iterations reached)", style="yellow")
         elif status == "error":
-            progress_text.append(f"Analysis failed [" + request_id[:8] + "]", style="red")
+            progress_text.append(f"Analysis failed", style="red")
+        else:
+            # Handle custom status messages
+            progress_text.append(str(status), style="cyan")
         
         log = self.query_one("#output-log", RichLog)
         if log:

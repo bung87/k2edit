@@ -6,6 +6,7 @@ for native vector embedding support.
 import json
 import logging
 import asyncio
+import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -203,69 +204,87 @@ class ChromaMemoryStore:
         except Exception as e:
             self.logger.error(f"Error updating pattern usage: {e}")
             
-    async def search_relevant_context(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search for relevant context based on query using semantic search"""
+    async def search_relevant_context(self, query: str, limit: int = 10, max_distance: float = 1.5) -> List[Dict[str, Any]]:
+        """Search for relevant context based on query using semantic search with distance filtering"""
         try:
             # Generate embedding for the query
             query_embedding = self.context_manager._generate_embedding(query)
             
-            # Search in memories collection
+            # Search in memories collection with higher limit for filtering
             results = self.collections["memories"].query(
                 query_embeddings=[query_embedding],
-                n_results=limit,
+                n_results=limit * 2,  # Get more results to allow filtering
                 where={"type": {"$in": ["conversation", "context", "pattern"]}}
             )
             
             relevant = []
             for i, doc_id in enumerate(results["ids"][0]):
-                relevant.append({
-                    "id": doc_id,
-                    "content": json.loads(results["documents"][0][i]),
-                    "metadata": results["metadatas"][0][i],
-                    "distance": results["distances"][0][i] if "distances" in results else 0.0
-                })
+                distance = results["distances"][0][i] if "distances" in results else 0.0
                 
-            return relevant
+                # Apply distance-based filtering
+                if distance <= max_distance:
+                    content = json.loads(results["documents"][0][i])
+                    
+                    # Additional quality filtering
+                    if not self._is_low_quality_content(content):
+                        relevant.append({
+                            "id": doc_id,
+                            "content": content,
+                            "metadata": results["metadatas"][0][i],
+                            "distance": distance,
+                            "relevance_score": max(0, 1.0 - (distance / max_distance))
+                        })
+            
+            # Sort by distance (closest first) and limit results
+            relevant.sort(key=lambda x: x["distance"])
+            return relevant[:limit]
             
         except Exception as e:
             self.logger.error(f"Error searching relevant context: {e}")
             return []
             
-    async def find_similar_code(self, code: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Find similar code patterns using semantic search"""
+    async def find_similar_code(self, code: str, limit: int = 5, max_distance: float = 1.2) -> List[Dict[str, Any]]:
+        """Find similar code patterns with distance filtering"""
         try:
             # Generate embedding for the code
             code_embedding = self.context_manager._generate_embedding(code)
             
-            # Search in code_patterns collection
+            # Search in code_patterns collection with more results for filtering
             results = self.collections["code_patterns"].query(
                 query_embeddings=[code_embedding],
-                n_results=limit
+                n_results=limit * 2  # Get more results to allow filtering
             )
             
             similar = []
             for i, doc_id in enumerate(results["ids"][0]):
-                metadata = results["metadatas"][0][i]
-                context_data = metadata.get("context")
-                if context_data:
-                    try:
-                        context = json.loads(context_data)
-                    except (json.JSONDecodeError, TypeError):
-                        context = {}
-                else:
-                    context = {}
-                    
-                similar.append({
-                    "id": doc_id,
-                    "content": results["documents"][0][i],
-                    "type": metadata.get("pattern_type", "unknown"),
-                    "usage_count": metadata.get("usage_count", 0),
-                    "last_used": metadata.get("last_used"),
-                    "context": context,
-                    "distance": results["distances"][0][i] if "distances" in results else 0.0
-                })
+                distance = results["distances"][0][i] if "distances" in results else 0.0
                 
-            return similar
+                # Apply distance-based filtering
+                if distance <= max_distance:
+                    metadata = results["metadatas"][0][i]
+                    context_data = metadata.get("context")
+                    if context_data:
+                        try:
+                            context = json.loads(context_data)
+                        except (json.JSONDecodeError, TypeError):
+                            context = {}
+                    else:
+                        context = {}
+                        
+                    similar.append({
+                        "id": doc_id,
+                        "content": results["documents"][0][i],
+                        "type": metadata.get("pattern_type", "unknown"),
+                        "usage_count": metadata.get("usage_count", 0),
+                        "last_used": metadata.get("last_used"),
+                        "context": context,
+                        "distance": distance,
+                        "relevance_score": max(0, 1.0 - (distance / max_distance))
+                    })
+            
+            # Sort by distance (closest first) and limit results
+            similar.sort(key=lambda x: x["distance"])
+            return similar[:limit]
             
         except Exception as e:
             self.logger.error(f"Error finding similar code: {e}")
@@ -362,30 +381,91 @@ class ChromaMemoryStore:
     def _hash_content(self, content: str) -> str:
         """Generate hash for content"""
         return hashlib.md5(content.encode()).hexdigest()
+
+    def _is_low_quality_content(self, content: Any) -> bool:
+        """Check if content is low quality and should be filtered out"""
+        if not content:
+            return True
+            
+        import re
+        
+        # Extract actual code content from the memory entry
+        content_str = ""
+        if isinstance(content, dict):
+            # Handle memory entry format
+            if 'code' in content:
+                content_str = content['code']
+            elif 'content' in content and isinstance(content['content'], dict) and 'code' in content['content']:
+                content_str = content['content']['code']
+            else:
+                content_str = str(content)
+        else:
+            content_str = str(content)
+            
+        content_str = content_str.strip()
+        
+        # Check for very short content
+        if len(content_str) < 15:
+            return True
+            
+        # Check for content that is mostly whitespace or special characters
+        alphanumeric_count = len(re.sub(r'[^\w\s]', '', content_str))
+        if alphanumeric_count < len(content_str) * 0.2:
+            return True
+            
+        # Check for common low-quality patterns
+        low_quality_patterns = [
+            r'console\.log',
+            r'print\s*\(',
+            r'\b(TODO|FIXME|HACK|XXX)\b',
+            r'^\s*import\s+\w+\s*$',
+            r'^\s*from\s+\w+\s+import\s+\w+\s*$',
+            r'^\s*(var|let|const)\s+\w+\s*=\s*\w+\s*$',
+            r'\btemp\d*\b',
+            r'\btmp\d*\b',
+        ]
+        
+        for pattern in low_quality_patterns:
+            if re.search(pattern, content_str, re.IGNORECASE):
+                return True
+                
+        return False
     
-    async def semantic_search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Perform semantic search using ChromaDB's native vector search"""
+    async def semantic_search(self, query: str, limit: int = 5, max_distance: float = 1.5) -> List[Dict[str, Any]]:
+        """Perform semantic search using ChromaDB's native vector search with distance filtering"""
         try:
             # Generate embedding for the query
             query_embedding = self.context_manager._generate_embedding(query)
             
-            # Search across all memories
+            # Search across all memories with higher limit for filtering
             results = self.collections["memories"].query(
                 query_embeddings=[query_embedding],
-                n_results=limit,
+                n_results=limit * 2,  # Get more results for filtering
                 include=["documents", "metadatas", "distances"]
             )
             
             search_results = []
             for i, doc_id in enumerate(results["ids"][0]):
-                search_results.append({
-                    "id": doc_id,
-                    "content": json.loads(results["documents"][0][i]),
-                    "metadata": results["metadatas"][0][i],
-                    "similarity": 1.0 - results["distances"][0][i]  # Convert distance to similarity
-                })
+                distance = results["distances"][0][i]
+                
+                # Apply distance-based filtering
+                if distance <= max_distance:
+                    content = json.loads(results["documents"][0][i])
+                    
+                    # Apply quality filtering
+                    if not self._is_low_quality_content(content):
+                        search_results.append({
+                            "id": doc_id,
+                            "content": content,
+                            "metadata": results["metadatas"][0][i],
+                            "distance": distance,
+                            "similarity": 1.0 - distance,  # Convert distance to similarity
+                            "relevance_score": max(0, 1.0 - (distance / max_distance))
+                        })
             
-            return search_results
+            # Sort by distance (closest first) and limit results
+            search_results.sort(key=lambda x: x["distance"])
+            return search_results[:limit]
             
         except Exception as e:
             self.logger.error(f"Error in semantic search: {e}")

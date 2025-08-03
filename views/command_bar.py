@@ -337,7 +337,6 @@ class CommandBar(Input):
             response = await self.kimi_api.run_agent(
                 goal=goal,
                 context=context,
-                max_iterations=10,
                 progress_callback=progress_callback
             )
 

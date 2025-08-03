@@ -155,14 +155,21 @@ class K2EditApp(App):
         self.logger.info("K2EditApp mounted successfully")
     
     async def _initialize_agent_system(self):
-        """Initialize the agentic system asynchronously"""
+        """Initialize the agentic system asynchronously with progress updates"""
         try:
             self.agent_integration = K2EditAgentIntegration(str(Path.cwd()))
-            await self.agent_integration.initialize()
-            self.output_panel.add_info("Agentic system initialized")
+            
+            # Define progress callback to update output panel
+            async def progress_callback(message):
+                self.output_panel.add_info(message)
+                self.logger.info(message)
+            
+            await self.agent_integration.initialize(progress_callback)
+            
             # Update command bar with agent integration
             if hasattr(self, 'command_bar') and self.command_bar:
                 self.command_bar.set_agent_integration(self.agent_integration)
+            
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
             self.logger.info("Agentic system initialized successfully")

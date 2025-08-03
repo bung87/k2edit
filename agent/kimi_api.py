@@ -39,7 +39,7 @@ class KimiAPI:
             timeout=60.0
         )
         self.last_request_time = 0
-        self.min_request_interval = float(os.getenv("KIMI_REQUEST_INTERVAL", "0.5"))  # Minimum interval between requests in seconds
+        self.min_request_interval = float(os.getenv("KIMI_REQUEST_INTERVAL", "1.0"))  # Minimum interval between requests in seconds
     
     async def chat(
         self,
@@ -108,7 +108,7 @@ class KimiAPI:
         self,
         goal: str,
         context: Optional[Dict] = None,
-        max_iterations: int = 10,
+        max_iterations: int = None,
         progress_callback=None
     ) -> Dict[str, Any]:
         """Run Kimi in agent mode with multi-step reasoning.
@@ -127,8 +127,14 @@ class KimiAPI:
         request_id = str(uuid.uuid4())[:8]
         logger = logging.getLogger("k2edit")
         
+        # Use configurable max_iterations, default to 10
+        if max_iterations is None:
+            max_iterations = int(os.getenv("KIMI_MAX_ITERATIONS", "10"))
+        
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
+        
+        logger.info(f"Starting Kimi agent analysis [{request_id}] - Max iterations: {max_iterations}")
         
         # Log detailed context information
         self._log_context_details(context, logger)
@@ -169,9 +175,10 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 await asyncio.sleep(self.min_request_interval - time_since_last)
             
             try:
-                logger.info(f"Kimi agent iteration {iteration + 1}/{max_iterations} [{request_id}]")
+                iteration_info = f"Iteration {iteration + 1}/{max_iterations} ({((iteration + 1)/max_iterations)*100:.0f}% complete)"
+                logger.info(f"Kimi agent {iteration_info} [{request_id}]")
                 if progress_callback:
-                    progress_callback(request_id, iteration + 1, max_iterations, "processing")
+                    progress_callback(request_id, iteration + 1, max_iterations, iteration_info)
                 response = await self._single_chat(payload)
                 
                 # Add assistant response to conversation
@@ -202,21 +209,30 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     
                     # Check for explicit completion signal
                     if "TASK COMPLETED" in content.upper():
-                        logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations (explicit completion)")
+                        completion_msg = f"Analysis completed successfully after {iteration + 1}/{max_iterations} iterations"
+                        logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
                         response["iterations"] = iteration + 1
+                        response["completion_status"] = "completed"
+                        response["summary"] = completion_msg
                         return response
                     
                     # Check if this looks like a final response
                     if content and not content.lower().startswith(("i need to", "let me", "i'll", "i will", "first", "next", "now i")):
                         # This appears to be a final answer
-                        logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations (final response detected)")
+                        completion_msg = f"Analysis completed after {iteration + 1}/{max_iterations} iterations (final response detected)"
+                        logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
                         response["iterations"] = iteration + 1
+                        response["completion_status"] = "completed"
+                        response["summary"] = completion_msg
                         return response
                     
                     # If we've had 2 consecutive iterations without tools, likely done
                     if consecutive_no_tools >= 2:
-                        logger.info(f"Kimi agent completed [{request_id}] after {iteration + 1} iterations (no tools for {consecutive_no_tools} iterations)")
+                        completion_msg = f"Analysis completed after {iteration + 1}/{max_iterations} iterations (no additional tools needed)"
+                        logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
                         response["iterations"] = iteration + 1
+                        response["completion_status"] = "completed"
+                        response["summary"] = completion_msg
                         return response
                     
                     # Continue for one more iteration
@@ -243,12 +259,15 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     "error": error_msg
                 }
         
-        logger.info(f"Kimi agent reached max iterations [{request_id}]: {max_iterations} iterations")
+        completion_msg = f"Analysis reached maximum iteration limit ({max_iterations}/{max_iterations})"
+        logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
         if progress_callback:
-            progress_callback(request_id, max_iterations, max_iterations, "max_iterations")
+            progress_callback(request_id, max_iterations, max_iterations, completion_msg)
         return {
-            "content": f"Analysis stopped after reaching maximum iteration limit of {max_iterations} iterations. The task may be too complex or require more iterations to complete.",
-            "error": f"Maximum iterations ({max_iterations}) reached without completion"
+            "content": f"Analysis completed after {max_iterations} iterations. The task may require additional iterations for more comprehensive analysis.",
+            "iterations": max_iterations,
+            "completion_status": "max_iterations_reached",
+            "summary": completion_msg
         }
     
     async def _single_chat(self, payload: Dict) -> Dict[str, Any]:

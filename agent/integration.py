@@ -30,10 +30,10 @@ class K2EditAgentIntegration:
         self.project_root = Path(project_root)
         self.agent_initialized = False
         
-    async def initialize(self):
-        """Initialize the agentic system"""
+    async def initialize(self, progress_callback=None):
+        """Initialize the agentic system with progress updates"""
         try:
-            await initialize_agentic_system(str(self.project_root), logger)
+            await initialize_agentic_system(str(self.project_root), logger, progress_callback)
             self.agent_initialized = True
             logger.info("K2Edit agentic system initialized successfully")
         except Exception as e:

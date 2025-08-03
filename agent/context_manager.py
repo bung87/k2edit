@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import threading
+import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -74,21 +75,30 @@ class AgenticContextManager:
             self.embedding_model = None
             self._embedding_lock = None
         
-    async def initialize(self, project_root: str):
-        """Initialize the context manager with project root"""
+    async def initialize(self, project_root: str, progress_callback=None):
+        """Initialize the context manager with project root and progress updates"""
         self.logger.info(f"Initializing agentic context manager for {project_root}")
+        
+        if progress_callback:
+            await progress_callback("Initializing memory store...")
         
         # Initialize memory store
         await self.memory_store.initialize(project_root)
         
-        # Initialize LSP indexer
-        await self.lsp_indexer.initialize(project_root)
+        if progress_callback:
+            await progress_callback("Starting symbol indexing...")
+        
+        # Initialize LSP indexer with progress updates
+        await self.lsp_indexer.initialize(project_root, progress_callback)
         
         # Set initial context
         self.current_context = AgentContext(
             project_root=project_root,
             language=self._detect_language(project_root)
         )
+        
+        if progress_callback:
+            await progress_callback("Agentic system ready")
         
     async def update_context(self, file_path: str, selected_code: str = None, 
                            cursor_position: Dict[str, int] = None):
@@ -189,7 +199,7 @@ class AgenticContextManager:
         
         return overview
 
-    async def get_enhanced_context(self, query: str) -> Dict[str, Any]:
+    async def get_enhanced_context(self, query: str, max_semantic_distance: float = 1.2) -> Dict[str, Any]:
         """Get enhanced context for AI agent based on query including semantic search and hierarchical data"""
         if not self.current_context:
             return {}
@@ -234,16 +244,40 @@ class AgenticContextManager:
         # If the query seems general (not focused on specific code), add project-wide context.
         is_general_query = not self.current_context.file_path or not self.current_context.selected_code
         if is_general_query:
-            self.logger.info("General query detected, fetching project-wide symbols.")
+            self.logger.info("General query detected, initiating project-wide symbol collection...")
+            self.logger.info("Query context: {} file_path, {} selected code".format(
+                "No" if not self.current_context.file_path else "Has",
+                "No" if not self.current_context.selected_code else "Has"
+            ))
+            
+            start_time = time.time()
             project_symbols = await self.lsp_indexer.get_project_symbols()
+            elapsed_time = time.time() - start_time
+            
+            self.logger.info(f"Completed project-wide symbol collection in {elapsed_time:.2f}s")
+            self.logger.info(f"Adding {len(project_symbols)} project symbols to context")
+            
+            # Log sample of symbols for debugging
+            if project_symbols:
+                sample_symbols = project_symbols[:5]
+                self.logger.info("Sample project symbols:")
+                for symbol in sample_symbols:
+                    self.logger.info(f"  - {symbol.get('name', 'unnamed')} ({symbol.get('kind', 'unknown')}) in {symbol.get('file_path', 'unknown')}")
+            
             context["project_symbols"] = project_symbols
 
-        # Get semantic search results from memory
-        semantic_results = await self.memory_store.semantic_search(query)
-        context["semantic_context"] = semantic_results
+        # Get targeted semantic search results from memory with distance filtering
+        # Only include high-relevance historical context and conversations
+        semantic_results = await self.memory_store.semantic_search(query, limit=5, max_distance=max_semantic_distance)
         
-        # Get relevant historical context from memory
-        relevant_history = await self.memory_store.search_relevant_context(query)
+        # Only add semantic context if we have high-quality, relevant results
+        if semantic_results and len(semantic_results) > 0:
+            context["semantic_context"] = semantic_results
+        else:
+            context["semantic_context"] = []
+        
+        # Get relevant historical context from memory with distance filtering
+        relevant_history = await self.memory_store.search_relevant_context(query, max_distance=max_semantic_distance)
         context["relevant_history"] = relevant_history
         
         # Find similar code patterns if there is a selection
@@ -317,9 +351,9 @@ class AgenticContextManager:
         _, ext = os.path.splitext(filename)
         return ext_map.get(ext.lower(), 'unknown')
         
-    async def process_agent_request(self, query: str, user_input: str) -> Dict[str, Any]:
+    async def process_agent_request(self, query: str, user_input: str, max_semantic_distance: float = 1.2) -> Dict[str, Any]:
         """Process an AI agent request with full context"""
-        enhanced_context = await self.get_enhanced_context(query)
+        enhanced_context = await self.get_enhanced_context(query, max_semantic_distance=max_semantic_distance)
         
         # Store conversation
         conversation_entry = {

@@ -28,7 +28,7 @@ class LSPIndexer:
         # Language server configurations
         self.server_configs = {
             "python": {
-                "command": ["pylsp"],
+                "command": ["/Users/bung/Library/Python/3.9/bin/pylsp"],
                 "extensions": [".py"],
                 "settings": {
                     "pylsp": {
@@ -67,19 +67,35 @@ class LSPIndexer:
             }
         }
         
-    async def initialize(self, project_root: str):
-        """Initialize LSP indexer for project"""
+    async def initialize(self, project_root: str, progress_callback=None):
+        """Initialize LSP indexer for project with optional progress callback"""
         self.project_root = Path(project_root)
+        
+        # Add a small delay to show progress messages
+        if progress_callback:
+            await progress_callback("Starting symbol indexing...")
+            await asyncio.sleep(0.5)
         
         # Detect language and start appropriate server
         language = await self._detect_language()
+        if progress_callback:
+            await progress_callback(f"Detected language: {language}")
+            await asyncio.sleep(0.3)
+        
         if language in self.server_configs:
             await self._start_language_server(language)
+            if progress_callback:
+                await progress_callback(f"Started {language} language server")
+                await asyncio.sleep(0.3)
+        elif progress_callback:
+            await progress_callback(f"No language server configured for {language}")
             
-        # Build initial index
-        await self._build_initial_index()
+        # Build initial index with progress updates
+        await self._build_initial_index(progress_callback)
         
         self.logger.info(f"LSP indexer initialized for {language}")
+        if progress_callback:
+            await progress_callback("Symbol indexing completed")
         
     async def _detect_language(self) -> str:
         """Detect the primary language of the project"""
@@ -174,10 +190,13 @@ class LSPIndexer:
         except Exception as e:
             self.logger.error(f"Failed to send LSP message: {e}")
             
-    async def _build_initial_index(self):
-        """Build initial symbol index for all files"""
+    async def _build_initial_index(self, progress_callback=None):
+        """Build initial symbol index for all files with progress updates"""
         language = await self._detect_language()
         if language == "unknown":
+            self.logger.info("Unknown language detected, skipping initial indexing")
+            if progress_callback:
+                await progress_callback("Unknown language detected, skipping indexing")
             return
             
         # Find all relevant files
@@ -186,17 +205,55 @@ class LSPIndexer:
         for ext in extensions:
             files.extend(self.project_root.rglob(f"*{ext}"))
             
-        # Index each file
-        for file_path in files:
-            await self._index_file(file_path, language)
+        self.logger.info(f"Starting initial symbol indexing for {language} project")
+        self.logger.info(f"Found {len(files)} files to index with extensions: {extensions}")
+        
+        if progress_callback:
+            await progress_callback(f"Found {len(files)} files to index")
+        
+        # Index each file with progress logging
+        indexed_count = 0
+        failed_count = 0
+        
+        for i, file_path in enumerate(files):
+            try:
+                await self._index_file(file_path, language)
+                indexed_count += 1
+                
+                # Report progress
+                progress = (i + 1) / len(files) * 100
+                if progress_callback and (i + 1) % 5 == 0:  # Update every 5 files
+                    await progress_callback(f"Indexing symbols... {i + 1}/{len(files)} files ({progress:.1f}%)")
+                
+                # Log progress every 10 files
+                if indexed_count % 10 == 0:
+                    self.logger.info(f"Indexed {indexed_count}/{len(files)} files...")
+                    
+            except Exception as e:
+                failed_count += 1
+                self.logger.warning(f"Failed to index {file_path}: {e}")
+                
+        self.logger.info(f"Initial indexing complete: {indexed_count} successful, {failed_count} failed")
+        if progress_callback:
+            await progress_callback(f"Indexing complete: {indexed_count} files indexed, {failed_count} failed")
             
     async def _index_file(self, file_path: Path, language: str):
         """Index a single file for symbols"""
         try:
             relative_path = file_path.relative_to(self.project_root)
             
+            self.logger.debug(f"Indexing symbols for file: {relative_path}")
+            
             # Request document symbols
             symbols = await self._get_document_symbols(str(relative_path), language)
+            
+            # Count symbol types for this file
+            symbol_types = {}
+            for symbol in symbols:
+                symbol_type = symbol.get("kind", "unknown")
+                symbol_types[symbol_type] = symbol_types.get(symbol_type, 0) + 1
+            
+            self.logger.debug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
             
             # Store in index
             self.symbol_index[str(relative_path)] = symbols
@@ -237,7 +294,13 @@ class LSPIndexer:
             server_info["message_id"] += 1
             
             if response and "result" in response:
-                return self._parse_lsp_symbols(response["result"])
+                self.logger.debug(f"LSP response for {file_path}: {response}")
+                result = response["result"]
+                if isinstance(result, list):
+                    return self._parse_lsp_symbols(result)
+                else:
+                    self.logger.debug(f"Unexpected LSP result format: {type(result)} - {result}")
+                    return []
         except Exception as e:
             self.logger.error(f"LSP request failed for {file_path}: {e}")
             
@@ -298,7 +361,7 @@ class LSPIndexer:
     def _parse_lsp_symbols(self, lsp_symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Parse LSP symbols into our format"""
         symbols = []
-        
+
         def parse_symbol(symbol: Dict[str, Any], parent: str = None):
             kind_map = {
                 1: "file", 2: "module", 3: "namespace", 4: "package",
@@ -309,35 +372,52 @@ class LSPIndexer:
                 21: "null", 22: "enum_member", 23: "struct", 24: "event",
                 25: "operator", 26: "type_parameter"
             }
-            
-            name = symbol.get("name", "")
-            kind = kind_map.get(symbol.get("kind", 0), "unknown")
-            location = symbol.get("location", {})
-            range_info = location.get("range", {})
-            start_line = range_info.get("start", {}).get("line", 0) + 1
-            end_line = range_info.get("end", {}).get("line", 0) + 1
-            
-            symbol_data = {
-                "name": name,
-                "kind": kind,
-                "type": kind,
-                "start_line": start_line,
-                "end_line": end_line,
-                "parent": parent,
-                "detail": symbol.get("detail", ""),
-                "children": []
-            }
-            
-            symbols.append(symbol_data)
-            
-            # Handle nested symbols
-            children = symbol.get("children", [])
-            for child in children:
-                parse_symbol(child, name)
+
+            try:
+                # Handle different symbol formats
+                if isinstance(symbol, str):
+                    # Skip string entries
+                    return
                 
-        for symbol in lsp_symbols:
-            parse_symbol(symbol)
-            
+                name = symbol.get("name", "")
+                kind = kind_map.get(symbol.get("kind", 0), "unknown")
+                
+                # Handle different location formats
+                location = symbol.get("location", symbol)
+                range_info = location.get("range", symbol)
+                
+                start_line = range_info.get("start", {}).get("line", 0) + 1
+                end_line = range_info.get("end", {}).get("line", 0) + 1
+
+                symbol_data = {
+                    "name": name,
+                    "kind": kind,
+                    "type": kind,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "parent": parent,
+                    "detail": symbol.get("detail", ""),
+                    "children": []
+                }
+
+                symbols.append(symbol_data)
+
+                # Handle nested symbols
+                children = symbol.get("children", [])
+                for child in children:
+                    parse_symbol(child, name)
+                    
+            except Exception as e:
+                self.logger.debug(f"Skipping malformed symbol: {symbol} - {e}")
+                return
+
+        # Handle both list and dict formats
+        if isinstance(lsp_symbols, list):
+            for symbol in lsp_symbols:
+                parse_symbol(symbol)
+        elif isinstance(lsp_symbols, dict):
+            parse_symbol(lsp_symbols)
+
         return symbols
         
     async def _parse_basic_symbols(self, file_path: Path) -> List[Dict[str, Any]]:
@@ -564,13 +644,43 @@ class LSPIndexer:
         
     async def get_project_symbols(self) -> List[Dict[str, Any]]:
         """Get all symbols across the project"""
+        self.logger.info("Starting project-wide symbol fetching...")
+        
         all_symbols = []
+        total_files = len(self.symbol_index)
+        total_symbols_count = 0
+        
+        # Log indexing status
+        self.logger.info(f"Symbol index contains {total_files} files")
+        
+        # Count symbols by type for detailed logging
+        symbol_type_counts = {}
         
         for file_path, symbols in self.symbol_index.items():
+            file_symbol_count = len(symbols)
+            total_symbols_count += file_symbol_count
+            
+            # Track symbol types
             for symbol in symbols:
+                symbol_type = symbol.get("kind", "unknown")
+                symbol_type_counts[symbol_type] = symbol_type_counts.get(symbol_type, 0) + 1
+                
                 symbol["file_path"] = file_path
                 all_symbols.append(symbol)
-                
+        
+        # Log detailed summary
+        self.logger.info(f"Fetched {total_symbols_count} total symbols from {total_files} files")
+        self.logger.info(f"Symbol type breakdown: {symbol_type_counts}")
+        
+        # Log top files by symbol count
+        file_symbol_counts = [(fp, len(syms)) for fp, syms in self.symbol_index.items()]
+        file_symbol_counts.sort(key=lambda x: x[1], reverse=True)
+        
+        if file_symbol_counts:
+            self.logger.info("Top 5 files by symbol count:")
+            for file_path, count in file_symbol_counts[:5]:
+                self.logger.info(f"  - {file_path}: {count} symbols")
+        
         return all_symbols
         
     async def get_document_outline(self, file_path: str) -> Dict[str, Any]:
