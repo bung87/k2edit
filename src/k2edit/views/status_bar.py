@@ -48,56 +48,23 @@ class StatusBar(Widget):
     
     def render(self) -> str:
         """Render the status bar content."""
-        # Left side: Git branch and diagnostics
-        left_items = []
+        print(f"StatusBar render() called - git_branch: '{self.git_branch}', cursor: ({self.cursor_line}, {self.cursor_column})")
         
+        # Always show at least basic info
+        result = f"K2Edit | Ln {self.cursor_line}, Col {self.cursor_column} | {self.language or 'Text'}"
+        
+        # Add git branch if available
         if self.git_branch:
-            left_items.append(f"🌿 {self.git_branch}")
+            result = f"🌿 {self.git_branch} | " + result
         
+        # Add diagnostics if available
         if self.diagnostics_errors > 0:
-            left_items.append(f"❌ {self.diagnostics_errors}")
+            result = f"❌ {self.diagnostics_errors} | " + result
         
         if self.diagnostics_warnings > 0:
-            left_items.append(f"⚠️ {self.diagnostics_warnings}")
+            result = f"⚠️ {self.diagnostics_warnings} | " + result
         
-        left_side = " | ".join(left_items) if left_items else "K2Edit"
-        
-        # Right side: Position, indentation, encoding, line break, language
-        right_items = []
-        
-        if self.cursor_line > 0:
-            right_items.append(f"Ln {self.cursor_line}, Col {self.cursor_column}")
-        
-        if self.indentation:
-            right_items.append(self.indentation)
-        
-        if self.encoding:
-            right_items.append(self.encoding)
-        
-        if self.line_ending:
-            right_items.append(self.line_ending)
-        
-        if self.language:
-            right_items.append(self.language)
-        
-        right_side = " | ".join(right_items) if right_items else "Ready"
-        
-        # Combine left and right sides with proper spacing
-        if left_side and right_side:
-            # Calculate padding to push right side to the right
-            total_width = self.size.width if self.size else 80
-            left_width = len(left_side)
-            right_width = len(right_side)
-            padding = max(0, total_width - left_width - right_width - 2)  # -2 for separators
-            
-            result = f"{left_side}{' ' * padding} | {right_side}"
-        elif left_side:
-            result = left_side
-        elif right_side:
-            result = right_side
-        else:
-            result = "K2Edit Status Bar"
-        
+        print(f"StatusBar render result: '{result}'")
         return result
     
     @work
@@ -132,23 +99,29 @@ class StatusBar(Widget):
     
     def update_diagnostics(self, warnings: int = 0, errors: int = 0):
         """Update diagnostics information."""
+        print(f"StatusBar update_diagnostics: warnings={warnings}, errors={errors}")
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
+        self.refresh()
     
     def update_cursor_position(self, line: int, column: int):
         """Update cursor position."""
+        print(f"StatusBar update_cursor_position: ({line}, {column})")
         self.cursor_line = line
         self.cursor_column = column
+        self.refresh()
     
     def update_file_info(self, file_path: str = "", language: str = "", 
                         indentation: str = "", encoding: str = "", 
                         line_ending: str = ""):
         """Update file-related information."""
+        print(f"StatusBar update_file_info: file='{file_path}', lang='{language}', indent='{indentation}'")
         self.file_path = file_path
         self.language = language
         self.indentation = indentation
         self.encoding = encoding
         self.line_ending = line_ending
+        self.refresh()
     
     def _detect_language_from_extension(self, file_path: str) -> str:
         """Detect programming language from file extension."""
@@ -235,8 +208,13 @@ class StatusBar(Widget):
     
     def on_mount(self):
         """Called when the widget is mounted."""
+        print("StatusBar on_mount called")
+        
         # Initialize git branch
         self._update_git_branch_sync()
+        
+        # Force initial render
+        self.refresh()
         
         # Start periodic git branch updates
         self.set_interval(10, self._update_git_branch)
