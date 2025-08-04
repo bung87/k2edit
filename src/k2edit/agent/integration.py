@@ -10,7 +10,7 @@ from aiologger import Logger
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from agent import (
+from . import (
     initialize_agentic_system,
     process_agent_query,
     record_code_change,
@@ -42,7 +42,7 @@ class K2EditAgentIntegration:
             
         try:
             # Update context with the opened file
-            from agent import get_agent_context
+            from . import get_agent_context
             agent = await get_agent_context()
             if agent:
                 await agent.update_context(file_path)
@@ -109,7 +109,7 @@ class K2EditAgentIntegration:
             return False
             
         try:
-            from agent import get_agent_context
+            from . import get_agent_context
             agent = await get_agent_context()
             if agent:
                 return await agent.add_context_file(file_path, file_content)

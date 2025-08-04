@@ -12,7 +12,6 @@ import logging
 from pathlib import Path
 
 # Set environment variable to use ChromaDB
-os.environ["K2EDIT_MEMORY_STORE"] = "chromadb"
 
 # Import after setting environment variable
 from agent.context_manager import AgenticContextManager
@@ -47,7 +46,6 @@ async def test_memory_operations(context_manager, logger):
     # Store a conversation
     await memory_store.store_conversation({
         "query": "How do I use ChromaDB with K2Edit?",
-        "response": "Set K2EDIT_MEMORY_STORE=chromadb environment variable",
         "context": {"file_path": "examples/chromadb_example.py"}
     })
     logger.info("Stored conversation in ChromaDB")
@@ -90,7 +88,6 @@ def demonstrate_configuration():
     
     # Method 1: Environment variable
     print("\n1. Using Environment Variable:")
-    print("   export K2EDIT_MEMORY_STORE=chromadb")
     print("   python main.py")
     
     # Method 2: Programmatic configuration

@@ -48,7 +48,7 @@ class ProjectContextTester:
         await self.agent_integration.initialize()
         
         # Import agent module functions for direct testing
-        from agent import get_agent_context
+        from k2edit.agent import get_agent_context
         agent = await get_agent_context()
         self.context_manager = agent
         
@@ -59,7 +59,7 @@ class ProjectContextTester:
         logger.info("Testing basic project structure discovery...")
         
         # Get project overview through agent
-        from agent import process_agent_query
+        from k2edit.agent import process_agent_query
         result = await process_agent_query("What is the project structure and what files are in this project?")
         
         print("\n=== Project Overview ===")
@@ -78,7 +78,7 @@ class ProjectContextTester:
         logger.info("Testing language detection...")
         
         # Test language detection via agent
-        from agent import get_code_intelligence
+        from k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -108,7 +108,7 @@ class ProjectContextTester:
         logger.info("Testing symbol indexing...")
         
         # Test symbol indexing via agent
-        from agent import get_code_intelligence
+        from k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -144,7 +144,7 @@ class ProjectContextTester:
         logger.info("Testing semantic context...")
         
         # Test semantic context via agent
-        from agent import get_code_intelligence
+        from k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -176,7 +176,7 @@ class ProjectContextTester:
         logger.info("Testing import graph analysis...")
         
         # Test import analysis via agent
-        from agent import get_code_intelligence
+        from k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -222,7 +222,7 @@ class ProjectContextTester:
             print("="*60)
             
             # Summary using agent API
-            from agent import process_agent_query
+            from k2edit.agent import process_agent_query
             result = await process_agent_query("Summarize this project's structure and main components")
             
             print(f"\nFinal Summary:")

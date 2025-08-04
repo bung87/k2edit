@@ -9,7 +9,7 @@ from textual import events
 from textual.message import Message
 from textual.widgets import Input
 
-from agent.tools import ToolExecutor
+from ..agent.tools import ToolExecutor
 
 
 class CommandBar(Input):

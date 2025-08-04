@@ -143,6 +143,8 @@ You are an AI coding assistant with access to tools. Your goal is: {goal}
 Please break this down into steps and use the available tools to accomplish the goal.
 You can read files, write files, and replace code as needed.
 
+**IMPORTANT**: When modifying files, use the `write_file` tool to write the complete modified content back to the file. Do NOT use `replace_code` as it only works with the editor and doesn't actually modify files.
+
 Context:
 {json.dumps(context, indent=2) if context else 'No additional context'}
 
@@ -609,6 +611,8 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     result = await self._tool_write_file(**arguments)
                 elif function_name == "replace_code":
                     result = await self._tool_replace_code(**arguments)
+                elif function_name == "search_code":
+                    result = await self._tool_search_code(**arguments)
                 else:
                     result = {"error": f"Unknown function: {function_name}"}
                 
@@ -669,6 +673,61 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             "end_line": end_line,
             "new_code": new_code
         }
+    
+    async def _tool_search_code(self, pattern: str, file_pattern: str = "*", directory: str = ".") -> Dict:
+        """Tool implementation: Search for code patterns in files."""
+        try:
+            import glob
+            import re
+            
+            search_results = []
+            dir_path = Path(directory)
+            
+            # Find files matching the pattern
+            if file_pattern == "*":
+                files = list(dir_path.rglob("*.py"))  # Default to Python files
+            else:
+                files = list(dir_path.glob(file_pattern))
+            
+            for file_path in files:
+                if file_path.is_file():
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # Search for pattern
+                        lines = content.split('\n')
+                        matches = []
+                        
+                        for i, line in enumerate(lines, 1):
+                            if re.search(pattern, line, re.IGNORECASE):
+                                matches.append({
+                                    "line": i,
+                                    "content": line.strip()
+                                })
+                        
+                        if matches:
+                            search_results.append({
+                                "file": str(file_path),
+                                "matches": matches
+                            })
+                    
+                    except Exception as e:
+                        # Skip files that can't be read
+                        continue
+            
+            return {
+                "success": True,
+                "pattern": pattern,
+                "results": search_results,
+                "total_files_searched": len(files),
+                "total_matches": sum(len(result["matches"]) for result in search_results)
+            }
+        
+        except Exception as e:
+            logger = logging.getLogger("k2edit")
+            logger.error(f"Failed to search code: {str(e)}")
+            return {"error": f"Failed to search code: {str(e)}"}
     
     async def close(self):
         """Close the OpenAI client."""

@@ -7,7 +7,7 @@ from typing import Optional, Union
 from textual.widgets import TextArea
 
 # Import the Nim highlight module
-from nim_highlight import register_nim_language, is_nim_available
+from .nim_highlight import register_nim_language, is_nim_available
 
 class CustomSyntaxEditor(TextArea):
     """Custom syntax-aware text editor with enhanced file handling."""

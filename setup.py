@@ -17,7 +17,9 @@ def read_requirements():
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    requirements.append(line)
+                    # Skip git URLs for now - they need special handling
+                    if not line.startswith('git+'):
+                        requirements.append(line)
     return requirements
 
 setup(
@@ -29,7 +31,8 @@ setup(
     author="K2Edit",
     author_email="k2edit@example.com",
     url="https://github.com/k2edit/k2edit",
-    packages=find_packages(),
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
     include_package_data=True,
     install_requires=read_requirements(),
     extras_require={
@@ -50,7 +53,7 @@ setup(
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
-            "k2edit=main:main",
+            "k2edit=k2edit.main:main",
         ],
     },
     classifiers=[

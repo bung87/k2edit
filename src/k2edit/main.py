@@ -26,12 +26,12 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.logging import TextualHandler
 
-from custom_syntax_editor import CustomSyntaxEditor
-from views.command_bar import CommandBar
-from views.output_panel import OutputPanel
-from views.file_explorer import FileExplorer
-from agent.kimi_api import KimiAPI
-from agent.integration import K2EditAgentIntegration
+from .custom_syntax_editor import CustomSyntaxEditor
+from .views.command_bar import CommandBar
+from .views.output_panel import OutputPanel
+from .views.file_explorer import FileExplorer
+from .agent.kimi_api import KimiAPI
+from .agent.integration import K2EditAgentIntegration
 
 
 def setup_logging(log_level: str = "DEBUG") -> Logger:
