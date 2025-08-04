@@ -1,20 +1,23 @@
-from pathlib import Path
-from typing import Union, Optional
-from textual.widgets.text_area import TextAreaTheme
-from textual.widgets import TextArea
+#!/usr/bin/env python3
+"""Custom syntax-aware text editor widget for K2Edit."""
+
 import logging
+from pathlib import Path
+from typing import Optional, Union
+
+from textual.widgets import TextArea
 
 class CustomSyntaxEditor(TextArea):
-    """A custom editor widget based on Textual's TextArea."""
-
+    """Custom syntax-aware text editor with enhanced file handling."""
+    
     def __init__(self, app_instance=None, **kwargs):
         super().__init__(**kwargs)
         self._app_instance = app_instance
-        self.current_file: Optional[Path] = None
+        self.current_file = None
         self.is_modified = False
-        monokai = TextAreaTheme.get_builtin_theme("monokai")
-        self.register_theme(monokai)
-        # Language mapping for syntax highlighting
+        self.read_only = False
+        
+        # Language mapping for file extensions
         self._language_map = {
             '.py': 'python',
             '.js': 'javascript',
@@ -41,6 +44,17 @@ class CustomSyntaxEditor(TextArea):
         }
         self.show_line_numbers = True
         self.theme = "monokai"
+        
+        # Register Nim language with Textual
+        self._register_nim_language()
+
+    def _register_nim_language(self):
+        """Register Nim as a supported language in Textual."""
+        # For now, we'll handle Nim files as plain text with good user experience
+        # This avoids the complexity of creating custom tree-sitter Language objects
+        # while still providing full editing capabilities
+        if self._app_instance and hasattr(self._app_instance, 'logger'):
+            self._app_instance.logger.info("Nim language support enabled (plain text mode)")
 
     def _show_welcome_screen(self):
         """Display a welcome screen when no file is loaded."""
@@ -79,24 +93,9 @@ class CustomSyntaxEditor(TextArea):
                     # Use built-in tree-sitter support from Textual
                     if language and language != "text":
                         try:
-                            # For Nim, we need to handle the case where it's not a built-in language
-                            if language == "nim":
-                                # Set text first, then try to set language with fallback
-                                self.text = ""
-                                try:
-                                    # Try to use a similar language as fallback for basic syntax highlighting
-                                    # Python has similar syntax patterns to Nim
-                                    self.language = "python"
-                                    if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                        self._app_instance.logger.debug("CUSTOM EDITOR: Using Python syntax highlighting as fallback for Nim")
-                                except Exception as nim_error:
-                                    if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                        self._app_instance.logger.debug(f"CUSTOM EDITOR: Fallback failed, using plain text: {nim_error}")
-                                    self.language = None
-                            else:
-                                # Set the text and language properties
-                                self.text = ""
-                                self.language = language
+                            # Set the text and language properties
+                            self.text = ""
+                            self.language = language
                         except Exception as e:
                             # Language not supported or other error, fall back to plain text
                             if self._app_instance and hasattr(self._app_instance, 'logger'):
@@ -131,23 +130,13 @@ class CustomSyntaxEditor(TextArea):
                 # Use built-in tree-sitter support from Textual
                 if language and language != "text":
                     try:
-                        # For Nim, we need to handle the case where it's not a built-in language
+                        # Set the text and language properties
+                        self.text = content
+                        
+                        # Handle Nim files as plain text (no fallback to Python)
                         if language == "nim":
-                            # Set text first, then try to set language with fallback
-                            self.text = content
-                            try:
-                                # Try to use a similar language as fallback for basic syntax highlighting
-                                # Python has similar syntax patterns to Nim
-                                self.language = "python"
-                                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                    self._app_instance.logger.debug("CUSTOM EDITOR: Using Python syntax highlighting as fallback for Nim")
-                            except Exception as nim_error:
-                                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                    self._app_instance.logger.debug(f"CUSTOM EDITOR: Fallback failed, using plain text: {nim_error}")
-                                self.language = None
+                            self.language = None  # Plain text mode
                         else:
-                            # Set the text and language properties
-                            self.text = content
                             self.language = language
                     except Exception as e:
                         # Language not supported or other error, fall back to plain text
