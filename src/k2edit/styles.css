@@ -22,6 +22,17 @@ Footer {
     padding: 0;
 }
 
+StatusBar {
+    dock: bottom;
+    height: 1;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0 1;
+    text-align: left;
+    border-top: solid #1e293b;
+}
+
 Horizontal {
     height: 100%;
     box-sizing: border-box;

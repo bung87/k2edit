@@ -30,6 +30,7 @@ from .custom_syntax_editor import CustomSyntaxEditor
 from .views.command_bar import CommandBar
 from .views.output_panel import OutputPanel
 from .views.file_explorer import FileExplorer
+from .views.status_bar import StatusBar
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 
@@ -109,6 +110,7 @@ class K2EditApp(App):
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
         self.file_explorer = FileExplorer(id="file-explorer")
+        self.status_bar = StatusBar(id="status-bar")
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file
@@ -251,7 +253,7 @@ class K2EditApp(App):
             self.output_panel.styles.min_width = "25%"
             self.output_panel.styles.max_width = "25%"
             yield self.output_panel
-        yield Footer()
+        yield self.status_bar
         
     def on_command_bar_command_executed(self, message) -> None:
         """Handle command executed messages from the command bar."""
@@ -267,6 +269,9 @@ class K2EditApp(App):
                 self.output_panel.add_info(f"Loaded file: {file_path}")
                 await self.logger.info(f"Successfully loaded file from explorer: {file_path}")
                 self.editor.focus()
+                
+                # Update status bar
+                self._update_status_bar()
                 
                 # Notify agentic system about file open
                 await self._on_file_open_with_agent(file_path)
@@ -291,6 +296,14 @@ class K2EditApp(App):
             error_msg = f"Cannot add directory to context: {file_path}"
             await self.logger.error(error_msg)
             self.output_panel.add_error(error_msg)
+    
+    def on_editor_cursor_moved(self, event) -> None:
+        """Handle editor cursor movement."""
+        self._update_status_bar()
+    
+    def on_editor_content_changed(self, event) -> None:
+        """Handle editor content changes."""
+        self._update_status_bar()
     
     async def _add_file_to_context(self, file_path: str) -> None:
         """Add file to AI agent context."""
@@ -345,8 +358,23 @@ class K2EditApp(App):
     
     async def action_focus_editor(self) -> None:
         """Focus the editor."""
-        await self.logger.debug("Focusing editor")
         self.editor.focus()
+    
+    def _update_status_bar(self):
+        """Update status bar with current editor information."""
+        if self.editor:
+            # Update cursor position
+            cursor_location = self.editor.cursor_location
+            if cursor_location:
+                self.status_bar.update_cursor_position(
+                    cursor_location[0] + 1,  # Convert to 1-based
+                    cursor_location[1] + 1
+                )
+            
+            # Update file information
+            current_file = str(self.editor.current_file) if self.editor.current_file else ""
+            editor_content = self.editor.text
+            self.status_bar.update_from_editor(editor_content, current_file)
     
     async def process_agent_query(self, query: str) -> dict[str, any]:
         """Process an AI query using the agentic system"""
