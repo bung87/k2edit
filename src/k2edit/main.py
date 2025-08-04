@@ -21,7 +21,7 @@ from aiologger.formatters.base import Formatter
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer
+from textual.widgets import Header
 from textual.binding import Binding
 from textual.message import Message
 from textual.logging import TextualHandler
@@ -90,6 +90,7 @@ class K2EditApp(App):
     
     TITLE = "K2Edit - Kimi-K2 Code Editor"
     CSS_PATH = "styles.css"
+    SHOW_FOOTER = False  # Disable automatic footer since we have custom status bar
     
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
