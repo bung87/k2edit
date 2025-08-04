@@ -35,8 +35,6 @@ async def initialize_agentic_system(project_root: str, logger: Logger = None, pr
     
     if logger is None:
         logger = Logger(name="k2edit")
-        
-    logger.info("Initializing K2Edit agentic system...")
     
     if progress_callback:
         await progress_callback("Initializing agentic system...")
@@ -44,8 +42,6 @@ async def initialize_agentic_system(project_root: str, logger: Logger = None, pr
     # Initialize context manager
     _agentic_system = AgenticContextManager(logger)
     await _agentic_system.initialize(project_root, progress_callback)
-    
-    logger.info("Agentic system initialized successfully")
     
     if progress_callback:
         await progress_callback("Agentic system initialized")

@@ -169,7 +169,7 @@ class K2EditApp(App):
             # Define progress callback to update output panel
             async def progress_callback(message):
                 self.output_panel.add_info(message)
-                await self.logger.info(message)
+                # Don't log here since main.py already logs high-level messages
             
             await self.agent_integration.initialize(progress_callback)
             

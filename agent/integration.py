@@ -31,10 +31,9 @@ class K2EditAgentIntegration:
         try:
             await initialize_agentic_system(str(self.project_root), self.logger, progress_callback)
             self.agent_initialized = True
-            await self.logger.info("K2Edit agentic system initialized successfully")
         except Exception as e:
-            await self.logger.error(f"Failed to initialize agentic system: {e}")
             self.agent_initialized = False
+            raise  # Re-raise the exception so main.py can handle it
     
     async def on_file_open(self, file_path: str):
         """Called when a file is opened in the editor"""

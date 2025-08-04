@@ -93,16 +93,14 @@ class KimiAPI:
         except RateLimitError as e:
             logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
             raise Exception("Rate limit exceeded. Please wait a moment and try again.")
-        except OpenAIError as e:
-            # Handle other OpenAI errors
+        except (OpenAIError, Exception) as e:
+            # Handle other OpenAI errors and unexpected errors
             error_msg = str(e)
             logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            raise Exception(f"API request failed: {error_msg}")
-        except Exception as e:
-            # Handle unexpected errors
-            error_msg = str(e)
-            logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            raise Exception(f"API error: {error_msg}")
+            if isinstance(e, OpenAIError):
+                raise Exception(f"API request failed: {error_msg}")
+            else:
+                raise Exception(f"API error: {error_msg}")
     
     async def run_agent(
         self,
@@ -244,14 +242,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     "content": "Rate limit exceeded. Please wait a moment and try again.",
                     "error": "Rate limit exceeded"
                 }
-            except OpenAIError as e:
-                error_msg = str(e)
-                logger.error(f"Kimi agent execution failed [{request_id}]: {error_msg}")
-                return {
-                    "content": f"Agent execution failed: {error_msg}",
-                    "error": error_msg
-                }
-            except Exception as e:
+            except (OpenAIError, Exception) as e:
                 error_msg = str(e)
                 logger.error(f"Kimi agent execution failed [{request_id}]: {error_msg}")
                 return {

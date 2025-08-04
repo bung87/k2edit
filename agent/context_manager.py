@@ -64,7 +64,6 @@ class AgenticContextManager:
         
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize the context manager with project root and progress updates"""
-        await self.logger.info(f"Initializing agentic context manager for {project_root}")
         
         if progress_callback:
             await progress_callback("Initializing memory store...")
