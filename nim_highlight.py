@@ -24,25 +24,38 @@ def get_nim_language() -> Optional[object]:
         return None
 
 def get_nim_highlight_query() -> str:
-    """Get the Nim syntax highlighting query."""
-    return """
-    ; Comments
-    (comment) @comment
-    
-    ; Strings
-    (raw_string_literal) @string
-    
-    ; Numbers
-    (float_literal) @number
-    
-    ; Control flow
-    (if) @keyword
-    (for) @keyword
-    (while) @keyword
-    
-    ; Identifiers
-    (identifier) @variable
-    """
+    """Get the Nim syntax highlighting query from the official tree-sitter-nim package."""
+    try:
+        import tree_sitter_nim
+        import os
+        
+        # Get the path to the queries directory in the tree-sitter-nim package
+        package_dir = os.path.dirname(tree_sitter_nim.__file__)
+        highlights_file = os.path.join(package_dir, "queries", "highlights.scm")
+        
+        # Read the official highlights.scm file
+        with open(highlights_file, 'r', encoding='utf-8') as f:
+            return f.read()
+            
+    except Exception as e:
+        # Fallback to a minimal query if we can't read the official file
+        return """
+        ; Comments
+        (comment) @comment
+        (block_comment) @comment
+        
+        ; Strings
+        (interpreted_string_literal) @string
+        (long_string_literal) @string
+        (raw_string_literal) @string
+        
+        ; Numbers
+        (integer_literal) @number
+        (float_literal) @number
+        
+        ; Identifiers
+        (identifier) @variable
+        """
 
 def register_nim_language(text_area) -> bool:
     """Register Nim language with a Textual TextArea.
