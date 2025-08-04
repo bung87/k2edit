@@ -187,10 +187,8 @@ def register_nim_language(text_area) -> bool:
         return True
         
     except Exception as e:
-        # Log error if logger is available
-        if hasattr(text_area, '_app_instance') and text_area._app_instance:
-            if hasattr(text_area._app_instance, 'logger'):
-                text_area._app_instance.logger.error(f"NIM HIGHLIGHT: Failed to register Nim language: {e}")
+        # Note: Logging removed to avoid async logger issues during __init__
+        # The error will be handled by the calling code
         return False
 
 def is_nim_available() -> bool:

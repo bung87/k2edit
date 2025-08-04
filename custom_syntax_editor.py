@@ -54,15 +54,11 @@ class CustomSyntaxEditor(TextArea):
         """Register Nim as a supported language in Textual."""
         if is_nim_available():
             success = register_nim_language(self)
-            if success:
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.info("CUSTOM EDITOR: Successfully registered Nim language")
-            else:
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.warning("CUSTOM EDITOR: Failed to register Nim language")
+            # Note: Logging removed to avoid async logger issues during __init__
+            # The registration will be logged later when the app is running
         else:
-            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                self._app_instance.logger.warning("CUSTOM EDITOR: tree-sitter-nim not available, Nim files will be plain text")
+            # Note: Logging removed to avoid async logger issues during __init__
+            pass
 
     def _show_welcome_screen(self):
         """Display a welcome screen when no file is loaded."""
