@@ -1,10 +1,25 @@
-textual==5.2.0
+# K2Edit Dependencies
+# For development dependencies, use: pip install -e .[dev]
+# For testing dependencies, use: pip install -e .[test]
+
+# UI Framework
+textual>=5.2.0
 textual[syntax]>=0.51.0
-aiofiles==24.1.0
-aiologger==0.7.0
+rich>=13.3.3
+
+# Core dependencies
+aiofiles>=23.2.1
+aiologger>=0.7.0
+
+# AI and API integration
 openai>=1.0.0
 python-dotenv>=1.0.0
-rich>=13.3.3
+
+# Vector database and embeddings
 chromadb>=1.0.15
+sentence-transformers>=2.2.2
+numpy>=1.24.0
+
+# LSP integration
 python-lsp-server>=1.7.0
 git+https://github.com/alaviss/tree-sitter-nim.git

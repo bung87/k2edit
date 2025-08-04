@@ -4,9 +4,7 @@ Comprehensive solution for agentic context, memory, and LSP indexing
 """
 
 from aiologger import Logger
-import asyncio
 from typing import Dict, List, Any, Optional
-from pathlib import Path
 
 from .context_manager import AgenticContextManager
 from .lsp_indexer import LSPIndexer

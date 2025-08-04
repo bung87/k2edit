@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Setup script for tree-sitter-nim package."""
+"""Setup script for K2Edit - Terminal Code Editor with Kimi-K2 AI Integration."""
 
 from setuptools import setup, find_packages
 from pathlib import Path
@@ -8,40 +8,69 @@ from pathlib import Path
 this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text() if (this_directory / "README.md").exists() else ""
 
+# Read requirements from requirements.txt
+def read_requirements():
+    requirements_file = this_directory / "requirements.txt"
+    requirements = []
+    if requirements_file.exists():
+        with open(requirements_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    requirements.append(line)
+    return requirements
+
 setup(
-    name="tree-sitter-nim",
+    name="k2edit",
     version="0.1.0",
-    description="Tree-sitter Nim language support for Python",
+    description="Terminal Code Editor with Kimi-K2 AI Integration",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="K2Edit",
     author_email="k2edit@example.com",
-    url="https://github.com/k2edit/tree-sitter-nim",
+    url="https://github.com/k2edit/k2edit",
     packages=find_packages(),
-    package_data={
-        "tree_sitter_nim": ["*.so", "*.dylib", "*.dll"],
+    include_package_data=True,
+    install_requires=read_requirements(),
+    extras_require={
+        "dev": [
+            "pytest>=7.4.0",
+            "pytest-asyncio>=0.21.0",
+            "pytest-cov>=4.1.0",
+            "black>=23.0.0",
+            "flake8>=6.0.0",
+            "mypy>=1.0.0",
+        ],
+        "test": [
+            "pytest>=7.4.0",
+            "pytest-asyncio>=0.21.0",
+            "pytest-cov>=4.1.0",
+        ],
     },
-    install_requires=[
-        "tree-sitter>=0.20.0",
-    ],
-    python_requires=">=3.7",
+    python_requires=">=3.8",
+    entry_points={
+        "console_scripts": [
+            "k2edit=main:main",
+        ],
+    },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "Topic :: Software Development :: Libraries :: Python Modules",
-        "Topic :: Text Processing :: Linguistic",
+        "Topic :: Text Editors",
+        "Topic :: Software Development :: User Interfaces",
     ],
-    keywords="tree-sitter nim syntax highlighting parsing",
+    keywords="terminal editor ai kimi code assistance",
     project_urls={
-        "Bug Reports": "https://github.com/k2edit/tree-sitter-nim/issues",
-        "Source": "https://github.com/k2edit/tree-sitter-nim",
+        "Bug Reports": "https://github.com/k2edit/k2edit/issues",
+        "Source": "https://github.com/k2edit/k2edit",
+        "Documentation": "https://github.com/k2edit/k2edit#readme",
     },
 )
