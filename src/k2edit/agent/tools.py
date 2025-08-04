@@ -30,6 +30,12 @@ class ToolExecutor:
                 return await self.analyze_code(**arguments)
             elif tool_name == "insert_code":
                 return await self.insert_code(**arguments)
+            elif tool_name == "replace_code":
+                return await self.replace_code(**arguments)
+            elif tool_name == "read_file":
+                return await self.read_file(**arguments)
+            elif tool_name == "write_file":
+                return await self.write_file(**arguments)
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
         
@@ -244,6 +250,114 @@ class ToolExecutor:
         except Exception as e:
             self.logger.error(f"Code insertion failed: {str(e)}")
             return {"error": f"Code insertion failed: {str(e)}"}
+    
+    async def replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict[str, Any]:
+        """Replace code at specific lines in the editor."""
+        try:
+            if not self.editor:
+                return {"error": "No editor available"}
+            
+            lines = self.editor.text.splitlines()
+            
+            # Validate line numbers (1-based indexing)
+            if start_line < 1 or end_line > len(lines) or start_line > end_line:
+                return {"error": f"Invalid line range: {start_line}-{end_line}"}
+            
+            # Convert to 0-based indexing
+            start_idx = start_line - 1
+            end_idx = end_line
+            
+            # Split new code into lines
+            new_lines = new_code.splitlines()
+            
+            # Replace the specified lines
+            lines[start_idx:end_idx] = new_lines
+            
+            # Update editor content
+            self.editor.text = '\n'.join(lines)
+            self.editor.is_modified = True
+            
+            return {
+                "success": True,
+                "message": f"Code replaced at lines {start_line}-{end_line}",
+                "start_line": start_line,
+                "end_line": end_line,
+                "replaced_lines": end_line - start_line + 1,
+                "new_lines": len(new_lines)
+            }
+        
+        except Exception as e:
+            self.logger.error(f"Code replacement failed: {str(e)}")
+            return {"error": f"Code replacement failed: {str(e)}"}
+    
+    async def read_file(self, path: str) -> Dict[str, Any]:
+        """Read content from a file."""
+        try:
+            file_path = Path(path)
+            
+            # Validate file exists
+            if not file_path.exists():
+                return {"error": f"File not found: {path}"}
+            
+            if not file_path.is_file():
+                return {"error": f"Path is not a file: {path}"}
+            
+            # Check file size to avoid reading huge files
+            file_size = file_path.stat().st_size
+            max_size = 10 * 1024 * 1024  # 10MB limit
+            
+            if file_size > max_size:
+                return {"error": f"File too large ({file_size} bytes). Maximum size is {max_size} bytes."}
+            
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return {
+                "success": True,
+                "path": str(file_path),
+                "content": content,
+                "size": file_size,
+                "lines": len(content.splitlines())
+            }
+        
+        except UnicodeDecodeError:
+            return {"error": f"File is not a text file: {path}"}
+        except PermissionError:
+            return {"error": f"Permission denied reading file: {path}"}
+        except Exception as e:
+            self.logger.error(f"Failed to read file: {str(e)}")
+            return {"error": f"Failed to read file: {str(e)}"}
+    
+    async def write_file(self, path: str, content: str) -> Dict[str, Any]:
+        """Write content to a file."""
+        try:
+            file_path = Path(path)
+            
+            # Create parent directories if they don't exist
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Write content to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Get file info after writing
+            file_size = file_path.stat().st_size
+            lines = len(content.splitlines())
+            
+            return {
+                "success": True,
+                "path": str(file_path),
+                "size": file_size,
+                "lines": lines,
+                "message": f"File written successfully: {path}"
+            }
+        
+        except PermissionError:
+            return {"error": f"Permission denied writing to file: {path}"}
+        except Exception as e:
+            self.logger.error(f"Failed to write file: {str(e)}")
+            return {"error": f"Failed to write file: {str(e)}"}
     
     def _analyze_structure(self, code: str) -> Dict[str, Any]:
         """Analyze code structure (functions, classes, etc.)."""
