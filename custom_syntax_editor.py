@@ -53,8 +53,8 @@ class CustomSyntaxEditor(TextArea):
         # For now, we'll handle Nim files as plain text with good user experience
         # This avoids the complexity of creating custom tree-sitter Language objects
         # while still providing full editing capabilities
-        if self._app_instance and hasattr(self._app_instance, 'logger'):
-            self._app_instance.logger.info("Nim language support enabled (plain text mode)")
+        # Note: Logging is skipped during initialization to avoid async issues
+        pass
 
     def _show_welcome_screen(self):
         """Display a welcome screen when no file is loaded."""
