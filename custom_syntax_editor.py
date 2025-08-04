@@ -79,9 +79,20 @@ class CustomSyntaxEditor(TextArea):
                     # Use built-in tree-sitter support from Textual
                     if language and language != "text":
                         try:
-                            # Set the text and language properties
-                            self.text = ""
-                            self.language = language
+                            # For Nim, we need to handle the case where it's not a built-in language
+                            if language == "nim":
+                                # Set text first, then try to set language with fallback
+                                self.text = ""
+                                try:
+                                    self.language = language
+                                except Exception as nim_error:
+                                    if self._app_instance and hasattr(self._app_instance, 'logger'):
+                                        self._app_instance.logger.debug(f"CUSTOM EDITOR: Nim language not registered in Textual, using plain text: {nim_error}")
+                                    self.language = None
+                            else:
+                                # Set the text and language properties
+                                self.text = ""
+                                self.language = language
                         except Exception as e:
                             # Language not supported or other error, fall back to plain text
                             if self._app_instance and hasattr(self._app_instance, 'logger'):
@@ -116,9 +127,20 @@ class CustomSyntaxEditor(TextArea):
                 # Use built-in tree-sitter support from Textual
                 if language and language != "text":
                     try:
-                        # Set the text and language properties
-                        self.text = content
-                        self.language = language
+                        # For Nim, we need to handle the case where it's not a built-in language
+                        if language == "nim":
+                            # Set text first, then try to set language with fallback
+                            self.text = content
+                            try:
+                                self.language = language
+                            except Exception as nim_error:
+                                if self._app_instance and hasattr(self._app_instance, 'logger'):
+                                    self._app_instance.logger.debug(f"CUSTOM EDITOR: Nim language not registered in Textual, using plain text: {nim_error}")
+                                self.language = None
+                        else:
+                            # Set the text and language properties
+                            self.text = content
+                            self.language = language
                     except Exception as e:
                         # Language not supported or other error, fall back to plain text
                         if self._app_instance and hasattr(self._app_instance, 'logger'):
