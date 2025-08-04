@@ -84,10 +84,14 @@ class CustomSyntaxEditor(TextArea):
                                 # Set text first, then try to set language with fallback
                                 self.text = ""
                                 try:
-                                    self.language = language
+                                    # Try to use a similar language as fallback for basic syntax highlighting
+                                    # Python has similar syntax patterns to Nim
+                                    self.language = "python"
+                                    if self._app_instance and hasattr(self._app_instance, 'logger'):
+                                        self._app_instance.logger.debug("CUSTOM EDITOR: Using Python syntax highlighting as fallback for Nim")
                                 except Exception as nim_error:
                                     if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                        self._app_instance.logger.debug(f"CUSTOM EDITOR: Nim language not registered in Textual, using plain text: {nim_error}")
+                                        self._app_instance.logger.debug(f"CUSTOM EDITOR: Fallback failed, using plain text: {nim_error}")
                                     self.language = None
                             else:
                                 # Set the text and language properties
@@ -132,10 +136,14 @@ class CustomSyntaxEditor(TextArea):
                             # Set text first, then try to set language with fallback
                             self.text = content
                             try:
-                                self.language = language
+                                # Try to use a similar language as fallback for basic syntax highlighting
+                                # Python has similar syntax patterns to Nim
+                                self.language = "python"
+                                if self._app_instance and hasattr(self._app_instance, 'logger'):
+                                    self._app_instance.logger.debug("CUSTOM EDITOR: Using Python syntax highlighting as fallback for Nim")
                             except Exception as nim_error:
                                 if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                    self._app_instance.logger.debug(f"CUSTOM EDITOR: Nim language not registered in Textual, using plain text: {nim_error}")
+                                    self._app_instance.logger.debug(f"CUSTOM EDITOR: Fallback failed, using plain text: {nim_error}")
                                 self.language = None
                         else:
                             # Set the text and language properties
