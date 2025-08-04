@@ -43,8 +43,9 @@ class StatusBar(Widget):
     
     def compose(self):
         """Compose the status bar layout."""
-        # Status bar will be a single line with left and right sections
-        pass
+        # Status bar is a simple widget that renders its own content
+        # No child widgets needed
+        return []
     
     def render(self) -> str:
         """Render the status bar content."""
