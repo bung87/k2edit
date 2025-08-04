@@ -46,14 +46,11 @@ class CustomSyntaxEditor(TextArea):
         self.theme = "monokai"
         
         # Register Nim language with Textual
-        self._register_nim_language()
+        # No special Nim registration - handle as plain text
 
     def _register_nim_language(self):
         """Register Nim as a supported language in Textual."""
-        # For now, we'll handle Nim files as plain text with good user experience
-        # This avoids the complexity of creating custom tree-sitter Language objects
-        # while still providing full editing capabilities
-        # Note: Logging is skipped during initialization to avoid async issues
+        # Removed - no special Nim registration needed
         pass
 
     def _show_welcome_screen(self):
@@ -132,12 +129,7 @@ class CustomSyntaxEditor(TextArea):
                     try:
                         # Set the text and language properties
                         self.text = content
-                        
-                        # Handle Nim files as plain text (no fallback to Python)
-                        if language == "nim":
-                            self.language = None  # Plain text mode
-                        else:
-                            self.language = language
+                        self.language = language
                     except Exception as e:
                         # Language not supported or other error, fall back to plain text
                         if self._app_instance and hasattr(self._app_instance, 'logger'):
