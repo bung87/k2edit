@@ -42,9 +42,9 @@ setup(
             "mypy>=1.0.0",
         ],
         "test": [
-            "pytest>=7.4.0",
+            "pytest>=7.0.0",
             "pytest-asyncio>=0.21.0",
-            "pytest-cov>=4.1.0",
+            "pytest-cov>=4.0.0",
         ],
     },
     python_requires=">=3.8",
