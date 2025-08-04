@@ -33,6 +33,21 @@ StatusBar {
     border-top: solid #1e293b;
 }
 
+#bottom-section {
+    height: 2;
+    dock: bottom;
+}
+
+#bottom-section Footer {
+    height: 1;
+    dock: top;
+}
+
+#bottom-section StatusBar {
+    height: 1;
+    dock: bottom;
+}
+
 Horizontal {
     height: 100%;
     box-sizing: border-box;

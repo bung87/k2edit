@@ -36,7 +36,6 @@ class StatusBar(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.styles.height = 1
-        self.styles.dock = "bottom"
         self.styles.background = "#3b82f6"
         self.styles.color = "#f1f5f9"
         self.styles.padding = (0, 1)
