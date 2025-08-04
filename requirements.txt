@@ -1,8 +1,13 @@
+textual==5.2.0
 textual[syntax]>=0.51.0
-
+aiofiles==24.1.0
+aiologger==0.7.0
 openai>=1.0.0
 python-dotenv>=1.0.0
 rich>=13.3.3
-pygments>=2.15.0
 chromadb>=1.0.15
 python-lsp-server>=1.7.0
+# Optional: tree-sitter-nim for enhanced Nim syntax highlighting
+# Note: tree-sitter-nim is not available on PyPI, but can be built from source:
+# git clone https://github.com/alaviss/tree-sitter-nim.git
+# cd tree-sitter-nim && pip install .
