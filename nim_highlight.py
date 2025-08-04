@@ -6,8 +6,20 @@ from typing import Optional, Tuple
 def get_nim_language() -> Optional[object]:
     """Get the Nim language object from tree-sitter-nim."""
     try:
+        import tree_sitter
         import tree_sitter_nim
-        return tree_sitter_nim.language()
+        
+        # Get the language pointer from tree-sitter-nim
+        language_ptr = tree_sitter_nim.language()
+        
+        # Wrap it in a tree_sitter.Language object
+        # Try the newer API first (with name parameter)
+        try:
+            return tree_sitter.Language(language_ptr, "nim")
+        except TypeError:
+            # Fall back to older API (single argument)
+            return tree_sitter.Language(language_ptr)
+            
     except ImportError:
         return None
 
