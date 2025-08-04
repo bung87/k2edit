@@ -40,9 +40,6 @@ class StatusBar(Widget):
         self.styles.background = "#3b82f6"
         self.styles.color = "#f1f5f9"
         self.styles.padding = (0, 1)
-        
-        # Initialize status
-        self._update_git_branch()
     
     def compose(self):
         """Compose the status bar layout."""
@@ -236,5 +233,37 @@ class StatusBar(Widget):
     
     def on_mount(self):
         """Called when the widget is mounted."""
+        # Initialize git branch
+        self._update_git_branch_sync()
+        
         # Start periodic git branch updates
-        self.set_interval(10, self._update_git_branch) 
+        self.set_interval(10, self._update_git_branch)
+    
+    def _update_git_branch_sync(self):
+        """Synchronous version of git branch update for initialization."""
+        try:
+            # Get current directory
+            current_dir = Path.cwd()
+            
+            # Check if we're in a git repository
+            git_dir = current_dir / ".git"
+            if not git_dir.exists():
+                self.git_branch = ""
+                return
+            
+            # Get current branch
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                cwd=current_dir,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                self.git_branch = result.stdout.strip()
+            else:
+                self.git_branch = ""
+                
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            self.git_branch = "" 
