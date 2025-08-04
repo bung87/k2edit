@@ -22,17 +22,6 @@ Footer {
     padding: 0;
 }
 
-StatusBar {
-    dock: bottom;
-    height: 1;
-    background: #3b82f6;
-    color: #f1f5f9;
-    margin: 0;
-    padding: 0 1;
-    text-align: left;
-    border-top: solid #1e293b;
-}
-
 #bottom-section {
     height: 2;
     dock: bottom;
@@ -41,11 +30,21 @@ StatusBar {
 #bottom-section Footer {
     height: 1;
     dock: top;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
 }
 
 #bottom-section StatusBar {
     height: 1;
     dock: bottom;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0 1;
+    text-align: left;
+    border-top: solid #1e293b;
 }
 
 Horizontal {
