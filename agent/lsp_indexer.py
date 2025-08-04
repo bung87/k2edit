@@ -120,6 +120,111 @@ class LSPIndexer:
             if extension in config["extensions"]:
                 return language
         return "unknown"
+    
+    def _should_skip_python_file(self, file_path: Path) -> bool:
+        """Check if a Python file should be skipped (e.g., in virtual environment)"""
+        try:
+            # Convert to absolute path for reliable comparison
+            abs_path = file_path.resolve()
+            project_root = self.project_root.resolve()
+            
+            # Check if file is within the project root
+            if not abs_path.is_relative_to(project_root):
+                return True
+            
+            # Common virtual environment directory patterns
+            venv_patterns = [
+                "venv/",
+                "env/",
+                ".venv/",
+                ".env/",
+                "virtualenv/",
+                "__pycache__/",
+                ".pytest_cache/",
+                ".mypy_cache/",
+                ".coverage",
+                "site-packages/",
+                "dist-packages/",
+                "lib/python",
+                "lib64/python",
+                "include/python",
+                "Scripts/",  # Windows virtual environments
+                "bin/",      # Unix virtual environments
+            ]
+            
+            # Check if any part of the path matches virtual environment patterns
+            path_str = str(abs_path)
+            for pattern in venv_patterns:
+                if pattern in path_str:
+                    return True
+            
+            # Check for common Python package directories that should be skipped
+            skip_dirs = {
+                "node_modules",  # Sometimes present in Python projects
+                ".git",
+                ".hg",
+                ".svn",
+                ".tox",
+                ".eggs",
+                "build",
+                "dist",
+                "*.egg-info",
+                "__pycache__",
+                ".pytest_cache",
+                ".mypy_cache",
+                ".coverage",
+                ".cache",
+                ".local",
+                ".virtualenvs",
+            }
+            
+            # Check each directory in the path
+            for part in abs_path.parts:
+                if part in skip_dirs:
+                    return True
+                # Check for egg-info patterns
+                if part.endswith('.egg-info'):
+                    return True
+            
+            # Additional check for site-packages in the path
+            path_parts = abs_path.parts
+            for i, part in enumerate(path_parts):
+                if part in ['site-packages', 'dist-packages']:
+                    return True
+                # Check for lib/pythonX.Y/site-packages pattern
+                if i > 0 and part.startswith('python') and path_parts[i-1] in ['lib', 'lib64']:
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            # If there's any error in checking, log it but don't skip the file
+            # This ensures we don't accidentally skip important files
+            return False
+    
+    async def _log_python_filtering_stats(self):
+        """Log statistics about Python file filtering for debugging"""
+        try:
+            # Count files that would be filtered out
+            extensions = self.server_configs["python"]["extensions"]
+            total_python_files = 0
+            filtered_files = 0
+            
+            for ext in extensions:
+                all_files = list(self.project_root.rglob(f"*{ext}"))
+                total_python_files += len(all_files)
+                
+                for file_path in all_files:
+                    if self._should_skip_python_file(file_path):
+                        filtered_files += 1
+            
+            if total_python_files > 0:
+                filter_percentage = (filtered_files / total_python_files) * 100
+                await self.logger.info(f"Python file filtering stats: {filtered_files}/{total_python_files} files would be filtered ({filter_percentage:.1f}%)")
+                
+        except Exception as e:
+            await self.logger.debug(f"Could not generate Python filtering stats: {e}")
+    
     async def _start_language_server(self, language: str):
         """Start the language server for the detected language"""
         if language not in self.server_configs:
@@ -232,7 +337,24 @@ class LSPIndexer:
         extensions = self.server_configs[language]["extensions"]
         files = []
         for ext in extensions:
-            files.extend(self.project_root.rglob(f"*{ext}"))
+            all_files = list(self.project_root.rglob(f"*{ext}"))
+            
+            # Special handling for Python projects - filter out virtual environment directories
+            if language == "python":
+                filtered_files = []
+                skipped_count = 0
+                for file_path in all_files:
+                    # Check if file is in a virtual environment directory
+                    if self._should_skip_python_file(file_path):
+                        skipped_count += 1
+                        continue
+                    filtered_files.append(file_path)
+                files.extend(filtered_files)
+                
+                if skipped_count > 0:
+                    await self.logger.info(f"Filtered out {skipped_count} virtual environment files for Python project")
+            else:
+                files.extend(all_files)
             
         await self.logger.info(f"Starting initial symbol indexing for {language} project")
         await self.logger.info(f"Found {len(files)} files to index with extensions: {extensions}")
@@ -309,10 +431,7 @@ class LSPIndexer:
             await self._start_language_server(file_language)
             
         if file_language not in self.language_servers:
-            # Fallback to regex parsing if server still not available
-            file_path_obj = self.project_root / file_path
-            if file_path_obj.exists():
-                return await self._parse_basic_symbols(file_path_obj)
+            # No fallback parsing available
             return []
             
         server_info = self.language_servers[file_language]
@@ -335,7 +454,7 @@ class LSPIndexer:
             server_info["message_id"] += 1
             
             if response and "result" in response:
-                await self.logger.debug(f"LSP response for {file_path}: {response}")
+                await self.logger.debug(f"LSP response for {file_path}")
                 result = response["result"]
                 if isinstance(result, list):
                     return await self._parse_lsp_symbols(result)
@@ -345,12 +464,8 @@ class LSPIndexer:
         except Exception as e:
             await self.logger.error(f"LSP request failed for {file_path}: {e}")
             
-        # Fallback: parse basic symbols using regex if LSP not available
-        file_path_obj = self.project_root / file_path
-        if file_path_obj.exists():
-            symbols = await self._parse_basic_symbols(file_path_obj)
-            
-        return symbols
+        # No fallback parsing - return empty list if LSP not available
+        return []
         
     async def _send_lsp_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Send LSP request and wait for response"""
@@ -464,138 +579,6 @@ class LSPIndexer:
 
         return symbols
         
-    async def _parse_basic_symbols(self, file_path: Path) -> List[Dict[str, Any]]:
-        """Parse basic symbols using regex as fallback"""
-        symbols = []
-        
-        try:
-            content = file_path.read_text(encoding='utf-8')
-            lines = content.splitlines()
-            
-            # Language-specific parsing
-            if file_path.suffix == '.py':
-                symbols = await self._parse_python_symbols(lines)
-            elif file_path.suffix in ['.js', '.ts']:
-                symbols = await self._parse_javascript_symbols(lines)
-            elif file_path.suffix == '.nim':
-                symbols = await self._parse_nim_symbols(lines)
-                
-        except Exception as e:
-            await self.logger.error(f"Failed to parse symbols from {file_path}: {e}")
-            
-        return symbols
-        
-    async def _parse_python_symbols(self, lines: List[str]) -> List[Dict[str, Any]]:
-        """Parse Python symbols using regex"""
-        import re
-        symbols = []
-        
-        class_pattern = re.compile(r'^class\s+(\w+)')
-        func_pattern = re.compile(r'^(?:def|async\s+def)\s+(\w+)')
-        var_pattern = re.compile(r'^([A-Z_][A-Z0-9_]*)\s*=')
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            
-            # Classes
-            match = class_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "class",
-                    "line": i + 1,
-                    "type": "class"
-                })
-                
-            # Functions
-            match = func_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "function",
-                    "line": i + 1,
-                    "type": "function"
-                })
-                
-            # Constants
-            match = var_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "constant",
-                    "line": i + 1,
-                    "type": "constant"
-                })
-                
-        return symbols
-        
-    async def _parse_javascript_symbols(self, lines: List[str]) -> List[Dict[str, Any]]:
-        """Parse JavaScript/TypeScript symbols"""
-        import re
-        symbols = []
-        
-        class_pattern = re.compile(r'^(?:export\s+)?(?:class|interface)\s+(\w+)')
-        func_pattern = re.compile(r'^(?:export\s+)?(?:function|const\s+\w+\s*=\s*(?:async\s+)?(?:\([^)]*\)\s*=>|function))')
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            
-            # Classes and interfaces
-            match = class_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "class",
-                    "line": i + 1,
-                    "type": "class"
-                })
-                
-        return symbols
-        
-    async def _parse_nim_symbols(self, lines: List[str]) -> List[Dict[str, Any]]:
-        """Parse Nim symbols"""
-        import re
-        symbols = []
-        
-        type_pattern = re.compile(r'^type\s+(\w+)')
-        proc_pattern = re.compile(r'^(?:proc|func|method)\s+(\w+)')
-        const_pattern = re.compile(r'^const\s+(\w+)')
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            
-            # Types
-            match = type_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "type",
-                    "line": i + 1,
-                    "type": "type"
-                })
-                
-            # Procedures
-            match = proc_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "function",
-                    "line": i + 1,
-                    "type": "function"
-                })
-                
-            # Constants
-            match = const_pattern.match(line)
-            if match:
-                symbols.append({
-                    "name": match.group(1),
-                    "kind": "constant",
-                    "line": i + 1,
-                    "type": "constant"
-                })
-                
-        return symbols
-        
     async def get_symbols(self, file_path: str) -> List[Dict[str, Any]]:
         """Get symbols for a specific file"""
         relative_path = str(Path(file_path).relative_to(self.project_root))
@@ -696,6 +679,10 @@ class LSPIndexer:
         
         # Log indexing status
         await self.logger.info(f"Symbol index contains {total_files} files")
+        
+        # For Python projects, log virtual environment filtering info
+        if await self._detect_language() == "python":
+            await self._log_python_filtering_stats()
         
         # Count symbols by type for detailed logging
         symbol_type_counts = {}

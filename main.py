@@ -4,6 +4,7 @@ Kimi-K2 Terminal Code Editor
 A terminal-based code editor with AI integration using Textual framework.
 """
 
+
 import os
 import sys
 from pathlib import Path

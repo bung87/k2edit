@@ -1,9 +1,6 @@
 from pathlib import Path
 from typing import Union, Optional
-
-# Import tree-sitter patch FIRST to fix QueryCursor issue
-import tree_sitter_patch
-
+from textual.widgets.text_area import TextAreaTheme
 from textual.widgets import TextArea
 import logging
 
@@ -15,7 +12,8 @@ class CustomSyntaxEditor(TextArea):
         self._app_instance = app_instance
         self.current_file: Optional[Path] = None
         self.is_modified = False
-
+        monokai = TextAreaTheme.get_builtin_theme("monokai")
+        self.register_theme(monokai)
         # Language mapping for syntax highlighting
         self._language_map = {
             '.py': 'python',
@@ -43,7 +41,6 @@ class CustomSyntaxEditor(TextArea):
         }
         self.show_line_numbers = True
         self.theme = "monokai"
-        self._show_welcome_screen()
 
     def _show_welcome_screen(self):
         """Display a welcome screen when no file is loaded."""
@@ -79,29 +76,27 @@ class CustomSyntaxEditor(TextArea):
                 # Try to set language and load content with fallback to plain text if parsing fails
                 language = self._language_map.get(path.suffix.lower(), "text")
                 try:
-                    # Use tree-sitter_languages to verify the language is available
+                    # Use built-in tree-sitter support from Textual
                     if language and language != "text":
                         try:
-                            import tree_sitter_languages
-                            # Verify the language is available
-                            ts_language = tree_sitter_languages.get_language(language)
-                            # Set the document with the language string, not the Language object
-                            self._set_document("", language)
-                        except ImportError:
-                            # tree_sitter_languages not available, fall back to plain text
-                            self._set_document("", None)
+                            # Set the text and language properties
+                            self.text = ""
+                            self.language = language
                         except Exception as e:
                             # Language not supported or other error, fall back to plain text
                             if self._app_instance and hasattr(self._app_instance, 'logger'):
                                 self._app_instance.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
-                            self._set_document("", None)
+                            self.text = ""
+                            self.language = None
                     else:
-                        self._set_document("", None)
+                        self.text = ""
+                        self.language = None
                 except ValueError as e:
                     if "Parsing failed" in str(e):
                         if self._app_instance and hasattr(self._app_instance, 'logger'):
                             self._app_instance.logger.warning(f"CUSTOM EDITOR: Tree-sitter parsing failed for new file {path}, falling back to plain text mode")
-                        self._set_document("", None)  # Fall back to plain text
+                        self.text = ""
+                        self.language = None  # Fall back to plain text
                     else:
                         raise  # Re-raise if it's a different ValueError
                 
@@ -118,29 +113,27 @@ class CustomSyntaxEditor(TextArea):
             
             # Try to load content with syntax highlighting, fall back to plain text if parsing fails
             try:
-                # Use tree-sitter_languages to verify the language is available
+                # Use built-in tree-sitter support from Textual
                 if language and language != "text":
                     try:
-                        import tree_sitter_languages
-                        # Verify the language is available
-                        ts_language = tree_sitter_languages.get_language(language)
-                        # Set the document with the language string, not the Language object
-                        self._set_document(content, language)
-                    except ImportError:
-                        # tree_sitter_languages not available, fall back to plain text
-                        self._set_document(content, None)
+                        # Set the text and language properties
+                        self.text = content
+                        self.language = language
                     except Exception as e:
                         # Language not supported or other error, fall back to plain text
                         if self._app_instance and hasattr(self._app_instance, 'logger'):
                             self._app_instance.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
-                        self._set_document(content, None)
+                        self.text = content
+                        self.language = None
                 else:
-                    self._set_document(content, None)
+                    self.text = content
+                    self.language = None
             except ValueError as e:
                 if "Parsing failed" in str(e):
                     if self._app_instance and hasattr(self._app_instance, 'logger'):
                         self._app_instance.logger.warning(f"CUSTOM_EDITOR: Tree-sitter parsing failed for {path}, falling back to plain text mode")
-                    self._set_document(content, None)  # Fall back to plain text
+                    self.text = content
+                    self.language = None  # Fall back to plain text
                 else:
                     raise  # Re-raise if it's a different ValueError
             
