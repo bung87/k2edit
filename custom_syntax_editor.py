@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Custom syntax-aware text editor widget for K2Edit."""
 
-import logging
 from pathlib import Path
 from typing import Optional, Union
 
 from textual.widgets import TextArea
+
+# Import the Nim highlight module
+from nim_highlight import register_nim_language, is_nim_available
 
 class CustomSyntaxEditor(TextArea):
     """Custom syntax-aware text editor with enhanced file handling."""
@@ -46,12 +48,21 @@ class CustomSyntaxEditor(TextArea):
         self.theme = "monokai"
         
         # Register Nim language with Textual
-        # No special Nim registration - handle as plain text
+        self._register_nim_language()
 
     def _register_nim_language(self):
         """Register Nim as a supported language in Textual."""
-        # Removed - no special Nim registration needed
-        pass
+        if is_nim_available():
+            success = register_nim_language(self)
+            if success:
+                if self._app_instance and hasattr(self._app_instance, 'logger'):
+                    self._app_instance.logger.info("CUSTOM EDITOR: Successfully registered Nim language")
+            else:
+                if self._app_instance and hasattr(self._app_instance, 'logger'):
+                    self._app_instance.logger.warning("CUSTOM EDITOR: Failed to register Nim language")
+        else:
+            if self._app_instance and hasattr(self._app_instance, 'logger'):
+                self._app_instance.logger.warning("CUSTOM EDITOR: tree-sitter-nim not available, Nim files will be plain text")
 
     def _show_welcome_screen(self):
         """Display a welcome screen when no file is loaded."""

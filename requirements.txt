@@ -7,7 +7,4 @@ python-dotenv>=1.0.0
 rich>=13.3.3
 chromadb>=1.0.15
 python-lsp-server>=1.7.0
-# Optional: tree-sitter-nim for enhanced Nim syntax highlighting
-# Note: tree-sitter-nim is not available on PyPI, but can be built from source:
-# git clone https://github.com/alaviss/tree-sitter-nim.git
-# cd tree-sitter-nim && pip install .
+git+https://github.com/alaviss/tree-sitter-nim.git
