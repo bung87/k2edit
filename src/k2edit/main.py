@@ -117,16 +117,22 @@ class K2EditApp(App):
     
     async def on_mount(self) -> None:
         """Called when the app is mounted."""
-        await self.logger.info("Mounting K2EditApp")
+        await self.logger.info("K2Edit app mounted")
+        
+        # Initialize agentic system in background
+        asyncio.create_task(self._initialize_agent_system_background())
+        
+        # Force update status bar
+        self._update_status_bar()
+        
+        # Set up periodic status bar updates
+        self.set_interval(1, self._update_status_bar)
         
         # Connect command bar to other components
         self.command_bar.editor = self.editor
         self.command_bar.output_panel = self.output_panel
         self.command_bar.kimi_api = self.kimi_api
         self.command_bar.set_agent_integration(self.agent_integration)
-        
-        # Initialize agentic system in background (non-blocking) unless in fast startup mode
-        asyncio.create_task(self._initialize_agent_system_background())
         
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected

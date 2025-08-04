@@ -60,7 +60,7 @@ class StatusBar(Widget):
         if self.diagnostics_warnings > 0:
             left_items.append(f"⚠️ {self.diagnostics_warnings}")
         
-        left_side = " | ".join(left_items) if left_items else ""
+        left_side = " | ".join(left_items) if left_items else "K2Edit"
         
         # Right side: Position, indentation, encoding, line break, language
         right_items = []
@@ -80,7 +80,7 @@ class StatusBar(Widget):
         if self.language:
             right_items.append(self.language)
         
-        right_side = " | ".join(right_items) if right_items else ""
+        right_side = " | ".join(right_items) if right_items else "Ready"
         
         # Combine left and right sides with proper spacing
         if left_side and right_side:
@@ -90,13 +90,15 @@ class StatusBar(Widget):
             right_width = len(right_side)
             padding = max(0, total_width - left_width - right_width - 2)  # -2 for separators
             
-            return f"{left_side}{' ' * padding} | {right_side}"
+            result = f"{left_side}{' ' * padding} | {right_side}"
         elif left_side:
-            return left_side
+            result = left_side
         elif right_side:
-            return right_side
+            result = right_side
         else:
-            return ""
+            result = "K2Edit Status Bar"
+        
+        return result
     
     @work
     async def _update_git_branch(self):

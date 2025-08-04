@@ -25,6 +25,7 @@ Footer {
 #bottom-section {
     height: 2;
     dock: bottom;
+    background: #1e293b;
 }
 
 #bottom-section Footer {
@@ -39,12 +40,14 @@ Footer {
 #bottom-section StatusBar {
     height: 1;
     dock: bottom;
-    background: #3b82f6;
-    color: #f1f5f9;
+    background: #10b981;
+    color: #ffffff;
     margin: 0;
     padding: 0 1;
     text-align: left;
     border-top: solid #1e293b;
+    min-height: 1;
+    font-weight: bold;
 }
 
 Horizontal {
