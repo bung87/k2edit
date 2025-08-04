@@ -123,8 +123,8 @@ class K2EditApp(App):
         self.command_bar.kimi_api = self.kimi_api
         self.command_bar.set_agent_integration(self.agent_integration)
         
-        # Initialize agentic system
-        await self._initialize_agent_system()
+        # Initialize agentic system in background (non-blocking) unless in fast startup mode
+        asyncio.create_task(self._initialize_agent_system_background())
         
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
@@ -139,8 +139,8 @@ class K2EditApp(App):
                     await self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
                     self.editor.focus()
                     
-                    # Notify agentic system about file open
-                    await self._on_file_open_with_agent(self.initial_file)
+                    # Notify agentic system about file open (when ready)
+                    asyncio.create_task(self._on_file_open_with_agent(self.initial_file))
                 else:
                     error_msg = f"Failed to load file: {self.initial_file}"
                     self.output_panel.add_error(error_msg)
@@ -159,6 +159,30 @@ class K2EditApp(App):
             self.editor.focus()
         
         await self.logger.info("K2EditApp mounted successfully")
+    
+    async def _initialize_agent_system_background(self):
+        """Initialize the agentic system in the background with progress updates"""
+        await self.logger.info("Initializing agentic system in background...")
+        try:
+            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger)
+            
+            # Define progress callback to update output panel
+            async def progress_callback(message):
+                self.output_panel.add_info(message)
+                # Don't log here since main.py already logs high-level messages
+            
+            await self.agent_integration.initialize(progress_callback)
+            
+            # Update command bar with agent integration
+            if hasattr(self, 'command_bar') and self.command_bar:
+                self.command_bar.set_agent_integration(self.agent_integration)
+            
+            # Add welcome message now that AI system is ready
+            self.output_panel.add_welcome_message()
+            await self.logger.info("Agentic system initialized successfully")
+        except Exception as e:
+            await self.logger.error(f"Failed to initialize agentic system: {e}")
+            self.output_panel.add_error(f"Agentic system initialization failed: {e}")
     
     async def _initialize_agent_system(self):
         """Initialize the agentic system asynchronously with progress updates"""
@@ -361,6 +385,7 @@ def main():
 
     # Check for command line arguments
     initial_file = None
+    
     if len(sys.argv) > 1:
         initial_file = sys.argv[1]
 

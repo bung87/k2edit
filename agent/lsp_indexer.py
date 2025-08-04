@@ -76,33 +76,33 @@ class LSPIndexer:
         # Add a small delay to show progress messages
         if progress_callback:
             await progress_callback("Starting symbol indexing...")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)  # Reduced delay
         
         # Detect language and start appropriate server
         language = await self._detect_language()
         await self.logger.info(f"Detected language: {language}")
         if progress_callback:
             await progress_callback(f"Detected language: {language}")
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.1)  # Reduced delay
         
         if language in self.server_configs:
             await self.logger.info(f"Starting language server for {language}...")
             await self._start_language_server(language)
             if progress_callback:
                 await progress_callback(f"Started {language} language server")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)  # Reduced delay
         else:
             await self.logger.warning(f"No language server configured for {language}")
             if progress_callback:
                 await progress_callback(f"No language server configured for {language}")
             
-        # Build initial index with progress updates
-        await self._build_initial_index(progress_callback)
+        # Build initial index in background (non-blocking)
+        asyncio.create_task(self._build_initial_index_background(progress_callback))
         
         await self.logger.info(f"LSP indexer initialized for {language}")
         if progress_callback:
-            await progress_callback("Symbol indexing completed")
-        
+            await progress_callback("Symbol indexing started in background...")
+    
     async def _detect_language(self) -> str:
         """Detect the primary language of the project"""
         for language, config in self.server_configs.items():
@@ -324,8 +324,8 @@ class LSPIndexer:
         except Exception as e:
             await self.logger.error(f"Failed to send LSP message: {e}")
             
-    async def _build_initial_index(self, progress_callback=None):
-        """Build initial symbol index for all files with progress updates"""
+    async def _build_initial_index_background(self, progress_callback=None):
+        """Build initial symbol index for all files in background with progress updates"""
         language = await self._detect_language()
         if language == "unknown":
             await self.logger.info("Unknown language detected, skipping initial indexing")
@@ -371,13 +371,13 @@ class LSPIndexer:
                 await self._index_file(file_path, language)
                 indexed_count += 1
                 
-                # Report progress
+                # Report progress less frequently to reduce overhead
                 progress = (i + 1) / len(files) * 100
-                if progress_callback and (i + 1) % 5 == 0:  # Update every 5 files
+                if progress_callback and (i + 1) % 10 == 0:  # Update every 10 files instead of 5
                     await progress_callback(f"Indexing symbols... {i + 1}/{len(files)} files ({progress:.1f}%)")
                 
-                # Log progress every 10 files
-                if indexed_count % 10 == 0:
+                # Log progress every 20 files instead of 10
+                if indexed_count % 20 == 0:
                     await self.logger.info(f"Indexed {indexed_count}/{len(files)} files...")
                     
             except Exception as e:

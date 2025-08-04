@@ -54,11 +54,17 @@ class ChromaMemoryStore:
         
         # Initialize ChromaDB client in a background thread to avoid blocking
         self.client = await asyncio.to_thread(
-            chromadb.PersistentClient, path=str(chroma_path)
+            chromadb.PersistentClient, 
+            path=str(chroma_path),
+            settings=Settings(
+                anonymized_telemetry=False,
+                allow_reset=True,
+                is_persistent=True
+            )
         )
         
-        # Initialize collections
-        await self._init_collections()
+        # Initialize collections in background
+        asyncio.create_task(self._init_collections())
         
         self.logger.info(f"ChromaDB memory store initialized at {chroma_path}")
         
