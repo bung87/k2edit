@@ -233,26 +233,35 @@ class StatusBar(Widget):
         """Detect indentation type and size from content."""
         if not content:
             return "Spaces: 4"
-        
         lines = content.splitlines()
-        indent_sizes = []
-        
+        space_indents = []
+        tab_lines = 0
         for line in lines:
-            if line.strip() and line.startswith(' '):
-                # Count leading spaces
-                indent_size = len(line) - len(line.lstrip())
+            if not line.strip():
+                continue
+            if line.startswith('\t'):
+                tab_lines += 1
+            elif line.startswith(' '):
+                indent_size = len(line) - len(line.lstrip(' '))
                 if indent_size > 0:
-                    indent_sizes.append(indent_size)
-        
-        if not indent_sizes:
+                    space_indents.append(indent_size)
+        if tab_lines and space_indents:
+            return "Mixed"
+        if tab_lines:
+            return "Tabs"
+        if not space_indents:
             return "Spaces: 4"
-        
-        # Find most common indent size
-        from collections import Counter
-        indent_counter = Counter(indent_sizes)
-        most_common_size = indent_counter.most_common(1)[0][0]
-        
-        return f"Spaces: {most_common_size}"
+        # Find the most common step size (difference between consecutive indents)
+        from math import gcd
+        from functools import reduce
+        unique_sizes = sorted(set(space_indents))
+        if len(unique_sizes) == 1:
+            return f"Spaces: {unique_sizes[0]}"
+        steps = [j - i for i, j in zip(unique_sizes[:-1], unique_sizes[1:]) if j > i]
+        if steps:
+            step = reduce(gcd, steps)
+            return f"Spaces: {step}"
+        return f"Spaces: {unique_sizes[0]}"
     
     def _detect_line_ending(self, content: str) -> str:
         """Detect line ending type from content."""

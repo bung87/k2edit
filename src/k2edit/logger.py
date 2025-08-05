@@ -41,6 +41,7 @@ def setup_logging(log_level: str = "DEBUG") -> Logger:
     # Create handlers
     file_handler = AsyncTimedRotatingFileHandler(
         filename=str(log_file),
+        when='D',
         interval=1,
         backup_count=7,
         encoding="utf-8"
@@ -84,6 +85,7 @@ def get_logger(name: str = None) -> Logger:
     # Create handlers
     file_handler = AsyncTimedRotatingFileHandler(
         filename=str(log_file),
+        when='D',
         interval=1,
         backup_count=7,
         encoding="utf-8"
