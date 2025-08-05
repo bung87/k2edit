@@ -14,10 +14,6 @@ import asyncio
 from typing import Dict, Any
 
 from aiologger import Logger
-from aiologger.levels import LogLevel
-from aiologger.handlers.files import AsyncTimedRotatingFileHandler
-from aiologger.handlers.streams import AsyncStreamHandler
-from aiologger.formatters.base import Formatter
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -33,56 +29,7 @@ from .views.file_explorer import FileExplorer
 from .views.status_bar import StatusBar
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
-
-
-def setup_logging(log_level: str = "DEBUG") -> Logger:
-    """Setup logging configuration with both file and Textual handlers.
-    
-    Args:
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        
-    Returns:
-        Configured logger instance
-    """
-    # Create logs directory if it doesn't exist
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    
-    # Create log filename with timestamp
-    log_file = log_dir / "k2edit.log"
-    
-    # Configure root logger
-    logger = Logger(name="k2edit")
-    
-    # Set log level
-    level = LogLevel.DEBUG if log_level.upper() == "DEBUG" else \
-            LogLevel.INFO if log_level.upper() == "INFO" else \
-            LogLevel.WARNING if log_level.upper() == "WARNING" else \
-            LogLevel.ERROR if log_level.upper() == "ERROR" else \
-            LogLevel.CRITICAL
-    
-    # Create handlers
-    file_handler = AsyncTimedRotatingFileHandler(
-        filename=str(log_file),
-        interval=1,
-        backup_count=7,
-        encoding="utf-8"
-    )
-    console_handler = AsyncStreamHandler()
-    
-    # Set formatter
-    formatter = Formatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    file_handler.formatter = formatter
-    console_handler.formatter = formatter
-    
-    # Add handlers to logger
-    logger.add_handler(file_handler)
-    # logger.add_handler(console_handler)
-    
-    return logger
+from .logger import setup_logging
 
 
 class K2EditApp(App):
@@ -110,23 +57,25 @@ class K2EditApp(App):
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
         self.file_explorer = FileExplorer(id="file-explorer")
-        self.status_bar = StatusBar(id="status-bar")
+        self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file
+
+
     
     async def on_mount(self) -> None:
         """Called when the app is mounted."""
         await self.logger.info("K2Edit app mounted")
         
-        # Initialize agentic system in background
-        asyncio.create_task(self._initialize_agent_system_background())
+        # # Force update status bar
+        # self._update_status_bar()
         
-        # Force update status bar
-        self._update_status_bar()
+        # # Set up periodic status bar updates
+        # self.set_interval(1, self._update_status_bar)
         
-        # Set up periodic status bar updates
-        self.set_interval(1, self._update_status_bar)
+        # Initialize agentic system in background after a short delay
+        self.set_timer(2.0, lambda: asyncio.create_task(self._initialize_agent_system_background()))
         
         # Connect command bar to other components
         self.command_bar.editor = self.editor
@@ -259,11 +208,10 @@ class K2EditApp(App):
             self.output_panel.styles.min_width = "25%"
             self.output_panel.styles.max_width = "25%"
             yield self.output_panel
-        
-        # Bottom section with Footer and StatusBar
-        with Vertical(id="bottom-section"):
-            yield Footer()
-            yield self.status_bar
+        # yield self.status_bar
+        yield self.status_bar
+        yield Footer()
+
     
     def on_command_bar_command_executed(self, message) -> None:
         """Handle command executed messages from the command bar."""
@@ -372,7 +320,7 @@ class K2EditApp(App):
     
     def _update_status_bar(self):
         """Update status bar with current editor information."""
-        if self.editor:
+        if self.editor and self.status_bar:
             # Update cursor position
             cursor_location = self.editor.cursor_location
             if cursor_location:
@@ -383,8 +331,14 @@ class K2EditApp(App):
             
             # Update file information
             current_file = str(self.editor.current_file) if self.editor.current_file else ""
+            file_name = os.path.basename(current_file) if current_file else "New File"
             editor_content = self.editor.text
+            
+            # Update status bar with editor content and file path
             self.status_bar.update_from_editor(editor_content, current_file)
+            
+            # Force refresh of status bar
+            self.status_bar.refresh()
     
     async def process_agent_query(self, query: str) -> dict[str, any]:
         """Process an AI query using the agentic system"""

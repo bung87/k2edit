@@ -4,6 +4,14 @@ Screen {
     background: #0f172a;
 }
 
+/* StatusBar styling */
+
+#status-content {
+    color: #e2e8f0;
+    text-style: bold;
+    padding: 0 1;
+}
+
 Header {
     dock: top;
     height: 1;
@@ -13,44 +21,138 @@ Header {
     padding: 0;
 }
 
-Footer {
-    dock: bottom;
+
+.status-section {
+    width: 1fr;
     height: 1;
-    background: #3b82f6;
-    color: #f1f5f9;
     margin: 0;
     padding: 0;
+    /* align: left middle; */
 }
 
-#bottom-section {
-    height: 2;
-    dock: bottom;
-    background: #1e293b;
+#status-bar {
+    width: 100%;
+    height: 1;        /* Or however tall your status bar is */
+  }
+/* #status-left {
+    align: left middle;
 }
 
-#bottom-section Footer {
+#status-right {
+    align: right middle;
+} */
+
+.status-item {
     height: 1;
-    dock: top;
-    background: #3b82f6;
-    color: #f1f5f9;
-    margin: 0;
-    padding: 0;
+    margin: 0 1;
+    padding: 0 2;
 }
 
-#bottom-section StatusBar {
-    height: 1;
-    dock: bottom;
-    background: #10b981;
+/* Git branch styling */
+#git-branch {
+    background: #059669;
     color: #ffffff;
-    margin: 0;
-    padding: 0 1;
-    text-align: left;
-    border-top: solid #1e293b;
-    min-height: 1;
+    padding: 0 2;
+    width: 15;
+    min-width: 8;
+    max-width: 25;
+    text-style: bold;
+    text-align: center;
 }
+
+/* File name styling */
+#file-name {
+    background: #7c3aed;
+    color: #ffffff;
+    padding: 0 2;
+    width: 30;
+    min-width: 10;
+    max-width: 50;
+    text-style: bold;
+    text-align: left;
+}
+
+/* Cursor position styling */
+#cursor-pos {
+    background: #dc2626;
+    color: #ffffff;
+    padding: 0 2;
+    width: 12;
+    min-width: 8;
+    max-width: 15;
+    text-style: bold;
+    text-align: center;
+}
+
+/* Diagnostics styling */
+#diagnostics {
+    background: #ea580c;
+    color: #ffffff;
+    padding: 0 2;
+    width: 10;
+    min-width: 6;
+    max-width: 20;
+    text-style: bold;
+    text-align: center;
+}
+
+/* Language styling */
+#lang {
+    background: #0891b2;
+    color: #ffffff;
+    padding: 0 2;
+    width: 8;
+    min-width: 4;
+    max-width: 12;
+    text-style: bold;
+    text-align: center;
+}
+
+/* Indentation styling */
+#indent {
+    background: #059669;
+    color: #ffffff;
+    padding: 0 2;
+    width: 6;
+    min-width: 4;
+    max-width: 10;
+    text-style: bold;
+    text-align: center;
+}
+
+/* Encoding styling */
+#encoding {
+    background: #7c2d12;
+    color: #ffffff;
+    padding: 0 2;
+    width: 10;
+    min-width: 6;
+    max-width: 15;
+    text-style: bold;
+    text-align: center;
+}
+
+/* Status separator styling */
+.status-separator {
+    color: #ffffff;
+    text-style: bold;
+    margin: 0 1;
+    padding: 0 1;
+}
+
+/* Label styling for StatusBar */
+.status-item {
+    /* margin: 0 1;
+    padding: 0 2; */
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+}
+
+
 
 Horizontal {
-    height: 100%;
+    /* height: 100%; */
     box-sizing: border-box;
 }
 
@@ -91,7 +193,7 @@ CommandBar:focus {
 }
 
 Vertical {
-    height: 100%;
+    /* height: 100%; */
     box-sizing: border-box;
 }
 

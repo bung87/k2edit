@@ -736,7 +736,9 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
     def __del__(self):
         """Cleanup on deletion."""
         try:
-            asyncio.create_task(self.close())
+            # Note: We can't await in __del__, so we'll just let the object be cleaned up
+            # The async close method will be called by the garbage collector if needed
+            pass
         except Exception as e:
             # Log the error during cleanup, but don't prevent cleanup
             try:

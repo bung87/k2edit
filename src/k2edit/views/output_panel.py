@@ -100,29 +100,37 @@ class OutputPanel(Vertical):
     
     def add_error(self, error_message: str) -> None:
         """Add an error message to the output panel."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        
-        error_text = Text()
-        error_text.append(f"[{timestamp}] ", style="dim")
-        error_text.append("Error: ", style="bold red")
-        error_text.append(error_message, style="red")
-        
-        log = self.query_one("#output-log", RichLog)
-        if log:
-            log.write(error_text)
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            
+            error_text = Text()
+            error_text.append(f"[{timestamp}] ", style="dim")
+            error_text.append("Error: ", style="bold red")
+            error_text.append(error_message, style="red")
+            
+            log = self.query_one("#output-log", RichLog)
+            if log:
+                log.write(error_text)
+        except Exception:
+            # Silently fail if output panel is not ready
+            pass
     
     def add_info(self, info_message: str) -> None:
         """Add an info message to the output panel."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        
-        info_text = Text()
-        info_text.append(f"[{timestamp}] ", style="dim")
-        info_text.append("Info: ", style="bold blue")
-        info_text.append(info_message, style="blue")
-        
-        log = self.query_one("#output-log", RichLog)
-        if log:
-            log.write(info_text)
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            
+            info_text = Text()
+            info_text.append(f"[{timestamp}] ", style="dim")
+            info_text.append("Info: ", style="bold blue")
+            info_text.append(info_message, style="blue")
+            
+            log = self.query_one("#output-log", RichLog)
+            if log:
+                log.write(info_text)
+        except Exception:
+            # Silently fail if output panel is not ready
+            pass
     
     def add_tool_execution(self, tool_name: str, arguments: dict, result: str = None) -> None:
         """Add tool execution information."""
