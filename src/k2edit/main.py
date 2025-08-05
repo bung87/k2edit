@@ -210,7 +210,7 @@ class K2EditApp(App):
             yield self.output_panel
         # yield self.status_bar
         yield self.status_bar
-        yield Footer()
+        # yield Footer()  # Removed to avoid conflict with custom status bar
 
     
     def on_command_bar_command_executed(self, message) -> None:
