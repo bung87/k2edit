@@ -6,11 +6,6 @@ Screen {
 
 /* StatusBar styling */
 
-#status-content {
-    color: #e2e8f0;
-    text-style: bold;
-    padding: 0 1;
-}
 
 Header {
     dock: top;
@@ -22,29 +17,17 @@ Header {
 }
 
 
-.status-section {
-    width: 1fr;
-    height: 1;
-    margin: 0;
-    padding: 0;
-    /* align: left middle; */
-}
-
 #status-bar {
     layout: horizontal;
     width: 100%;
     height: 1;        /* Or however tall your status bar is */
   }
-/* #status-left {
-    align: left middle;
-}
 
-#status-right {
-    align: right middle;
-} */
 
 .status-item {
-    height: 100%;
+    height: 1;
+    min-height: 1;
+    max-height: 1;
     margin: 0 1;
     padding: 0 2;
 }
@@ -53,10 +36,9 @@ Header {
 #git-branch {
     background: #059669;
     color: #ffffff;
-    padding: 0 2;
-    width: 15;
+    padding: 0 1;
+    width: auto;
     min-width: 8;
-    max-width: 25;
     text-style: bold;
     text-align: center;
 }
@@ -65,10 +47,9 @@ Header {
 #file-name {
     background: #7c3aed;
     color: #ffffff;
-    padding: 0 2;
-    width: 30;
+    padding: 0 1;
+    width: auto;
     min-width: 10;
-    max-width: 50;
     text-style: bold;
     text-align: left;
 }
@@ -77,10 +58,9 @@ Header {
 #cursor-pos {
     background: #dc2626;
     color: #ffffff;
-    padding: 0 2;
-    width: 12;
+    padding: 0 1;
+    width: auto;
     min-width: 8;
-    max-width: 15;
     text-style: bold;
     text-align: center;
 }
@@ -89,10 +69,9 @@ Header {
 #diagnostics {
     background: #ea580c;
     color: #ffffff;
-    padding: 0 2;
-    width: 10;
+    padding: 0 1;
+    width: auto;
     min-width: 6;
-    max-width: 20;
     text-style: bold;
     text-align: center;
 }
@@ -101,10 +80,9 @@ Header {
 #lang {
     background: #0891b2;
     color: #ffffff;
-    padding: 0 2;
-    width: 8;
+    padding: 0 1;
+    width: auto;
     min-width: 4;
-    max-width: 12;
     text-style: bold;
     text-align: center;
 }
@@ -113,10 +91,9 @@ Header {
 #indent {
     background: #059669;
     color: #ffffff;
-    padding: 0 2;
-    width: 6;
+    padding: 0 1;
+    width: auto;
     min-width: 4;
-    max-width: 10;
     text-style: bold;
     text-align: center;
 }
@@ -125,10 +102,9 @@ Header {
 #encoding {
     background: #7c2d12;
     color: #ffffff;
-    padding: 0 2;
-    width: 10;
+    padding: 0 1;
+    width: auto;
     min-width: 6;
-    max-width: 15;
     text-style: bold;
     text-align: center;
 }
@@ -141,14 +117,7 @@ Header {
     padding: 0 1;
 }
 
-/* Label styling for StatusBar */
-.status-item {
-    /* margin: 0 1;
-    padding: 0 2; */
-    height: 1;
-    min-height: 1;
-    max-height: 1;
-}
+/* Removed duplicate .status-item definition */
 
 
 

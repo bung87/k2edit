@@ -35,14 +35,7 @@ class StatusBar(Widget):
             self.logger.debug(f"watch_git_branch called with: {git_branch}")
         self.git_branch_widget.update(git_branch)
 
-    def watch_file_path(self, file_path: str) -> None:
-        """Watch for file path changes."""
-        if self.logger:
-            self.logger.debug(f"watch_file_path called with: {file_path}")
-        display_text = file_path or "New File"
-        self.file_name_widget.update(display_text)
-        if self.logger:
-            self.logger.debug(f"Updated file_name_widget with: '{display_text}'")
+
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
@@ -95,7 +88,6 @@ class StatusBar(Widget):
             self.logger.debug("_update_all_displays called")
             self.logger.debug(f"Current values - git_branch: '{self.git_branch}', file_path: '{self.file_path}', language: '{self.language}'")
         self.git_branch_widget.update(self.git_branch)
-        self.file_name_widget.update(self.file_path or "New File")
         self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
         self.diagnostics_widget.update(self._format_diagnostics())
         self.lang_widget.update(self.language or "Text")
@@ -118,20 +110,17 @@ class StatusBar(Widget):
         self.styles.padding = (0, 1)
         
         # Construct widgets with default values to avoid triggering watchers during init
-        self.git_branch_widget = Static("", id="git-branch", classes="status-item")
-        self.file_name_widget = Static("", id="file-name", classes="status-item")
-        self.cursor_pos_widget = Static("", id="cursor-pos", classes="status-item")
+        self.git_branch_widget = Static("main", id="git-branch", classes="status-item")
+        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
         self.diagnostics_widget = Static("", id="diagnostics", classes="status-item")
-        self.lang_widget = Static("", id="lang", classes="status-item")
-        self.indent_widget = Static("", id="indent", classes="status-item", expand=False)
-        self.encoding_widget = Static("", id="encoding", classes="status-item")
+        self.lang_widget = Static("Text", id="lang", classes="status-item")
+        self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item", expand=False)
+        self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
 
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
         with Horizontal(id="status-bar"):
             yield self.git_branch_widget
-            yield Static(" | ", classes="status-separator")
-            yield self.file_name_widget
             yield Static(" | ", classes="status-separator")
             yield self.cursor_pos_widget
             yield Static(" | ", classes="status-separator")
@@ -308,16 +297,16 @@ class StatusBar(Widget):
         """Called when the widget is mounted."""
         await self.logger.info("StatusBar mounted")
         
-        # Update initial display first
-        self._update_all_displays()
-        
-        # Set initial values to trigger reactive updates
+        # Set initial values first to trigger reactive updates
         self.cursor_line = 1
         self.cursor_column = 1
         self.file_path = "New File"
         self.language = "Text"
         self.indentation = "Spaces: 4"
         self.encoding = "UTF-8"
+        
+        # Update all displays after setting values
+        self._update_all_displays()
         
         # Start periodic git branch updates
         self.set_interval(10, self._update_git_branch)
