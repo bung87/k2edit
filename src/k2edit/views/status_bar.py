@@ -31,13 +31,11 @@ class StatusBar(Widget):
 
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
-        if hasattr(self, 'git_branch_widget') and self.git_branch_widget:
-            self.git_branch_widget.update(git_branch)
+        self.git_branch_widget.update(git_branch)
 
     def watch_file_path(self, file_path: str) -> None:
         """Watch for file path changes."""
-        if hasattr(self, 'file_name_widget') and self.file_name_widget:
-            self.file_name_widget.update(file_path or "New File")
+        self.file_name_widget.update(file_path or "New File")
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
@@ -57,45 +55,33 @@ class StatusBar(Widget):
 
     def watch_language(self, language: str) -> None:
         """Watch for language changes."""
-        if hasattr(self, 'lang_widget') and self.lang_widget:
-            self.lang_widget.update(language or "Text")
+        self.lang_widget.update(language or "Text")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
-        if hasattr(self, 'indent_widget') and self.indent_widget:
-            self.indent_widget.update(indentation)
+        self.indent_widget.update(indentation)
 
     def watch_encoding(self, encoding: str) -> None:
         """Watch for encoding changes."""
-        if hasattr(self, 'encoding_widget') and self.encoding_widget:
-            self.encoding_widget.update(encoding)
+        self.encoding_widget.update(encoding)
 
     def _update_cursor_position_display(self) -> None:
         """Update cursor position display."""
-        if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
-            self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
+        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
 
     def _update_diagnostics_display(self) -> None:
         """Update diagnostics display."""
-        if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
-            self.diagnostics_widget.update(self._format_diagnostics())
+        self.diagnostics_widget.update(self._format_diagnostics())
 
     def _update_all_displays(self) -> None:
         """Update all display widgets with current values."""
-        if hasattr(self, 'git_branch_widget') and self.git_branch_widget:
-            self.git_branch_widget.update(self.git_branch)
-        if hasattr(self, 'file_name_widget') and self.file_name_widget:
-            self.file_name_widget.update(self.file_path or "New File")
-        if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
-            self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
-        if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
-            self.diagnostics_widget.update(self._format_diagnostics())
-        if hasattr(self, 'lang_widget') and self.lang_widget:
-            self.lang_widget.update(self.language or "Text")
-        if hasattr(self, 'indent_widget') and self.indent_widget:
-            self.indent_widget.update(self.indentation)
-        if hasattr(self, 'encoding_widget') and self.encoding_widget:
-            self.encoding_widget.update(self.encoding)
+        self.git_branch_widget.update(self.git_branch)
+        self.file_name_widget.update(self.file_path or "New File")
+        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
+        self.diagnostics_widget.update(self._format_diagnostics())
+        self.lang_widget.update(self.language or "Text")
+        self.indent_widget.update(self.indentation)
+        self.encoding_widget.update(self.encoding)
 
     class StatusUpdated(Message):
         """Message sent when status information is updated."""
@@ -112,14 +98,14 @@ class StatusBar(Widget):
         self.styles.color = "#f1f5f9"
         self.styles.padding = (0, 1)
         
-        # Construct widgets in __init__
-        self.git_branch_widget = Static(self.git_branch, id="git-branch", classes="status-item")
-        self.file_name_widget = Static(self.file_path or "New File", id="file-name", classes="status-item")
-        self.cursor_pos_widget = Static(f"Ln {self.cursor_line}, Col {self.cursor_column}", id="cursor-pos", classes="status-item")
-        self.diagnostics_widget = Static(self._format_diagnostics(), id="diagnostics", classes="status-item")
-        self.lang_widget = Static(self.language or "Text", id="lang", classes="status-item")
-        self.indent_widget = Static(self.indentation, id="indent", classes="status-item", expand=False)
-        self.encoding_widget = Static(self.encoding, id="encoding", classes="status-item")
+        # Construct widgets with default values to avoid triggering watchers during init
+        self.git_branch_widget = Static("", id="git-branch", classes="status-item")
+        self.file_name_widget = Static("New File", id="file-name", classes="status-item")
+        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
+        self.diagnostics_widget = Static("", id="diagnostics", classes="status-item")
+        self.lang_widget = Static("Text", id="lang", classes="status-item")
+        self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item", expand=False)
+        self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
 
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
@@ -165,19 +151,16 @@ class StatusBar(Widget):
             if result.returncode == 0:
                 branch = result.stdout.strip()
                 self.git_branch = branch
-                if hasattr(self, 'git_branch_widget') and self.git_branch_widget:
-                    self.git_branch_widget.update(branch)
+                self.git_branch_widget.update(branch)
                 await self.logger.debug(f"Git branch updated: {branch}")
             else:
                 self.git_branch = ""
-                if hasattr(self, 'git_branch_widget') and self.git_branch_widget:
-                    self.git_branch_widget.update("")
+                self.git_branch_widget.update("")
                 await self.logger.debug("Failed to get git branch")
                 
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.git_branch = ""
-            if hasattr(self, 'git_branch_widget') and self.git_branch_widget:
-                self.git_branch_widget.update("")
+            self.git_branch_widget.update("")
             await self.logger.debug(f"Error updating git branch: {e}")
     
     def update_diagnostics(self, warnings: int = 0, errors: int = 0):
