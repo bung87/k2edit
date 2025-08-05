@@ -20,47 +20,34 @@ Header {
 #status-bar {
     layout: horizontal;
     width: 100%;
-    height: 1;        /* Or however tall your status bar is */
-  }
+    height: 1;
+}
 
 
 .status-item {
     height: 1;
-    min-height: 1;
-    max-height: 1;
     margin: 0 1;
-    padding: 0 2;
+    padding: 0 1;
+    display: block;
 }
 
 /* Git branch styling */
 #git-branch {
     background: #059669;
     color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 8;
+    width: 10;
     text-style: bold;
     text-align: center;
 }
 
 /* File name styling */
-#file-name {
-    background: #7c3aed;
-    color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 10;
-    text-style: bold;
-    text-align: left;
-}
+
 
 /* Cursor position styling */
 #cursor-pos {
     background: #dc2626;
     color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 8;
+    width: 15;
     text-style: bold;
     text-align: center;
 }
@@ -69,9 +56,7 @@ Header {
 #diagnostics {
     background: #ea580c;
     color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 6;
+    width: 10;
     text-style: bold;
     text-align: center;
 }
@@ -80,9 +65,7 @@ Header {
 #lang {
     background: #0891b2;
     color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 4;
+    width: 10;
     text-style: bold;
     text-align: center;
 }
@@ -91,9 +74,7 @@ Header {
 #indent {
     background: #059669;
     color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 4;
+    width: 12;
     text-style: bold;
     text-align: center;
 }
@@ -102,9 +83,7 @@ Header {
 #encoding {
     background: #7c2d12;
     color: #ffffff;
-    padding: 0 1;
-    width: auto;
-    min-width: 6;
+    width: 8;
     text-style: bold;
     text-align: center;
 }

@@ -112,10 +112,12 @@ class StatusBar(Widget):
         # Construct widgets with default values to avoid triggering watchers during init
         self.git_branch_widget = Static("main", id="git-branch", classes="status-item")
         self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
-        self.diagnostics_widget = Static("", id="diagnostics", classes="status-item")
+        self.diagnostics_widget = Static("✓", id="diagnostics", classes="status-item")
         self.lang_widget = Static("Text", id="lang", classes="status-item")
-        self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item", expand=False)
+        self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
+        
+
 
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
@@ -273,7 +275,7 @@ class StatusBar(Widget):
         elif self.diagnostics_warnings > 0:
             return f"⚠{self.diagnostics_warnings}"
         else:
-            return ""
+            return "✓"
     
     def update_from_editor(self, editor_content: str = "", file_path: str = ""):
         """Update status bar from editor content and file path."""
@@ -292,6 +294,12 @@ class StatusBar(Widget):
             line_ending = self._detect_line_ending(editor_content)
             self.indentation = indentation
             self.line_ending = line_ending
+            
+            # Update encoding (could be detected from content, for now default to UTF-8)
+            self.encoding = "UTF-8"
+        
+        # Update all displays to reflect changes
+        self._update_all_displays()
     
     async def on_mount(self):
         """Called when the widget is mounted."""

@@ -159,9 +159,6 @@ class CustomSyntaxEditor(TextArea):
             self.is_modified = False
             self.read_only = False
             
-            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                self._app_instance.logger.info(f"CUSTOM EDITOR: Successfully loaded file: {path}")
-            
             return True
             
         except Exception as e:
