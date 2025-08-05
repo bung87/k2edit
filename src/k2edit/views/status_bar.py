@@ -31,11 +31,18 @@ class StatusBar(Widget):
 
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
+        if self.logger:
+            self.logger.debug(f"watch_git_branch called with: {git_branch}")
         self.git_branch_widget.update(git_branch)
 
     def watch_file_path(self, file_path: str) -> None:
         """Watch for file path changes."""
-        self.file_name_widget.update(file_path or "New File")
+        if self.logger:
+            self.logger.debug(f"watch_file_path called with: {file_path}")
+        display_text = file_path or "New File"
+        self.file_name_widget.update(display_text)
+        if self.logger:
+            self.logger.debug(f"Updated file_name_widget with: '{display_text}'")
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
@@ -55,14 +62,23 @@ class StatusBar(Widget):
 
     def watch_language(self, language: str) -> None:
         """Watch for language changes."""
-        self.lang_widget.update(language or "Text")
+        if self.logger:
+            self.logger.debug(f"watch_language called with: {language}")
+        display_text = language or "Text"
+        self.lang_widget.update(display_text)
+        if self.logger:
+            self.logger.debug(f"Updated lang_widget with: '{display_text}'")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
+        if self.logger:
+            self.logger.debug(f"watch_indentation called with: {indentation}")
         self.indent_widget.update(indentation)
 
     def watch_encoding(self, encoding: str) -> None:
         """Watch for encoding changes."""
+        if self.logger:
+            self.logger.debug(f"watch_encoding called with: {encoding}")
         self.encoding_widget.update(encoding)
 
     def _update_cursor_position_display(self) -> None:
@@ -75,6 +91,9 @@ class StatusBar(Widget):
 
     def _update_all_displays(self) -> None:
         """Update all display widgets with current values."""
+        if self.logger:
+            self.logger.debug("_update_all_displays called")
+            self.logger.debug(f"Current values - git_branch: '{self.git_branch}', file_path: '{self.file_path}', language: '{self.language}'")
         self.git_branch_widget.update(self.git_branch)
         self.file_name_widget.update(self.file_path or "New File")
         self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
@@ -100,12 +119,12 @@ class StatusBar(Widget):
         
         # Construct widgets with default values to avoid triggering watchers during init
         self.git_branch_widget = Static("", id="git-branch", classes="status-item")
-        self.file_name_widget = Static("New File", id="file-name", classes="status-item")
-        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
+        self.file_name_widget = Static("", id="file-name", classes="status-item")
+        self.cursor_pos_widget = Static("", id="cursor-pos", classes="status-item")
         self.diagnostics_widget = Static("", id="diagnostics", classes="status-item")
-        self.lang_widget = Static("Text", id="lang", classes="status-item")
-        self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item", expand=False)
-        self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
+        self.lang_widget = Static("", id="lang", classes="status-item")
+        self.indent_widget = Static("", id="indent", classes="status-item", expand=False)
+        self.encoding_widget = Static("", id="encoding", classes="status-item")
 
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
@@ -280,16 +299,16 @@ class StatusBar(Widget):
         """Called when the widget is mounted."""
         await self.logger.info("StatusBar mounted")
         
-        # Set initial values to make sure something shows
+        # Update initial display first
+        self._update_all_displays()
+        
+        # Set initial values to trigger reactive updates
         self.cursor_line = 1
         self.cursor_column = 1
         self.file_path = "New File"
         self.language = "Text"
         self.indentation = "Spaces: 4"
         self.encoding = "UTF-8"
-        
-        # Update initial display
-        self._update_all_displays()
         
         # Start periodic git branch updates
         self.set_interval(10, self._update_git_branch)
