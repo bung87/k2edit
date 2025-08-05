@@ -241,6 +241,16 @@ class K2EditApp(App):
             # It's a directory, keep the tree view
             await self.logger.debug(f"Directory selected: {file_path}")
     
+    async def on_text_area_cursor_moved(self, event: CustomSyntaxEditor.CursorMoved) -> None:
+        """Handle cursor movement in editor."""
+        if self.status_bar:
+            self.status_bar.update_cursor_position(event.cursor_location[0] + 1, event.cursor_location[1] + 1)
+
+    async def on_text_area_changed(self, event: CustomSyntaxEditor.Changed) -> None:
+        """Handle text changes in editor."""
+        if self.status_bar:
+            self.status_bar.update_from_editor(self.editor.text, str(self.editor.current_file) if self.editor.current_file else "")
+
     async def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
         """Handle adding file to AI context from file explorer."""
         file_path = message.file_path

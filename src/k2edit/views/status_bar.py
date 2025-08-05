@@ -184,8 +184,15 @@ class StatusBar(Widget):
         self.cursor_line = line
         self.cursor_column = column
         # Note: Logging is handled in the async git branch update method
-    
-    
+
+    def update_from_editor(self, content: str, file_path: str):
+        """Update status bar from editor content and file path."""
+        self.file_path = file_path
+        self.language = self._detect_language_from_extension(file_path)
+        self.indentation = self._detect_indentation(content)
+        # TODO: Add detection for encoding and line_ending if needed
+        # For now, keep defaults or implement if necessary
+
     def _detect_language_from_extension(self, file_path: str) -> str:
         """Detect programming language from file extension."""
         if not file_path:
