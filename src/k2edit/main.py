@@ -26,7 +26,8 @@ from .custom_syntax_editor import CustomSyntaxEditor
 from .views.command_bar import CommandBar
 from .views.output_panel import OutputPanel
 from .views.file_explorer import FileExplorer
-from .views.status_bar import StatusBar
+from .views.status_bar import StatusBar, GitBranchSwitch, NavigateToDiagnostic, ShowDiagnosticsDetails
+from .views.modals import DiagnosticsModal, BranchSwitcherModal
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
@@ -427,6 +428,73 @@ class K2EditApp(App):
         if self.agent_integration:
             await self.agent_integration.shutdown()
         await self.logger.shutdown()
+
+    async def on_status_bar_show_diagnostics_details(self, message: ShowDiagnosticsDetails) -> None:
+        """Handle show diagnostics details message from status bar."""
+        await self.logger.debug("Showing diagnostics modal")
+        modal = DiagnosticsModal(message.diagnostics, logger=self.logger)
+        await self.push_screen(modal)
+
+    async def on_status_bar_git_branch_switch(self, message: GitBranchSwitch) -> None:
+        """Handle git branch switch message from status bar."""
+        await self.logger.info(f"Switching to git branch: {message.branch_name}")
+        
+        try:
+            import subprocess
+            from pathlib import Path
+            
+            current_dir = Path.cwd()
+            
+            # Check if we're in a git repository
+            git_dir = current_dir / ".git"
+            if not git_dir.exists():
+                self.output_panel.add_error("Not in a git repository")
+                return
+            
+            # Switch branch
+            result = subprocess.run(
+                ["git", "checkout", message.branch_name],
+                capture_output=True,
+                text=True,
+                cwd=current_dir,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                self.output_panel.add_info(f"Switched to branch: {message.branch_name}")
+                await self.status_bar._update_git_branch()  # Refresh branch display
+            else:
+                error_msg = f"Failed to switch branch: {result.stderr}"
+                self.output_panel.add_error(error_msg)
+                await self.logger.error(error_msg)
+                
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            error_msg = f"Error switching branch: {e}"
+            self.output_panel.add_error(error_msg)
+            await self.logger.error(error_msg)
+
+    async def on_status_bar_navigate_to_diagnostic(self, message: NavigateToDiagnostic) -> None:
+        """Handle navigate to diagnostic message from status bar."""
+        await self.logger.debug(f"Navigating to diagnostic: {message.file_path}:{message.line}:{message.column}")
+        
+        try:
+            # Open the file if it's not already open
+            if message.file_path != str(self.editor.current_file):
+                if self.editor.load_file(message.file_path):
+                    self.output_panel.add_info(f"Opened file: {message.file_path}")
+                else:
+                    self.output_panel.add_error(f"Failed to open file: {message.file_path}")
+                    return
+            
+            # Navigate to the specific line and column
+            self.editor.cursor_location = (message.line - 1, message.column - 1)
+            self.editor.scroll_to_line(message.line - 1)
+            self.editor.focus()
+            
+        except Exception as e:
+            error_msg = f"Error navigating to diagnostic: {e}"
+            self.output_panel.add_error(error_msg)
+            await self.logger.error(error_msg)
 
 
 def main():

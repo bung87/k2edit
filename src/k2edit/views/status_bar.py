@@ -4,15 +4,39 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from textual.widget import Widget
-from textual.widgets import Static
-from textual.containers import Horizontal,Container,HorizontalScroll
+from textual.widgets import Static, Button
+from textual.containers import Horizontal, Container, HorizontalScroll
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.message import Message
+from textual.screen import Screen
 from textual import work
 from aiologger import Logger
+
+
+class GitBranchSwitch(Message):
+    """Message to request git branch switching."""
+    def __init__(self, branch_name: str) -> None:
+        self.branch_name = branch_name
+        super().__init__()
+
+
+class NavigateToDiagnostic(Message):
+    """Message to navigate to a diagnostic location."""
+    def __init__(self, file_path: str, line: int, column: int) -> None:
+        self.file_path = file_path
+        self.line = line
+        self.column = column
+        super().__init__()
+
+
+class ShowDiagnosticsDetails(Message):
+    """Message to show diagnostics details."""
+    def __init__(self, diagnostics: List[Dict[str, Any]]) -> None:
+        self.diagnostics = diagnostics
+        super().__init__()
 
 
 class StatusBar(Widget):
@@ -29,6 +53,10 @@ class StatusBar(Widget):
     line_ending = reactive("LF")
     language = reactive("")
     file_path = reactive("")
+    
+    # Additional state for interactive features
+    diagnostics_data = reactive([])
+    available_branches = reactive([])
 
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
@@ -90,9 +118,9 @@ class StatusBar(Widget):
         self.logger = logger
 
         # Construct widgets first (before reactive initialization)
-        self.git_branch_widget = Static("main", id="git-branch", classes="status-item", shrink=True, expand=True)
+        self.git_branch_widget = Button("main", id="git-branch", classes="status-button", shrink=True)
         self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item", shrink=True, expand=True)
-        self.diagnostics_widget = Static("✓", id="diagnostics", classes="status-item", shrink=True, expand=True)
+        self.diagnostics_widget = Button("✓", id="diagnostics", classes="status-button", shrink=True)
         self.lang_widget = Static("Text", id="lang", classes="status-item", shrink=True, expand=True)
         self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
@@ -119,6 +147,97 @@ class StatusBar(Widget):
                 
             # yield Static(" | ", classes="status-separator", shrink=True, expand=True)
             # yield self.line_ending_widget
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses in the status bar."""
+        button_id = event.button.id
+        
+        if button_id == "git-branch":
+            self._handle_git_branch_click()
+        elif button_id == "diagnostics":
+            self._handle_diagnostics_click()
+
+    def _handle_git_branch_click(self) -> None:
+        """Handle git branch button click - show branch switcher."""
+        self._show_branch_switcher()
+
+    def _handle_diagnostics_click(self) -> None:
+        """Handle diagnostics button click - show diagnostics details."""
+        self._show_diagnostics_details()
+
+    def _show_branch_switcher(self) -> None:
+        """Show a modal to switch git branches."""
+        from .modals import BranchSwitcherModal
+        
+        async def show_modal():
+            await self.app.push_screen(
+                BranchSwitcherModal(self.available_branches, self.git_branch, logger=self.logger),
+                self._handle_branch_selection
+            )
+        
+        # Ensure branches are updated before showing modal
+        self._update_available_branches()
+        
+        # Show modal after a short delay to allow branches to load
+        self.set_timer(0.1, lambda: asyncio.create_task(show_modal()))
+    
+    async def _handle_branch_selection(self, branch_name: str) -> None:
+        """Handle branch selection from the modal."""
+        if branch_name:
+            self.switch_git_branch(branch_name)
+
+    def _show_diagnostics_details(self) -> None:
+        """Show detailed diagnostics information."""
+        if self.diagnostics_data:
+            self.post_message(ShowDiagnosticsDetails(self.diagnostics_data))
+
+    @work
+    async def _update_available_branches(self) -> None:
+        """Update the list of available git branches."""
+        try:
+            current_dir = Path.cwd()
+            
+            # Check if we're in a git repository
+            git_dir = current_dir / ".git"
+            if not git_dir.exists():
+                self.available_branches = []
+                return
+            
+            # Get all branches
+            result = subprocess.run(
+                ["git", "branch", "-a"],
+                capture_output=True,
+                text=True,
+                cwd=current_dir,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                branches = []
+                for line in result.stdout.strip().split('\n'):
+                    line = line.strip()
+                    if line.startswith('* '):
+                        line = line[2:]  # Remove the '* ' from current branch
+                    if line.startswith('remotes/'):
+                        continue  # Skip remote branches for now
+                    branches.append(line)
+                
+                self.available_branches = branches
+                await self.logger.debug(f"Available branches: {branches}")
+            else:
+                self.available_branches = []
+                
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            self.available_branches = []
+            await self.logger.debug(f"Error getting branches: {e}")
+
+    def switch_git_branch(self, branch_name: str) -> None:
+        """Switch to a specific git branch."""
+        self.post_message(GitBranchSwitch(branch_name))
+
+    def navigate_to_diagnostic(self, file_path: str, line: int, column: int) -> None:
+        """Navigate to a specific diagnostic location."""
+        self.post_message(NavigateToDiagnostic(file_path, line, column))
 
     @work
     async def _update_git_branch(self):
@@ -168,30 +287,56 @@ class StatusBar(Widget):
         if diagnostics_data is None:
             self.diagnostics_warnings = 0
             self.diagnostics_errors = 0
+            self.diagnostics_data = []
             return
         
         warnings = 0
         errors = 0
+        all_diagnostics = []
         
         # Parse diagnostics data from LSP
         if isinstance(diagnostics_data, dict):
             diagnostics = diagnostics_data.get('diagnostics', [])
+            file_path = diagnostics_data.get('file_path', '')
             for diagnostic in diagnostics:
-                severity = diagnostic.get('severity', 1)
-                if severity == 2:  # Warning
+                diagnostic_info = {
+                    'file_path': file_path,
+                    'message': diagnostic.get('message', ''),
+                    'severity': diagnostic.get('severity', 1),
+                    'line': diagnostic.get('range', {}).get('start', {}).get('line', 0) + 1,
+                    'column': diagnostic.get('range', {}).get('start', {}).get('character', 0) + 1,
+                    'source': diagnostic.get('source', ''),
+                    'code': diagnostic.get('code', ''),
+                    'severity_name': 'Error' if diagnostic.get('severity', 1) == 1 else 'Warning'
+                }
+                all_diagnostics.append(diagnostic_info)
+                
+                if diagnostic.get('severity', 1) == 2:  # Warning
                     warnings += 1
-                elif severity == 1:  # Error
+                elif diagnostic.get('severity', 1) == 1:  # Error
                     errors += 1
         elif isinstance(diagnostics_data, list):
             for diagnostic in diagnostics_data:
-                severity = diagnostic.get('severity', 1)
-                if severity == 2:  # Warning
+                diagnostic_info = {
+                    'file_path': diagnostic.get('file_path', ''),
+                    'message': diagnostic.get('message', ''),
+                    'severity': diagnostic.get('severity', 1),
+                    'line': diagnostic.get('range', {}).get('start', {}).get('line', 0) + 1,
+                    'column': diagnostic.get('range', {}).get('start', {}).get('character', 0) + 1,
+                    'source': diagnostic.get('source', ''),
+                    'code': diagnostic.get('code', ''),
+                    'severity_name': 'Error' if diagnostic.get('severity', 1) == 1 else 'Warning'
+                }
+                all_diagnostics.append(diagnostic_info)
+                
+                if diagnostic.get('severity', 1) == 2:  # Warning
                     warnings += 1
-                elif severity == 1:  # Error
+                elif diagnostic.get('severity', 1) == 1:  # Error
                     errors += 1
         
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
+        self.diagnostics_data = all_diagnostics
 
     def update_cursor_position(self, line: int, column: int):
         """Update cursor position."""

@@ -50,6 +50,29 @@ StatusBar {
     padding: 0 1;
 }
 
+.status-button {
+    min-width: 8;
+    max-width: 20;
+    height: 1;
+    margin: 0 1;
+    padding: 0 1;
+    background: transparent;
+    border: none;
+    color: #f1f5f9;
+    text-align: center;
+    text-style: none;
+}
+
+.status-button:hover {
+    background: #334155;
+    color: #ffffff;
+}
+
+.status-button:focus {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
 #git-branch { width: 12; }
 #cursor-pos { width: 15; }
 #diagnostics { width: 12; }
