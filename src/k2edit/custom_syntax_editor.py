@@ -209,8 +209,12 @@ class CustomSyntaxEditor(TextArea):
         """Get cursor column."""
         return self.cursor_location[1]
 
-    def on_cursor_moved(self, line: int, column: int) -> None:
-        self._app_instance.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
-        """Called when cursor moves. Override to handle cursor position changes."""
+    def on_text_area_selection_changed(self, event) -> None:
+        """Called when cursor position or selection changes."""
+        line, column = self.cursor_location
+        if self._app_instance and hasattr(self._app_instance, 'logger'):
+            self._app_instance.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
+        
+        # Call the callback if it exists
         if hasattr(self, 'cursor_position_changed') and self.cursor_position_changed:
             self.cursor_position_changed(line, column)
