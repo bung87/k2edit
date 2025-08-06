@@ -46,7 +46,7 @@ def setup_logging(log_level: str = "DEBUG") -> Logger:
         backup_count=7,
         encoding="utf-8"
     )
-    console_handler = AsyncStreamHandler()
+    # console_handler = AsyncStreamHandler()
     
     # Set formatter
     formatter = Formatter(
@@ -54,7 +54,7 @@ def setup_logging(log_level: str = "DEBUG") -> Logger:
         datefmt="%Y-%m-%d %H:%M:%S"
     )
     file_handler.formatter = formatter
-    console_handler.formatter = formatter
+    # console_handler.formatter = formatter
     
     # Add handlers to logger
     logger.add_handler(file_handler)

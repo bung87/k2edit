@@ -4,17 +4,6 @@ Screen {
     background: #0f172a;
 }
 
-/* StatusBar styling */
-
-StatusBar {
-
-    height: 1;
-    background: #3b82f6;
-    color: #f1f5f9;
-    margin: 0;
-    padding: 0;
-}
-
 Header {
     dock: top;
     height: 1;
@@ -24,94 +13,87 @@ Header {
     padding: 0;
 }
 
+/* StatusBar styling */
 
-#status-bar {
-    layout: horizontal;
-    width: 100%;
+StatusBar {
+    /* width: 100%; */
     height: 1;
+    box-sizing: border-box;
+    min-width: 50;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
 }
 
-
 .status-item {
+     min-width: 8;
+    max-width: 20;
     height: 1;
     margin: 0 1;
     padding: 0 1;
-    display: block;
 }
+
+#git-branch { width: 10; }
+#cursor-pos { width: 20; }
+#diagnostics { width: 10; }
+#lang { width: 10; }
+#indent { width: 12; }
+#encoding { width: 8; }
 
 /* Git branch styling */
 #git-branch {
-    background: #059669;
     color: #ffffff;
     width: 10;
-    text-style: bold;
     text-align: center;
 }
 
-/* File name styling */
-
-
 /* Cursor position styling */
 #cursor-pos {
-    background: #dc2626;
+
     color: #ffffff;
     width: 15;
-    text-style: bold;
     text-align: center;
 }
 
 /* Diagnostics styling */
 #diagnostics {
-    background: #ea580c;
     color: #ffffff;
     width: 10;
-    text-style: bold;
     text-align: center;
 }
 
 /* Language styling */
 #lang {
-    background: #0891b2;
     color: #ffffff;
     width: 10;
-    text-style: bold;
     text-align: center;
 }
 
 /* Indentation styling */
 #indent {
-    background: #059669;
+ 
     color: #ffffff;
     width: 12;
-    text-style: bold;
     text-align: center;
 }
 
 /* Encoding styling */
 #encoding {
-    background: #7c2d12;
+ 
     color: #ffffff;
     width: 8;
-    text-style: bold;
     text-align: center;
 }
 
 /* Status separator styling */
 .status-separator {
     color: #ffffff;
-    text-style: bold;
+    width: 1;
     margin: 0 1;
     padding: 0 1;
 }
 
-/* Removed duplicate .status-item definition */
-
-
-
-Horizontal {
-    /* height: 100%; */
-    box-sizing: border-box;
-}
 
 TextArea {
     border: solid #3b82f6;

@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from textual.widget import Widget
 from textual.widgets import Static
-from textual.containers import Horizontal
+from textual.containers import Horizontal,Container,HorizontalScroll
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.message import Message
 from textual import work
 from aiologger import Logger
+
 
 class StatusBar(Widget):
     """Status bar widget displaying file and editor information."""
@@ -36,13 +37,15 @@ class StatusBar(Widget):
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
+        self.logger.debug(f"watch_cursor_line: {cursor_line}")
         if hasattr(self, 'cursor_pos_widget'):
-            self._update_cursor_position_display()
+            self._update_cursor_position_display(cursor_line, self.cursor_column)
 
     def watch_cursor_column(self, cursor_column: int) -> None:
         """Watch for cursor column changes."""
+        self.logger.debug(f"watch_cursor_column: {cursor_column}")
         if hasattr(self, 'cursor_pos_widget'):
-            self._update_cursor_position_display()
+            self._update_cursor_position_display(self.cursor_line, cursor_column)
 
     def watch_diagnostics_warnings(self, warnings: int) -> None:
         """Watch for diagnostics warnings changes."""
@@ -56,8 +59,11 @@ class StatusBar(Widget):
 
     def watch_language(self, language: str) -> None:
         """Watch for language changes."""
+        self.logger.debug(f"watch_language: {language}")
+        self.logger.debug(f"hasattr(self, 'lang_widget'): {hasattr(self, 'lang_widget')}")
         if hasattr(self, 'lang_widget'):
             display_text = language or "Text"
+            self.logger.debug(f"display_text: {display_text}")
             self.lang_widget.update(display_text)
 
     def watch_indentation(self, indentation: str) -> None:
@@ -70,49 +76,27 @@ class StatusBar(Widget):
         if hasattr(self, 'encoding_widget'):
             self.encoding_widget.update(encoding)
 
-    def _update_cursor_position_display(self) -> None:
+    def _update_cursor_position_display(self, cursor_line: int, cursor_column: int) -> None:
         """Update cursor position display."""
-        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
+        self.cursor_pos_widget.update(f"Ln {cursor_line}, Col {cursor_column}")
 
     def _update_diagnostics_display(self) -> None:
         """Update diagnostics display."""
         self.diagnostics_widget.update(self._format_diagnostics())
 
-    def _update_all_displays(self) -> None:
-        """Update all display widgets with current values."""
-        if self.logger:
-            self.logger.debug("_update_all_displays called")
-            self.logger.debug(f"Current values - git_branch: '{self.git_branch}', file_path: '{self.file_path}', language: '{self.language}'")
-        self.git_branch_widget.update(self.git_branch or "main")
-        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
-        self.diagnostics_widget.update(self._format_diagnostics())
-        self.lang_widget.update(self.language or "Text")
-        self.indent_widget.update(self.indentation)
-        self.encoding_widget.update(self.encoding)
-
-    class StatusUpdated(Message):
-        """Message sent when status information is updated."""
-        
-        def __init__(self, status_data: Dict[str, Any]):
-            super().__init__()
-            self.status_data = status_data
 
     def __init__(self, logger: Logger = None, **kwargs):
         super().__init__(**kwargs)
         self.logger = logger
-        self.styles.height = 1
-        self.styles.background = "#3b82f6"
-        self.styles.color = "#f1f5f9"
-        self.styles.padding = (0, 1)
-        
+
         # Construct widgets first (before reactive initialization)
-        self.git_branch_widget = Static("main", id="git-branch", classes="status-item")
-        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
-        self.diagnostics_widget = Static("✓", id="diagnostics", classes="status-item")
-        self.lang_widget = Static("Text", id="lang", classes="status-item")
+        self.git_branch_widget = Static("main", id="git-branch", classes="status-item", shrink=True, expand=True)
+        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item", shrink=True, expand=True)
+        self.diagnostics_widget = Static("✓", id="diagnostics", classes="status-item", shrink=True, expand=True)
+        self.lang_widget = Static("Text", id="lang", classes="status-item", shrink=True, expand=True)
         self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
-        
+
 
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
@@ -128,7 +112,7 @@ class StatusBar(Widget):
             yield self.indent_widget
             yield Static(" | ", classes="status-separator")
             yield self.encoding_widget
-            # yield Static(" | ", classes="status-separator")
+            # yield Static(" | ", classes="status-separator", shrink=True, expand=True)
             # yield self.line_ending_widget
 
     @work
@@ -173,32 +157,16 @@ class StatusBar(Widget):
         """Update diagnostics information."""
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
-        # Note: Logging is handled in the async git branch update method
-    
+
     def update_cursor_position(self, line: int, column: int):
         """Update cursor position."""
         self.cursor_line = line
         self.cursor_column = column
-        # Note: Logging is handled in the async git branch update method
-        
-    def _update_cursor_position_display(self):
-        """Update the cursor position display widget."""
-        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
-        
+
+
     def _update_diagnostics_display(self):
         """Update the diagnostics display widget."""
         self.diagnostics_widget.update(self._format_diagnostics())
-        
-    def _update_all_displays(self):
-        """Update all display widgets to reflect current state."""
-        self.git_branch_widget.update(self.git_branch or "main")
-        self._update_cursor_position_display()
-        self._update_diagnostics_display()
-        self.lang_widget.update(self.language or "Text")
-        self.indent_widget.update(self.indentation)
-        self.encoding_widget.update(self.encoding)
-
-
 
     def _detect_language_from_extension(self, file_path: str) -> str:
         """Detect programming language from file extension."""
@@ -293,6 +261,7 @@ class StatusBar(Widget):
     
     def update_from_editor(self, editor_content: str = "", file_path: str = ""):
         """Update status bar from editor content and file path."""
+        self.logger.debug(f"update_from_editor: {file_path}")
         if file_path:
             # Extract just the filename for display
             file_name = os.path.basename(file_path)
@@ -313,12 +282,12 @@ class StatusBar(Widget):
             self.encoding = "UTF-8"
         
         # Update all displays to reflect changes
-        self._update_all_displays()
+        # self._update_all_displays()
     
     async def on_mount(self):
         """Called when the widget is mounted."""
         await self.logger.info("StatusBar mounted")
-        
+        await self.logger.info(f"Children: {self.children}")
         # Sync widgets with initial reactive values
         self.git_branch_widget.update(self.git_branch or "main")
         self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
@@ -326,9 +295,9 @@ class StatusBar(Widget):
         self.lang_widget.update(self.language or "Text")
         self.indent_widget.update(self.indentation)
         self.encoding_widget.update(self.encoding)
-        
+        # self.set_interval(1, self.update_from_editor)
         # Start periodic git branch updates
-        self.set_interval(10, self._update_git_branch)
+        self.set_interval(1, self._update_git_branch)
         
         # Log initial status
         await self.logger.debug("StatusBar initialization complete")

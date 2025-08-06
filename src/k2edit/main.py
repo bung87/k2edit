@@ -177,41 +177,41 @@ class K2EditApp(App):
     
     def compose(self) -> ComposeResult:
         """Create the UI layout with programmatic sizing."""
-
-        yield Header()
-        with Horizontal():
-            # File explorer with fixed width
-            self.file_explorer.styles.width = "25%"
-            self.file_explorer.styles.min_width = "25%"
-            self.file_explorer.styles.max_width = "25%"
-            yield self.file_explorer
-            
-            # Main editor panel with explicit width
-            with Vertical(id="main-panel") as main_panel:
-                main_panel.styles.width = "50%"
-                main_panel.styles.min_width = "50%"
-                main_panel.styles.max_width = "50%"
+        with Vertical():
+            yield Header()
+            with Horizontal():
+                # File explorer with fixed width
+                self.file_explorer.styles.width = "25%"
+                self.file_explorer.styles.min_width = "25%"
+                self.file_explorer.styles.max_width = "25%"
+                yield self.file_explorer
                 
-                self.editor.styles.height = "1fr"
-                self.editor.styles.width = "100%"
-                self.editor.styles.overflow_x = "hidden"
-                self.editor.styles.overflow_y = "auto"
-                yield self.editor
+                # Main editor panel with explicit width
+                with Vertical(id="main-panel") as main_panel:
+                    main_panel.styles.width = "50%"
+                    main_panel.styles.min_width = "50%"
+                    main_panel.styles.max_width = "50%"
+                    
+                    self.editor.styles.height = "1fr"
+                    self.editor.styles.width = "100%"
+                    self.editor.styles.overflow_x = "hidden"
+                    self.editor.styles.overflow_y = "auto"
+                    yield self.editor
+                    
+                    self.command_bar.styles.height = 3
+                    self.command_bar.styles.min_height = 3
+                    self.command_bar.styles.max_height = 3
+                    self.command_bar.styles.width = "100%"
+                    yield self.command_bar
                 
-                self.command_bar.styles.height = 3
-                self.command_bar.styles.min_height = 3
-                self.command_bar.styles.max_height = 3
-                self.command_bar.styles.width = "100%"
-                yield self.command_bar
-            
-            # Output panel with fixed width
-            self.output_panel.styles.width = "25%"
-            self.output_panel.styles.min_width = "25%"
-            self.output_panel.styles.max_width = "25%"
-            yield self.output_panel
-        # yield self.status_bar
-        yield self.status_bar
-        yield Footer()  # Removed to avoid conflict with custom status bar
+                # Output panel with fixed width
+                self.output_panel.styles.width = "25%"
+                self.output_panel.styles.min_width = "25%"
+                self.output_panel.styles.max_width = "25%"
+                yield self.output_panel
+            # yield self.status_bar
+            yield self.status_bar
+            yield Footer()  # Removed to avoid conflict with custom status bar
 
     
     def on_command_bar_command_executed(self, message) -> None:
@@ -228,9 +228,6 @@ class K2EditApp(App):
                 self.output_panel.add_info(f"Loaded file: {file_path}")
                 await self.logger.info(f"Successfully loaded file from explorer: {file_path}")
                 self.editor.focus()
-                
-                # Update status bar
-                self._update_status_bar()
                 
                 # Notify agentic system about file open
                 await self._on_file_open_with_agent(file_path)
