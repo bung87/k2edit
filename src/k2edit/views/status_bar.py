@@ -94,7 +94,7 @@ class StatusBar(Widget):
             display_text = language or "Text"
             self.logger.debug(f"Setting lang_widget.label to: {display_text}")
             self.lang_widget.update(display_text)
-            self.logger.debug(f"lang_widget.label after update: {self.lang_widget.label}")
+            self.logger.debug(f"lang_widget.label after update: {self.lang_widget}")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
