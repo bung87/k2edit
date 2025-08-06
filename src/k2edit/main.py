@@ -139,7 +139,7 @@ class K2EditApp(App):
                 self.command_bar.set_agent_integration(self.agent_integration)
             
             # Connect LSP diagnostics to status bar
-            self.set_interval(2.0, self._update_diagnostics_from_lsp)
+            # self.set_interval(2.0, self._update_diagnostics_from_lsp)
             
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
@@ -178,7 +178,7 @@ class K2EditApp(App):
             await self.agent_integration.on_file_open(file_path)
             
         # Update diagnostics for the newly opened file
-        # await self._update_diagnostics_from_lsp()
+        await self._update_diagnostics_from_lsp()
     
     async def _on_file_change_with_agent(self, file_path: str, old_content: str, new_content: str):
         """Handle file change with agentic system integration"""

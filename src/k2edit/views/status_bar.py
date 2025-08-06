@@ -61,33 +61,29 @@ class StatusBar(Widget):
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
         if hasattr(self, 'git_branch_widget'):
-            self.git_branch_widget.label = git_branch or "main"
+            self.git_branch_widget.update(git_branch or "main")
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
         self.logger.debug(f"watch_cursor_line: {cursor_line}")
         if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
             self._update_cursor_position_display(cursor_line, self.cursor_column)
-            self.cursor_pos_widget.refresh()
 
     def watch_cursor_column(self, cursor_column: int) -> None:
         """Watch for cursor column changes."""
         self.logger.debug(f"watch_cursor_column: {cursor_column}")
         if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
             self._update_cursor_position_display(self.cursor_line, cursor_column)
-            self.cursor_pos_widget.refresh()
 
     def watch_diagnostics_warnings(self, warnings: int) -> None:
         """Watch for diagnostics warnings changes."""
         if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
             self._update_diagnostics_display()
-            self.diagnostics_widget.refresh()
 
     def watch_diagnostics_errors(self, errors: int) -> None:
         """Watch for diagnostics errors changes."""
         if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
             self._update_diagnostics_display()
-            self.diagnostics_widget.refresh()
 
     def watch_language(self, language: str) -> None:
         """Watch for language changes."""
@@ -97,29 +93,26 @@ class StatusBar(Widget):
         if hasattr(self, 'lang_widget') and self.lang_widget:
             display_text = language or "Text"
             self.logger.debug(f"Setting lang_widget.label to: {display_text}")
-            self.lang_widget.label = display_text
-            self.lang_widget.refresh()
+            self.lang_widget.update(display_text)
             self.logger.debug(f"lang_widget.label after update: {self.lang_widget.label}")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
         if hasattr(self, 'indent_widget') and self.indent_widget:
-            self.indent_widget.label = indentation
-            self.indent_widget.refresh()
+            self.indent_widget.update(indentation)
 
     def watch_encoding(self, encoding: str) -> None:
         """Watch for encoding changes."""
         if hasattr(self, 'encoding_widget') and self.encoding_widget:
-            self.encoding_widget.label = encoding
-            self.encoding_widget.refresh()
+            self.encoding_widget.update(encoding)
 
     def _update_cursor_position_display(self, cursor_line: int, cursor_column: int) -> None:
         """Update cursor position display."""
-        self.cursor_pos_widget.label = f"Ln {cursor_line}, Col {cursor_column}"
+        self.cursor_pos_widget.update(f"Ln {cursor_line}, Col {cursor_column}")
 
     def _update_diagnostics_display(self) -> None:
         """Update diagnostics display."""
-        self.diagnostics_widget.label = self._format_diagnostics()
+        self.diagnostics_widget.update(self._format_diagnostics())
 
 
     def __init__(self, logger: Logger = None, **kwargs):
@@ -537,22 +530,18 @@ class StatusBar(Widget):
             
             # Update encoding (could be detected from content, for now default to UTF-8)
             self.encoding = "UTF-8"
-        
-        # Force refresh of the entire status bar
-        self.refresh()
-        self.logger.debug("Status bar refreshed after update_from_editor")
     
     async def on_mount(self):
         """Called when the widget is mounted."""
         await self.logger.info("StatusBar mounted")
         await self.logger.info(f"Children: {self.children}")
         # Sync widgets with initial reactive values
-        self.git_branch_widget.label = self.git_branch or "main"
-        self.cursor_pos_widget.label = f"Ln {self.cursor_line}, Col {self.cursor_column}"
-        self.diagnostics_widget.label = self._format_diagnostics()
-        self.lang_widget.label = self.language or "Text"
-        self.indent_widget.label = self.indentation
-        self.encoding_widget.label = self.encoding
+        self.git_branch_widget.update(self.git_branch or "main")
+        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
+        self.diagnostics_widget.update(self._format_diagnostics())
+        self.lang_widget.update(self.language or "Text")
+        self.indent_widget.update(self.indentation)
+        self.encoding_widget.update(self.encoding)
         # self.set_interval(1, self.update_from_editor)
         # Start periodic git branch updates
         self.set_interval(10, self._update_git_branch)
