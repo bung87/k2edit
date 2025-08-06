@@ -156,9 +156,6 @@ class LSPIndexer:
                 "symbols": len(symbols)
             }
             
-            # Also notify LSP server about this file to trigger diagnostics
-            await self._notify_file_opened(str(file_path.absolute()))
-            
         except Exception as e:
             await self.logger.error(f"Failed to index file {file_path}: {e}")
     
@@ -196,46 +193,7 @@ class LSPIndexer:
         
         return []
     
-    async def _notify_file_opened(self, file_path: str):
-        """Notify LSP server that a file has been opened"""
-        try:
-            language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
-            if language == "unknown" or not self.lsp_client.is_server_running(language):
-                return
-            
-            file_path_obj = Path(file_path)
-            if not file_path_obj.exists():
-                return
-            
-            # Read file content
-            try:
-                content = file_path_obj.read_text()
-            except Exception as e:
-                await self.logger.warning(f"Failed to read file content for LSP: {e}")
-                return
-            
-            # Build LSP URI
-            uri = f"file://{file_path_obj.absolute()}"
-            
-            # Send didOpen notification
-            did_open_notification = {
-                "jsonrpc": "2.0",
-                "method": "textDocument/didOpen",
-                "params": {
-                    "textDocument": {
-                        "uri": uri,
-                        "languageId": language,
-                        "version": 1,
-                        "text": content
-                    }
-                }
-            }
-            
-            await self.lsp_client.send_notification(language, did_open_notification)
-            await self.logger.info(f"Notified LSP server about opened file: {file_path}")
-            
-        except Exception as e:
-            await self.logger.warning(f"Failed to notify LSP server about opened file: {e}")
+
     
     # Public API methods
     async def get_symbols(self, file_path: str) -> List[Dict[str, Any]]:
@@ -283,7 +241,7 @@ class LSPIndexer:
             await self.lsp_client.initialize_connection(language, self.project_root)
         
         # Ensure file is opened with LSP server
-        await self._notify_file_opened(file_path)
+        await self.lsp_client.notify_file_opened(file_path, language)
         
         # Get symbols for this file
         relative_path = str(Path(file_path).relative_to(self.project_root))
@@ -347,7 +305,7 @@ class LSPIndexer:
             await self.lsp_client.initialize_connection(language, self.project_root)
         
         # Ensure file is opened with LSP server
-        await self._notify_file_opened(file_path)
+        await self.lsp_client.notify_file_opened(file_path, language)
         
         # Get document outline
         outline = await self.get_document_outline(file_path)

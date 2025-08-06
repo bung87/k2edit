@@ -210,6 +210,7 @@ class CustomSyntaxEditor(TextArea):
         return self.cursor_location[1]
 
     def on_cursor_moved(self, line: int, column: int) -> None:
+        self._app_instance.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
         """Called when cursor moves. Override to handle cursor position changes."""
         if hasattr(self, 'cursor_position_changed') and self.cursor_position_changed:
             self.cursor_position_changed(line, column)

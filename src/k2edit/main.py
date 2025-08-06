@@ -188,6 +188,10 @@ class K2EditApp(App):
         if self.agent_integration:
             await self.agent_integration.on_file_open(file_path)
             
+            # Notify LSP server about the opened file
+            if self.agent_integration.lsp_indexer:
+                await self.agent_integration.lsp_indexer.lsp_client.notify_file_opened(file_path)
+            
         # Update diagnostics for the newly opened file
         await self._update_diagnostics_from_lsp()
     
@@ -208,40 +212,7 @@ class K2EditApp(App):
             await self.logger.debug("No LSP indexer available")
             return
 
-    def _handle_cursor_movement(self, line: int, column: int):
-        """Handle cursor movement for hover functionality."""
-        new_position = (line, column)
-        self.logger.debug(f"_handle_cursor_movement: line={line}, column={column}")
-        
-        # Hide hover widget on cursor movement
-        if self.hover_widget.is_visible():
-            self.logger.debug("Hiding hover widget due to cursor movement")
-            self.hover_widget.hide_hover()
-        
-        # Cancel existing hover timer
-        if self._hover_timer:
-            self.logger.debug("Cancelling existing hover timer")
-            self._hover_timer.stop()
-            self._hover_timer = None
-        
-        # Check if position changed
-        if new_position == self._last_hover_position and self._last_hover_content:
-            # Same position, reuse cached content
-            self.logger.debug("Reusing cached hover content for same position")
-            self._show_hover_at_cursor(self._last_hover_content)
-            return
-        
-        # Reset cached content for new position
-        self._last_hover_content = None
-        self._last_hover_position = new_position
-        
-        # Check if hover functionality is available
-        has_lsp_indexer = self.agent_integration and self.agent_integration.lsp_indexer
-        self.logger.debug(f"LSP indexer available: {has_lsp_indexer}")
-        
-        # Start new hover timer
-        self.logger.debug("Starting new hover timer")
-        self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
+
 
     async def _trigger_hover_request(self, line: int, column: int):
         """Trigger LSP hover request after cursor idle."""
@@ -326,8 +297,35 @@ class K2EditApp(App):
         self._last_hover_position = (line, column)
 
     def _on_cursor_position_changed(self, line: int, column: int) -> None:
-        """Handle cursor position changes."""
-        self._handle_cursor_movement(line, column)
+        """Handle cursor position changes and trigger hover after delay."""
+        new_position = (line, column)
+        self.logger.debug(f"_on_cursor_position_changed: line={line}, column={column}")
+        
+        # Hide hover widget on cursor movement
+        if self.hover_widget.is_visible():
+            self.logger.debug("Hiding hover widget due to cursor movement")
+            self.hover_widget.hide_hover()
+        
+        # Cancel existing hover timer
+        if self._hover_timer:
+            self.logger.debug("Cancelling existing hover timer")
+            self._hover_timer.stop()
+            self._hover_timer = None
+        
+        # Check if position changed
+        if new_position == self._last_hover_position and self._last_hover_content:
+            # Same position, reuse cached content
+            self.logger.debug("Reusing cached hover content for same position")
+            self._show_hover_at_cursor(self._last_hover_content)
+            return
+        
+        # Reset cached content for new position
+        self._last_hover_content = None
+        self._last_hover_position = new_position
+        
+        # Start new hover timer with 500ms delay
+        self.logger.debug("Starting new hover timer with 500ms delay")
+        self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
 
     async def on_key(self, event) -> None:
         """Handle key presses to dismiss hover."""
@@ -383,6 +381,14 @@ class K2EditApp(App):
     def on_command_bar_command_executed(self, message) -> None:
         """Handle command executed messages from the command bar."""
         self.output_panel.on_command_bar_command_executed(message)
+    
+    async def on_command_bar_file_opened(self, message) -> None:
+        """Handle file opened messages from the command bar."""
+        file_path = message.file_path
+        await self.logger.info(f"File opened via command: {file_path}")
+        
+        # Notify agentic system about file open
+        await self._on_file_open_with_agent(file_path)
 
     async def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
         """Handle file selection from the file explorer."""
@@ -429,20 +435,7 @@ class K2EditApp(App):
             await self.logger.error(error_msg)
             self.output_panel.add_error(error_msg)
     
-    def on_editor_cursor_moved(self, event) -> None:
-        """Handle editor cursor movement."""
-        self.logger.debug("on_editor_cursor_moved triggered")
-        self._update_status_bar()
-        
-        # Handle hover on cursor movement
-        cursor_line, cursor_column = self.editor.cursor_location
-        self.logger.debug(f"Cursor moved to: line={cursor_line + 1}, column={cursor_column + 1}")
-        self.logger.debug(f"Agent integration available: {self.agent_integration is not None}")
-        
-        self._handle_cursor_movement(cursor_line + 1, cursor_column + 1)
-        
-        # Update diagnostics from LSP
-        asyncio.create_task(self._update_diagnostics_from_lsp())
+
     
     async def _update_diagnostics_from_lsp(self) -> None:
         """Update diagnostics from LSP server."""

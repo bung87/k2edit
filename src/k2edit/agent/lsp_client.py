@@ -254,6 +254,52 @@ class LSPClient:
         """Check if a language server is running"""
         return language in self.processes and self.processes[language].returncode is None
     
+    async def notify_file_opened(self, file_path: str, language: str = None):
+        """Notify LSP server that a file has been opened"""
+        try:
+            # Import here to avoid circular imports
+            from .language_configs import LanguageConfigs
+            
+            if language is None:
+                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+            
+            if language == "unknown" or not self.is_server_running(language):
+                return
+            
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
+                return
+            
+            # Read file content
+            try:
+                content = file_path_obj.read_text()
+            except Exception as e:
+                await self.logger.warning(f"Failed to read file content for LSP: {e}")
+                return
+            
+            # Build LSP URI
+            uri = f"file://{file_path_obj.absolute()}"
+            
+            # Send didOpen notification
+            did_open_notification = {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": language,
+                        "version": 1,
+                        "text": content
+                    }
+                }
+            }
+            
+            await self.send_notification(language, did_open_notification)
+            await self.logger.info(f"Notified LSP server about opened file: {file_path}")
+            
+        except Exception as e:
+            await self.logger.warning(f"Failed to notify LSP server about opened file: {e}")
+    
     async def shutdown(self):
         """Shutdown all language servers"""
         for language in list(self.processes.keys()):

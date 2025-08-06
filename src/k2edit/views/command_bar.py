@@ -33,6 +33,12 @@ class CommandBar(Input):
             self.result = result
             super().__init__()
     
+    class FileOpened(Message):
+        """Message sent when a file is opened via command."""
+        def __init__(self, file_path: str) -> None:
+            self.file_path = file_path
+            super().__init__()
+    
     def set_editor(self, editor) -> None:
         """Set the editor reference."""
         self.editor = editor
@@ -127,6 +133,8 @@ class CommandBar(Input):
             success = self.editor.load_file(filename)
             if success:
                 self.logger.info(f"Successfully opened file: {filename}")
+                # Notify main app about file opening
+                self.post_message(self.FileOpened(filename))
     
     async def _handle_save(self, filename: str = "") -> None:
         """Handle file save command."""
