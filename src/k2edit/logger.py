@@ -12,6 +12,10 @@ from aiologger.handlers.streams import AsyncStreamHandler
 from aiologger.formatters.base import Formatter
 
 
+# Global logger instance
+_global_logger = None
+
+
 def setup_logging(log_level: str = "DEBUG") -> Logger:
     """Setup logging configuration with both file and Textual handlers.
     
@@ -21,6 +25,11 @@ def setup_logging(log_level: str = "DEBUG") -> Logger:
     Returns:
         Configured logger instance
     """
+    global _global_logger
+    
+    if _global_logger is not None:
+        return _global_logger
+    
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
@@ -60,45 +69,22 @@ def setup_logging(log_level: str = "DEBUG") -> Logger:
     logger.add_handler(file_handler)
     # logger.add_handler(console_handler)
     
-    return logger
+    _global_logger = logger
+    return _global_logger
 
 
 def get_logger(name: str = None) -> Logger:
-    """Get a logger instance with the specified name.
+    """Get the singleton logger instance.
     
     Args:
-        name: Logger name (optional)
+        name: Logger name (ignored for singleton instance)
         
     Returns:
-        Logger instance with handlers configured
+        Singleton logger instance with handlers configured
     """
-    # Create logs directory if it doesn't exist
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    global _global_logger
     
-    # Create log filename
-    log_file = log_dir / "k2edit.log"
+    if _global_logger is None:
+        _global_logger = setup_logging()
     
-    # Configure logger
-    logger = Logger(name=name or "k2edit")
-    
-    # Create handlers
-    file_handler = AsyncTimedRotatingFileHandler(
-        filename=str(log_file),
-        when='D',
-        interval=1,
-        backup_count=7,
-        encoding="utf-8"
-    )
-    
-    # Set formatter
-    formatter = Formatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    file_handler.formatter = formatter
-    
-    # Add handler to logger
-    logger.add_handler(file_handler)
-    
-    return logger 
+    return _global_logger
