@@ -373,6 +373,100 @@ TextArea .tok-code {
     background: #3e3d32;
 }
 
+/* Diagnostics Modal Styles */
+
+
+#diagnostics-list {
+    height: 1fr;
+    width: 100%;
+    overflow-y: auto;
+    padding: 0;
+}
+
+#diagnostics-list > ListItem {
+    width: 100%;
+    height: 3;
+    margin: 1;
+    padding: 0;
+    background: #0f172a;
+    width: 100%;
+    box-sizing: border-box;
+    border: none;
+}
+
+#diagnostics-list > ListItem > Label{
+    width: 100%;
+}
+#diagnostics-list Label:hover{
+   background: #3b82f6;
+}
+
+#branch-list {
+    height: 1fr;
+    width: 100%;
+    overflow-y: auto;
+    padding: 0;
+}
+
+#branch-list > ListItem {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+
+.diagnostic-error {
+  border-left: solid #ef4444;
+  background: #1e293b;
+}
+
+.diagnostic-warning {
+  border-left: solid #f59e0b;
+  background: #1e293b;
+}
+
+.diagnostic-message {
+    color: #f1f5f9;
+    text-style: bold;
+    margin: 0 0 1 0;
+}
+
+.diagnostic-location {
+    color: #94a3b8;
+    margin: 0 0 1 0;
+}
+
+.diagnostic-source {
+    color: #64748b;
+    margin: 0 0 1 0;
+}
+
+.diagnostic-navigate {
+    min-width: 15;
+    height: 2;
+    background: #3b82f6;
+    color: #f1f5f9;
+    border: none;
+    margin: 1 0 0 0;
+    padding: 0 1;
+}
+
+.diagnostic-navigate:hover {
+    background: #2563eb;
+}
+
+.diagnostic-navigate:focus {
+    background: #1d4ed8;
+}
+
+.diagnostic-empty {
+    color: #94a3b8;
+    text-align: center;
+    margin: 2 0;
+}
+
+
 /* Syntax Highlighting Styles for CustomSyntaxEditor */
 /* Based on Monokai theme colors */
 CustomSyntaxEditor .tok-keyword {

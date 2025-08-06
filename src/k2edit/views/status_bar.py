@@ -14,7 +14,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual import work
 from aiologger import Logger
-
+import asyncio
 
 class GitBranchSwitch(Message):
     """Message to request git branch switching."""
@@ -61,56 +61,65 @@ class StatusBar(Widget):
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
         if hasattr(self, 'git_branch_widget'):
-            self.git_branch_widget.update(git_branch or "main")
+            self.git_branch_widget.label = git_branch or "main"
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
         self.logger.debug(f"watch_cursor_line: {cursor_line}")
-        if hasattr(self, 'cursor_pos_widget'):
+        if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
             self._update_cursor_position_display(cursor_line, self.cursor_column)
+            self.cursor_pos_widget.refresh()
 
     def watch_cursor_column(self, cursor_column: int) -> None:
         """Watch for cursor column changes."""
         self.logger.debug(f"watch_cursor_column: {cursor_column}")
-        if hasattr(self, 'cursor_pos_widget'):
+        if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
             self._update_cursor_position_display(self.cursor_line, cursor_column)
+            self.cursor_pos_widget.refresh()
 
     def watch_diagnostics_warnings(self, warnings: int) -> None:
         """Watch for diagnostics warnings changes."""
-        if hasattr(self, 'diagnostics_widget'):
+        if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
             self._update_diagnostics_display()
+            self.diagnostics_widget.refresh()
 
     def watch_diagnostics_errors(self, errors: int) -> None:
         """Watch for diagnostics errors changes."""
-        if hasattr(self, 'diagnostics_widget'):
+        if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
             self._update_diagnostics_display()
+            self.diagnostics_widget.refresh()
 
     def watch_language(self, language: str) -> None:
         """Watch for language changes."""
         self.logger.debug(f"watch_language: {language}")
         self.logger.debug(f"hasattr(self, 'lang_widget'): {hasattr(self, 'lang_widget')}")
-        if hasattr(self, 'lang_widget'):
+        self.logger.debug(f"lang_widget type: {type(getattr(self, 'lang_widget', None))}")
+        if hasattr(self, 'lang_widget') and self.lang_widget:
             display_text = language or "Text"
-            self.logger.debug(f"display_text: {display_text}")
-            self.lang_widget.update(display_text)
+            self.logger.debug(f"Setting lang_widget.label to: {display_text}")
+            self.lang_widget.label = display_text
+            self.lang_widget.refresh()
+            self.logger.debug(f"lang_widget.label after update: {self.lang_widget.label}")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
-        if hasattr(self, 'indent_widget'):
-            self.indent_widget.update(indentation)
+        if hasattr(self, 'indent_widget') and self.indent_widget:
+            self.indent_widget.label = indentation
+            self.indent_widget.refresh()
 
     def watch_encoding(self, encoding: str) -> None:
         """Watch for encoding changes."""
-        if hasattr(self, 'encoding_widget'):
-            self.encoding_widget.update(encoding)
+        if hasattr(self, 'encoding_widget') and self.encoding_widget:
+            self.encoding_widget.label = encoding
+            self.encoding_widget.refresh()
 
     def _update_cursor_position_display(self, cursor_line: int, cursor_column: int) -> None:
         """Update cursor position display."""
-        self.cursor_pos_widget.update(f"Ln {cursor_line}, Col {cursor_column}")
+        self.cursor_pos_widget.label = f"Ln {cursor_line}, Col {cursor_column}"
 
     def _update_diagnostics_display(self) -> None:
         """Update diagnostics display."""
-        self.diagnostics_widget.update(self._format_diagnostics())
+        self.diagnostics_widget.label = self._format_diagnostics()
 
 
     def __init__(self, logger: Logger = None, **kwargs):
@@ -151,10 +160,13 @@ class StatusBar(Widget):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses in the status bar."""
         button_id = event.button.id
+        self.logger.debug(f"Button pressed: {button_id}")
         
         if button_id == "git-branch":
+            self.logger.debug("Git branch button clicked")
             self._handle_git_branch_click()
         elif button_id == "diagnostics":
+            self.logger.debug("Diagnostics button clicked via on_button_pressed")
             self._handle_diagnostics_click()
 
     def _handle_git_branch_click(self) -> None:
@@ -188,8 +200,72 @@ class StatusBar(Widget):
 
     def _show_diagnostics_details(self) -> None:
         """Show detailed diagnostics information."""
-        if self.diagnostics_data:
-            self.post_message(ShowDiagnosticsDetails(self.diagnostics_data))
+        self.logger.debug("Diagnostics button clicked!")
+        self.logger.debug(f"StatusBar app reference: {getattr(self, 'app', 'NO APP REF')}")
+        self.logger.debug(f"StatusBar parent: {getattr(self, 'parent', 'NO PARENT')}")
+        
+        # Always show diagnostics modal, even if no data available
+        diagnostics_to_show = self.diagnostics_data if self.diagnostics_data else []
+        
+        # If no real diagnostics, create a sample to test the modal
+        if not diagnostics_to_show:
+            diagnostics_to_show = [
+                {
+                    'file_path': 'test_diagnostics.py',
+                    'message': 'No diagnostics available - this is a test message',
+                    'severity': 2,
+                    'line': 1,
+                    'column': 1,
+                    'source': 'test',
+                    'code': 'NO_DIAG',
+                    'severity_name': 'Warning'
+                }
+            ]
+            self.logger.debug(f"No diagnostics found, using test data with {len(diagnostics_to_show)} items")
+        else:
+            self.logger.debug(f"Found {len(diagnostics_to_show)} diagnostics to show")
+
+        self.logger.debug("About to show diagnostics modal...")
+        try:
+            # Use direct app method call instead of message posting
+            if hasattr(self, 'app') and self.app:
+                self.logger.debug(f"Calling show_diagnostics_modal on app: {self.app}")
+                # Try to call the method directly if it exists
+                if hasattr(self.app, 'show_diagnostics_modal'):
+                    self.app.show_diagnostics_modal(diagnostics_to_show)
+                else:
+                    # Fallback to using the message handler directly
+                    try:
+                        # Import inside the function to avoid circular imports
+                        from .modals import DiagnosticsModal
+                        
+                        async def show_modal():
+                            try:
+                                modal = DiagnosticsModal(diagnostics_to_show, logger=getattr(self.app, 'logger', None))
+                                await self.app.push_screen(modal)
+                                self.logger.debug("Diagnostics modal shown successfully via direct call")
+                            except Exception as e:
+                                self.logger.error(f"Error showing modal via direct call: {e}")
+                        
+                        # Schedule the async call
+                        if hasattr(self.app, 'call_later'):
+                            self.app.call_later(show_modal)
+                        else:
+                            # Create task
+                            import asyncio
+                            asyncio.create_task(show_modal())
+                    except ImportError as e:
+                        self.logger.error(f"Failed to import DiagnosticsModal: {e}")
+                        # Fallback to message posting
+                        self.post_message(ShowDiagnosticsDetails(diagnostics_to_show))
+                        
+                self.logger.debug("Diagnostics modal request sent to app")
+            else:
+                self.logger.error("No app reference found!")
+        except Exception as e:
+            self.logger.error(f"Failed to show diagnostics modal: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     @work
     async def _update_available_branches(self) -> None:
@@ -449,6 +525,7 @@ class StatusBar(Widget):
             
             # Detect language from file extension
             language = self._detect_language_from_extension(file_path)
+            self.logger.debug(f"Detected language: {language} for file: {file_path}")
             self.language = language
         
         if editor_content:
@@ -461,23 +538,24 @@ class StatusBar(Widget):
             # Update encoding (could be detected from content, for now default to UTF-8)
             self.encoding = "UTF-8"
         
-        # Update all displays to reflect changes
-        # self._update_all_displays()
+        # Force refresh of the entire status bar
+        self.refresh()
+        self.logger.debug("Status bar refreshed after update_from_editor")
     
     async def on_mount(self):
         """Called when the widget is mounted."""
         await self.logger.info("StatusBar mounted")
         await self.logger.info(f"Children: {self.children}")
         # Sync widgets with initial reactive values
-        self.git_branch_widget.update(self.git_branch or "main")
-        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
-        self.diagnostics_widget.update(self._format_diagnostics())
-        self.lang_widget.update(self.language or "Text")
-        self.indent_widget.update(self.indentation)
-        self.encoding_widget.update(self.encoding)
+        self.git_branch_widget.label = self.git_branch or "main"
+        self.cursor_pos_widget.label = f"Ln {self.cursor_line}, Col {self.cursor_column}"
+        self.diagnostics_widget.label = self._format_diagnostics()
+        self.lang_widget.label = self.language or "Text"
+        self.indent_widget.label = self.indentation
+        self.encoding_widget.label = self.encoding
         # self.set_interval(1, self.update_from_editor)
         # Start periodic git branch updates
-        self.set_interval(1, self._update_git_branch)
+        self.set_interval(10, self._update_git_branch)
         
         # Log initial status
         await self.logger.debug("StatusBar initialization complete")

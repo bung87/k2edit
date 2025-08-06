@@ -97,6 +97,9 @@ class K2EditApp(App):
                     await self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
                     self.editor.focus()
                     
+                    # Update status bar with file information
+                    self._update_status_bar()
+                    
                     # Notify agentic system about file open (when ready)
                     asyncio.create_task(self._on_file_open_with_agent(self.initial_file))
                 else:
@@ -175,7 +178,7 @@ class K2EditApp(App):
             await self.agent_integration.on_file_open(file_path)
             
         # Update diagnostics for the newly opened file
-        await self._update_diagnostics_from_lsp()
+        # await self._update_diagnostics_from_lsp()
     
     async def _on_file_change_with_agent(self, file_path: str, old_content: str, new_content: str):
         """Handle file change with agentic system integration"""
@@ -216,7 +219,7 @@ class K2EditApp(App):
                     diagnostic_with_path = dict(diagnostic)
                     diagnostic_with_path['file_path'] = file_path
                     all_diagnostics.append(diagnostic_with_path)
-                    await self.logger.debug(f"Added diagnostic: {diagnostic}")
+                    # await self.logger.debug(f"Added diagnostic: {diagnostic}")
             
             await self.logger.debug(f"Total diagnostics to display: {len(all_diagnostics)}")
             
@@ -431,9 +434,38 @@ class K2EditApp(App):
 
     async def on_status_bar_show_diagnostics_details(self, message: ShowDiagnosticsDetails) -> None:
         """Handle show diagnostics details message from status bar."""
-        await self.logger.debug("Showing diagnostics modal")
-        modal = DiagnosticsModal(message.diagnostics, logger=self.logger)
-        await self.push_screen(modal)
+        await self.logger.debug("=== DIAGNOSTICS MESSAGE HANDLER TRIGGERED ===")
+        await self.logger.debug(f"Showing diagnostics modal with {len(message.diagnostics)} items")
+        await self.logger.debug(f"Received ShowDiagnosticsDetails message with {len(message.diagnostics)} diagnostics")
+        await self.logger.debug(f"Message type: {type(message)}")
+        await self.logger.debug(f"Message sender: {getattr(message, 'sender', 'NO SENDER')}")
+        
+        try:
+            modal = DiagnosticsModal(message.diagnostics, logger=self.logger)
+            await self.logger.debug("Created DiagnosticsModal successfully")
+            await self.push_screen(modal)
+            await self.logger.debug("Pushed DiagnosticsModal to screen")
+            await self.logger.debug("=== DIAGNOSTICS MODAL DISPLAYED SUCCESSFULLY ===")
+        except Exception as e:
+            await self.logger.error(f"Failed to show diagnostics modal: {e}")
+            import traceback
+            await self.logger.error(traceback.format_exc())
+
+    def show_diagnostics_modal(self, diagnostics: list[Dict[str, Any]]) -> None:
+        """Direct method to show diagnostics modal, bypassing message system."""
+        self.logger.debug("=== SHOW_DIAGNOSTICS_MODAL CALLED DIRECTLY ===")
+        self.logger.debug(f"Diagnostics count: {len(diagnostics)}")
+        
+        try:
+            modal = DiagnosticsModal(diagnostics, logger=self.logger)
+            self.logger.debug("Created DiagnosticsModal successfully")
+            self.push_screen(modal)
+            self.logger.debug("Pushed DiagnosticsModal to screen via direct method")
+            self.logger.debug("=== DIAGNOSTICS MODAL DISPLAYED VIA DIRECT CALL ===")
+        except Exception as e:
+            self.logger.error(f"Failed to show diagnostics modal via direct call: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     async def on_status_bar_git_branch_switch(self, message: GitBranchSwitch) -> None:
         """Handle git branch switch message from status bar."""
@@ -473,8 +505,8 @@ class K2EditApp(App):
             self.output_panel.add_error(error_msg)
             await self.logger.error(error_msg)
 
-    async def on_status_bar_navigate_to_diagnostic(self, message: NavigateToDiagnostic) -> None:
-        """Handle navigate to diagnostic message from status bar."""
+    async def on_navigate_to_diagnostic(self, message: NavigateToDiagnostic) -> None:
+        """Handle navigate to diagnostic message."""
         await self.logger.debug(f"Navigating to diagnostic: {message.file_path}:{message.line}:{message.column}")
         
         try:
@@ -482,14 +514,20 @@ class K2EditApp(App):
             if message.file_path != str(self.editor.current_file):
                 if self.editor.load_file(message.file_path):
                     self.output_panel.add_info(f"Opened file: {message.file_path}")
+                    await self.logger.debug(f"Successfully opened file: {message.file_path}")
                 else:
                     self.output_panel.add_error(f"Failed to open file: {message.file_path}")
+                    await self.logger.error(f"Failed to open file: {message.file_path}")
                     return
             
             # Navigate to the specific line and column
-            self.editor.cursor_location = (message.line - 1, message.column - 1)
-            self.editor.scroll_to_line(message.line - 1)
+            line_idx = max(0, message.line - 1)
+            col_idx = max(0, message.column - 1)
+            self.editor.cursor_location = (line_idx, col_idx)
+            # self.editor.scroll_to_line(line_idx)
             self.editor.focus()
+            
+            await self.logger.debug(f"Successfully navigated to line {message.line}, column {message.column}")
             
         except Exception as e:
             error_msg = f"Error navigating to diagnostic: {e}"

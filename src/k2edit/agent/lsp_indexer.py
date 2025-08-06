@@ -678,14 +678,6 @@ class LSPIndexer:
         relative_path = str(Path(file_path).relative_to(self.project_root))
         return self.symbol_index.get(relative_path, [])
         
-    async def get_diagnostics(self, file_path: str) -> List[Dict[str, Any]]:
-        """Get diagnostics for a specific file"""
-        relative_path = str(Path(file_path).relative_to(self.project_root))
-        
-        # Ensure file is opened with LSP server to trigger diagnostics
-        await self._notify_file_opened(file_path)
-        
-        return self.diagnostics.get(relative_path, [])
         
     async def get_dependencies(self, file_path: str) -> List[str]:
         """Get dependencies for a specific file"""

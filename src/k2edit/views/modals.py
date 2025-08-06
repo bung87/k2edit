@@ -26,68 +26,53 @@ class DiagnosticsModal(ModalScreen[None]):
     
     def compose(self) -> ComposeResult:
         """Compose the diagnostics modal."""
-        with Container(id="diagnostics-modal"):
-            yield Label("Diagnostics Details", id="diagnostics-title")
-            
-            if not self.diagnostics:
-                yield Label("No diagnostics found", classes="diagnostic-empty")
-            else:
-                with Vertical(id="diagnostics-list"):
-                    for idx, diagnostic in enumerate(self.diagnostics):
-                        severity = diagnostic.get('severity_name', 'Info')
-                        message = diagnostic.get('message', '')
-                        file_path = diagnostic.get('file_path', '')
-                        line = diagnostic.get('line', 0)
-                        column = diagnostic.get('column', 0)
-                        source = diagnostic.get('source', '')
-                        
-                        diagnostic_class = "diagnostic-item"
-                        if severity.lower() == 'error':
-                            diagnostic_class += " diagnostic-error"
-                        elif severity.lower() == 'warning':
-                            diagnostic_class += " diagnostic-warning"
-                        
-                        with Container(classes=diagnostic_class):
-                            yield Label(
-                                f"{severity}: {message}",
-                                classes="diagnostic-message"
-                            )
-                            yield Label(
-                                f"{file_path}:{line}:{column}",
-                                classes="diagnostic-location"
-                            )
-                            if source:
-                                yield Label(
-                                    f"Source: {source}",
-                                    classes="diagnostic-source"
-                                )
-                            yield Button(
-                                "Go to location",
-                                id=f"navigate-{idx}",
-                                classes="diagnostic-navigate"
-                            )
-            
-            yield Button("Close", id="close-button")
+        # with Container(id="diagnostics-modal"):
+        with ListView(id="diagnostics-list"):
+            for idx, diagnostic in enumerate(self.diagnostics):
+                severity = diagnostic.get('severity_name', 'Info')
+                message = diagnostic.get('message', '')
+                file_path = diagnostic.get('file_path', '')
+                line = diagnostic.get('line', 0)
+                column = diagnostic.get('column', 0)
+                source = diagnostic.get('source', '')
+                
+                diagnostic_class = "diagnostic-item"
+                if severity.lower() == 'error':
+                    diagnostic_class += " diagnostic-error"
+                elif severity.lower() == 'warning':
+                    diagnostic_class += " diagnostic-warning"
+                
+                item_content = f"{severity}: {message}\n{file_path}:{line}:{column}"
+                if source:
+                    item_content += f"\nSource: {source}"
+                
+                yield ListItem(
+                    Label(item_content, classes=diagnostic_class),
+                    id=f"diagnostic-{idx}"
+                )
+                
     
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses in the diagnostics modal."""
-        if event.button.id == "close-button":
-            self.dismiss()
-        elif event.button.id and event.button.id.startswith("navigate-"):
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Handle diagnostic selection."""
+        if event.item and event.item.id and event.item.id.startswith("diagnostic-"):
             try:
-                idx = int(event.button.id.split("-")[1])
+                idx = int(event.item.id.split("-")[1])
                 if idx < len(self.diagnostics):
                     diagnostic = self.diagnostics[idx]
+                    file_path = diagnostic.get('file_path', '')
+                    line = diagnostic.get('line', 1)
+                    column = diagnostic.get('column', 1)
+                    
+                    if self.logger:
+                        self.logger.debug(f"Diagnostic selected: {file_path}:{line}:{column}")
+                    
                     self.app.post_message(
-                        NavigateToDiagnostic(
-                            diagnostic.get('file_path', ''),
-                            diagnostic.get('line', 1),
-                            diagnostic.get('column', 1)
-                        )
+                        NavigateToDiagnostic(file_path, line, column)
                     )
                     self.dismiss()
             except (ValueError, IndexError):
-                pass
+                if self.logger:
+                    self.logger.error("Invalid diagnostic selection")
 
 
 class BranchSwitcherModal(ModalScreen[str]):
@@ -131,10 +116,7 @@ class BranchSwitcherModal(ModalScreen[str]):
             else:
                 self.dismiss()
     
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses in the branch switcher."""
-        if event.button.id == "cancel-button":
-            self.dismiss()
+
 
 
 # Import the message classes from status_bar
