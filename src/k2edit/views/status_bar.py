@@ -61,7 +61,7 @@ class StatusBar(Widget):
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
         if hasattr(self, 'git_branch_widget'):
-            self.git_branch_widget.update(git_branch or "main")
+            self.git_branch_widget.label = git_branch or "main"
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
@@ -112,7 +112,7 @@ class StatusBar(Widget):
 
     def _update_diagnostics_display(self) -> None:
         """Update diagnostics display."""
-        self.diagnostics_widget.update(self._format_diagnostics())
+        self.diagnostics_widget.label = self._format_diagnostics()
 
 
     def __init__(self, logger: Logger = None, **kwargs):
@@ -536,9 +536,9 @@ class StatusBar(Widget):
         await self.logger.info("StatusBar mounted")
         await self.logger.info(f"Children: {self.children}")
         # Sync widgets with initial reactive values
-        self.git_branch_widget.update(self.git_branch or "main")
+        self.git_branch_widget.label = self.git_branch or "main"
         self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
-        self.diagnostics_widget.update(self._format_diagnostics())
+        self.diagnostics_widget.label = self._format_diagnostics()
         self.lang_widget.update(self.language or "Text")
         self.indent_widget.update(self.indentation)
         self.encoding_widget.update(self.encoding)
