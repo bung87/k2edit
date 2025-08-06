@@ -235,6 +235,10 @@ class K2EditApp(App):
         self._last_hover_content = None
         self._last_hover_position = new_position
         
+        # Check if hover functionality is available
+        has_lsp_indexer = self.agent_integration and self.agent_integration.lsp_indexer
+        self.logger.debug(f"LSP indexer available: {has_lsp_indexer}")
+        
         # Start new hover timer
         self.logger.debug("Starting new hover timer")
         self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
@@ -427,10 +431,14 @@ class K2EditApp(App):
     
     def on_editor_cursor_moved(self, event) -> None:
         """Handle editor cursor movement."""
+        self.logger.debug("on_editor_cursor_moved triggered")
         self._update_status_bar()
         
         # Handle hover on cursor movement
         cursor_line, cursor_column = self.editor.cursor_location
+        self.logger.debug(f"Cursor moved to: line={cursor_line + 1}, column={cursor_column + 1}")
+        self.logger.debug(f"Agent integration available: {self.agent_integration is not None}")
+        
         self._handle_cursor_movement(cursor_line + 1, cursor_column + 1)
         
         # Update diagnostics from LSP
