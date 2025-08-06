@@ -28,6 +28,7 @@ from .views.output_panel import OutputPanel
 from .views.file_explorer import FileExplorer
 from .views.status_bar import StatusBar, GitBranchSwitch, NavigateToDiagnostic, ShowDiagnosticsDetails
 from .views.modals import DiagnosticsModal, BranchSwitcherModal
+from .views.hover_widget import HoverWidget
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
@@ -59,9 +60,16 @@ class K2EditApp(App):
         self.output_panel = OutputPanel(id="output-panel")
         self.file_explorer = FileExplorer(id="file-explorer")
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
+        self.hover_widget = HoverWidget(id="hover-widget")
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file
+        
+        # Hover state
+        self._last_cursor_position = (1, 1)  # (line, column)
+        self._hover_timer = None
+        self._last_hover_content = None
+        self._last_hover_position = None
 
 
     
@@ -86,6 +94,9 @@ class K2EditApp(App):
         
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
+        
+        # Watch for cursor movement
+        self.editor.cursor_position_changed = self._on_cursor_position_changed
 
         # Load initial file if provided, otherwise start with an empty editor
         if self.initial_file:
@@ -196,43 +207,134 @@ class K2EditApp(App):
         if not self.agent_integration.lsp_indexer:
             await self.logger.debug("No LSP indexer available")
             return
+
+    def _handle_cursor_movement(self, line: int, column: int):
+        """Handle cursor movement for hover functionality."""
+        new_position = (line, column)
+        self.logger.debug(f"_handle_cursor_movement: line={line}, column={column}")
+        
+        # Hide hover widget on cursor movement
+        if self.hover_widget.is_visible():
+            self.logger.debug("Hiding hover widget due to cursor movement")
+            self.hover_widget.hide_hover()
+        
+        # Cancel existing hover timer
+        if self._hover_timer:
+            self.logger.debug("Cancelling existing hover timer")
+            self._hover_timer.stop()
+            self._hover_timer = None
+        
+        # Check if position changed
+        if new_position == self._last_hover_position and self._last_hover_content:
+            # Same position, reuse cached content
+            self.logger.debug("Reusing cached hover content for same position")
+            self._show_hover_at_cursor(self._last_hover_content)
+            return
+        
+        # Reset cached content for new position
+        self._last_hover_content = None
+        self._last_hover_position = new_position
+        
+        # Start new hover timer
+        self.logger.debug("Starting new hover timer")
+        self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
+
+    async def _trigger_hover_request(self, line: int, column: int):
+        """Trigger LSP hover request after cursor idle."""
+        await self.logger.debug(f"_trigger_hover_request: line={line}, column={column}")
+        
+        if not self.agent_integration or not self.agent_integration.lsp_indexer:
+            await self.logger.debug("Hover request skipped: agent integration or lsp_indexer not available")
+            return
+            
+        if not self.editor.current_file:
+            await self.logger.debug("Hover request skipped: no current file")
+            return
             
         try:
-            current_file = self.editor.current_file
-            if not current_file:
-                await self.logger.debug("No current file selected")
-                return
+            # Get current file path
+            file_path = str(self.editor.current_file)
+            await self.logger.debug(f"Requesting hover for: {file_path} at ({line}, {column})")
+            
+            # Request hover information
+            hover_result = await self.agent_integration.lsp_indexer.get_hover_info(file_path, line, column)
+            await self.logger.debug(f"Hover result: {hover_result is not None}")
+            
+            if hover_result and "contents" in hover_result:
+                # Extract markdown content
+                content = self._extract_hover_content(hover_result["contents"])
+                await self.logger.debug(f"Extracted hover content length: {len(content) if content else 0}")
                 
-            # Ensure absolute path for LSP indexer
-            abs_file_path = str(Path(current_file).resolve())
-            await self.logger.debug(f"Getting diagnostics for file: {abs_file_path}")
-            
-            # Get diagnostics from LSP indexer
-            diagnostics = await self.agent_integration.lsp_indexer.get_diagnostics(abs_file_path)
-            await self.logger.debug(f"Raw diagnostics received: {diagnostics}")
-            
-            # Flatten diagnostics for status bar
-            all_diagnostics = []
-            for file_path, file_diagnostics in diagnostics.items():
-                await self.logger.debug(f"Processing diagnostics for {file_path}: {len(file_diagnostics)} items")
-                for diagnostic in file_diagnostics:
-                    diagnostic_with_path = dict(diagnostic)
-                    diagnostic_with_path['file_path'] = file_path
-                    all_diagnostics.append(diagnostic_with_path)
-                    # await self.logger.debug(f"Added diagnostic: {diagnostic}")
-            
-            await self.logger.debug(f"Total diagnostics to display: {len(all_diagnostics)}")
-            
-            # Update status bar with diagnostics
-            if hasattr(self.status_bar, 'update_diagnostics_from_lsp'):
-                self.status_bar.update_diagnostics_from_lsp(all_diagnostics)
-                await self.logger.debug("Diagnostics updated in status bar")
+                if content and content.strip():
+                    self._last_hover_content = content
+                    await self.logger.debug("Showing hover content")
+                    self._show_hover_at_cursor(content)
+                else:
+                    await self.logger.debug("Hover content empty or invalid")
             else:
-                await self.logger.debug("Status bar does not have update_diagnostics_from_lsp method")
-                
+                await self.logger.debug("No hover result from LSP")
+                    
         except Exception as e:
-            await self.logger.error(f"Error updating diagnostics from LSP: {e}")
-            await self.logger.error(f"Exception details: {type(e).__name__}: {e}")
+            await self.logger.error(f"Error in hover request: {e}")
+
+    def _extract_hover_content(self, contents) -> str:
+        """Extract markdown content from LSP hover response."""
+        if isinstance(contents, str):
+            return contents
+        elif isinstance(contents, dict):
+            # Handle MarkupContent format
+            if "value" in contents:
+                return contents["value"]
+        elif isinstance(contents, list):
+            # Handle MarkedString[] format
+            content_parts = []
+            for item in contents:
+                if isinstance(item, str):
+                    content_parts.append(item)
+                elif isinstance(item, dict) and "value" in item:
+                    content_parts.append(item["value"])
+            return "\n\n".join(content_parts)
+        
+        return ""
+
+    def _show_hover_at_cursor(self, content: str) -> None:
+        """Show hover content at cursor position in terminal."""
+        if not content or not content.strip():
+            return
+            
+        # Get cursor position in terminal coordinates
+        line, column = self.editor.cursor_location
+        
+        # Use relative positioning for terminal
+        # Position hover below cursor line, aligned with cursor column
+        hover_line = line + 1  # One line below cursor
+        hover_column = column  # Same column as cursor
+        
+        # Ensure hover doesn't go off screen
+        max_line = 50  # Approximate terminal height
+        max_column = 80  # Approximate terminal width
+        
+        if hover_line + 5 > max_line:  # 5 lines for hover content
+            hover_line = max(0, line - 6)  # Position above instead
+        
+        self.hover_widget.show_hover(content, hover_line, hover_column)
+        self._last_hover_content = content
+        self._last_hover_position = (line, column)
+
+    def _on_cursor_position_changed(self, line: int, column: int) -> None:
+        """Handle cursor position changes."""
+        self._handle_cursor_movement(line, column)
+
+    async def on_key(self, event) -> None:
+        """Handle key presses to dismiss hover."""
+        # Dismiss hover on any key press
+        if hasattr(self, 'hover_widget') and self.hover_widget.is_visible():
+            self.hover_widget.hide_hover()
+        
+        # Cancel any pending hover request
+        if hasattr(self, '_hover_timer') and self._hover_timer is not None:
+            self._hover_timer.stop()
+            self._hover_timer = None
     
     def compose(self) -> ComposeResult:
         """Create the UI layout with programmatic sizing."""
@@ -270,6 +372,7 @@ class K2EditApp(App):
                 yield self.output_panel
             # yield self.status_bar
             yield self.status_bar
+            yield self.hover_widget
             yield Footer()  # Removed to avoid conflict with custom status bar
 
     
@@ -325,6 +428,41 @@ class K2EditApp(App):
     def on_editor_cursor_moved(self, event) -> None:
         """Handle editor cursor movement."""
         self._update_status_bar()
+        
+        # Handle hover on cursor movement
+        cursor_line, cursor_column = self.editor.cursor_location
+        self._handle_cursor_movement(cursor_line + 1, cursor_column + 1)
+        
+        # Update diagnostics from LSP
+        asyncio.create_task(self._update_diagnostics_from_lsp())
+    
+    async def _update_diagnostics_from_lsp(self) -> None:
+        """Update diagnostics from LSP server."""
+        try:
+            current_file = self.editor.current_file
+            if not current_file or not self.agent_integration or not self.agent_integration.lsp_indexer:
+                return
+                
+            # Ensure absolute path for LSP client
+            abs_file_path = str(Path(current_file).resolve())
+            
+            # Get diagnostics from LSP client
+            diagnostics = self.agent_integration.lsp_indexer.lsp_client.get_diagnostics(abs_file_path)
+            
+            # Flatten diagnostics for status bar
+            all_diagnostics = []
+            for file_path, file_diagnostics in diagnostics.items():
+                for diagnostic in file_diagnostics:
+                    diagnostic_with_path = dict(diagnostic)
+                    diagnostic_with_path['file_path'] = file_path
+                    all_diagnostics.append(diagnostic_with_path)
+            
+            # Update status bar with diagnostics
+            if hasattr(self.status_bar, 'update_diagnostics_from_lsp'):
+                self.status_bar.update_diagnostics_from_lsp(all_diagnostics)
+                
+        except Exception as e:
+            await self.logger.error(f"Error updating diagnostics from LSP: {e}")
     
     def on_editor_content_changed(self, event) -> None:
         """Handle editor content changes."""

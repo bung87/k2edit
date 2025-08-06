@@ -73,7 +73,7 @@ StatusBar {
     color: #ffffff;
 }
 
-#git-branch { width: 12; }
+#git-branch { min-width: 15; max-width: 20; }
 #cursor-pos { width: 15; }
 #diagnostics { width: 12; }
 #lang { width: 10; }
@@ -83,7 +83,6 @@ StatusBar {
 /* Git branch styling */
 #git-branch {
     color: #ffffff;
-    width: 10;
     text-align: center;
 }
 
@@ -198,6 +197,51 @@ RichLog {
     overflow-y: auto;
     overflow-x: hidden;
     box-sizing: border-box;
+}
+
+/* Hover Widget Styling for Terminal */
+HoverWidget {
+    display: none;
+    background: #0f172a;
+    color: #f1f5f9;
+    border: solid #3b82f6;
+    padding: 1;
+    max-width: 60;
+    max-height: 10;
+    overflow: auto;
+    layer: overlay;
+}
+
+HoverWidget.visible {
+    display: block;
+}
+
+HoverWidget > Markdown {
+    margin: 0;
+    padding: 0;
+}
+
+HoverWidget .markdown {
+    margin: 0;
+    padding: 0;
+    color: #f1f5f9;
+    background: #0f172a;
+}
+
+HoverWidget {
+    display: none;
+    background: #0f172a;
+    color: #f1f5f9;
+    border: solid #3b82f6;
+    padding: 1;
+    max-width: 60;
+    max-height: 10;
+    overflow: auto;
+    layer: overlay;
+}
+
+HoverWidget.visible {
+    display: block;
 }
 
 #output-log {
