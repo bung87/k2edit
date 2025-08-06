@@ -118,10 +118,10 @@ class StatusBar(Widget):
         self.logger = logger
 
         # Construct widgets first (before reactive initialization)
-        self.git_branch_widget = Button("main", id="git-branch", classes="status-button", shrink=True)
-        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item", shrink=True, expand=True)
-        self.diagnostics_widget = Button("✓", id="diagnostics", classes="status-button", shrink=True)
-        self.lang_widget = Static("Text", id="lang", classes="status-item", shrink=True, expand=True)
+        self.git_branch_widget = Button("main", id="git-branch", classes="status-button")
+        self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
+        self.diagnostics_widget = Button("✓", id="diagnostics", classes="status-button")
+        self.lang_widget = Static("Text", id="lang", classes="status-item")
         self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
 
@@ -265,16 +265,16 @@ class StatusBar(Widget):
             if result.returncode == 0:
                 branch = result.stdout.strip()
                 self.git_branch = branch
-                self.git_branch_widget.update(branch)
+                self.git_branch_widget.label = branch
                 await self.logger.debug(f"Git branch updated: {branch}")
             else:
                 self.git_branch = ""
-                self.git_branch_widget.update("")
+                self.git_branch_widget.label = ""
                 await self.logger.debug("Failed to get git branch")
                 
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.git_branch = ""
-            self.git_branch_widget.update("")
+            self.git_branch_widget.label = ""
             await self.logger.debug(f"Error updating git branch: {e}")
     
     def update_diagnostics(self, warnings: int = 0, errors: int = 0):
@@ -346,7 +346,7 @@ class StatusBar(Widget):
 
     def _update_diagnostics_display(self):
         """Update the diagnostics display widget."""
-        self.diagnostics_widget.update(self._format_diagnostics())
+        self.diagnostics_widget.label = self._format_diagnostics()
 
     def _detect_language_from_extension(self, file_path: str) -> str:
         """Detect programming language from file extension."""
