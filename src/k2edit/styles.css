@@ -20,23 +20,39 @@ StatusBar {
     height: 1;
     box-sizing: border-box;
     min-width: 50;
-    background: #3b82f6;
+    background: #1e293b;
     color: #f1f5f9;
     margin: 0;
     padding: 0;
+    layout: horizontal;
+    align: left middle;
+}
+
+.status-section {
+    height: 1;
+    align: left middle;
+}
+
+#left-section {
+    width: auto;
+}
+
+#right-section {
+    width: auto;
+    dock: right;
 }
 
 .status-item {
-     min-width: 8;
+    min-width: 8;
     max-width: 20;
     height: 1;
     margin: 0 1;
     padding: 0 1;
 }
 
-#git-branch { width: 10; }
-#cursor-pos { width: 20; }
-#diagnostics { width: 10; }
+#git-branch { width: 12; }
+#cursor-pos { width: 15; }
+#diagnostics { width: 12; }
 #lang { width: 10; }
 #indent { width: 12; }
 #encoding { width: 8; }

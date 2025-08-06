@@ -134,6 +134,9 @@ class K2EditApp(App):
             if hasattr(self, 'command_bar') and self.command_bar:
                 self.command_bar.set_agent_integration(self.agent_integration)
             
+            # Connect LSP diagnostics to status bar
+            self.set_interval(2.0, self._update_diagnostics_from_lsp)
+            
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
             await self.logger.info("Agentic system initialized successfully")
@@ -169,11 +172,63 @@ class K2EditApp(App):
         """Handle file open with agentic system integration"""
         if self.agent_integration:
             await self.agent_integration.on_file_open(file_path)
+            
+        # Update diagnostics for the newly opened file
+        await self._update_diagnostics_from_lsp()
     
     async def _on_file_change_with_agent(self, file_path: str, old_content: str, new_content: str):
         """Handle file change with agentic system integration"""
         if self.agent_integration:
             await self.agent_integration.on_file_change(file_path, old_content, new_content)
+            
+    async def _update_diagnostics_from_lsp(self):
+        """Update status bar with LSP diagnostics for the current file"""
+        await self.logger.debug("Starting _update_diagnostics_from_lsp")
+        
+        if not self.agent_integration:
+            await self.logger.debug("No agent integration available")
+            return
+            
+        if not self.agent_integration.lsp_indexer:
+            await self.logger.debug("No LSP indexer available")
+            return
+            
+        try:
+            current_file = self.editor.current_file
+            if not current_file:
+                await self.logger.debug("No current file selected")
+                return
+                
+            # Ensure absolute path for LSP indexer
+            abs_file_path = str(Path(current_file).resolve())
+            await self.logger.debug(f"Getting diagnostics for file: {abs_file_path}")
+            
+            # Get diagnostics from LSP indexer
+            diagnostics = await self.agent_integration.lsp_indexer.get_diagnostics(abs_file_path)
+            await self.logger.debug(f"Raw diagnostics received: {diagnostics}")
+            
+            # Flatten diagnostics for status bar
+            all_diagnostics = []
+            for file_path, file_diagnostics in diagnostics.items():
+                await self.logger.debug(f"Processing diagnostics for {file_path}: {len(file_diagnostics)} items")
+                for diagnostic in file_diagnostics:
+                    diagnostic_with_path = dict(diagnostic)
+                    diagnostic_with_path['file_path'] = file_path
+                    all_diagnostics.append(diagnostic_with_path)
+                    await self.logger.debug(f"Added diagnostic: {diagnostic}")
+            
+            await self.logger.debug(f"Total diagnostics to display: {len(all_diagnostics)}")
+            
+            # Update status bar with diagnostics
+            if hasattr(self.status_bar, 'update_diagnostics_from_lsp'):
+                self.status_bar.update_diagnostics_from_lsp(all_diagnostics)
+                await self.logger.debug("Diagnostics updated in status bar")
+            else:
+                await self.logger.debug("Status bar does not have update_diagnostics_from_lsp method")
+                
+        except Exception as e:
+            await self.logger.error(f"Error updating diagnostics from LSP: {e}")
+            await self.logger.error(f"Exception details: {type(e).__name__}: {e}")
     
     def compose(self) -> ComposeResult:
         """Create the UI layout with programmatic sizing."""

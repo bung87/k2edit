@@ -34,9 +34,9 @@ class LSPIndexer:
                 "settings": {
                     "pylsp": {
                         "plugins": {
-                            "pycodestyle": {"enabled": False},
-                            "pyflakes": {"enabled": False},
-                            "mccabe": {"enabled": False}
+                            "pycodestyle": {"enabled": True},
+                            "pyflakes": {"enabled": True},
+                            "mccabe": {"enabled": True}
                         }
                     }
                 }
@@ -102,6 +102,28 @@ class LSPIndexer:
         await self.logger.info(f"LSP indexer initialized for {language}")
         if progress_callback:
             await progress_callback("Symbol indexing started in background...")
+            
+    async def force_diagnostics_for_file(self, file_path: str):
+        """Force LSP server to analyze a specific file and provide diagnostics"""
+        try:
+            language = await self._detect_file_language(file_path)
+            if language == "unknown" or language not in self.language_servers:
+                await self.logger.warning(f"Cannot force diagnostics: language {language} not supported")
+                return
+                
+            await self.logger.info(f"Forcing diagnostics for file: {file_path}")
+            await self._notify_file_opened(file_path)
+            
+            # Small delay to allow LSP server to process
+            await asyncio.sleep(1)
+            
+            # Re-request diagnostics
+            relative_path = str(Path(file_path).relative_to(self.project_root))
+            diagnostics = self.diagnostics.get(relative_path, [])
+            await self.logger.info(f"Retrieved {len(diagnostics)} diagnostics for {file_path}")
+            
+        except Exception as e:
+            await self.logger.error(f"Error forcing diagnostics: {e}")
     
     async def _detect_language(self) -> str:
         """Detect the primary language of the project"""
@@ -248,7 +270,8 @@ class LSPIndexer:
                 "process": process,
                 "config": config,
                 "message_id": 0,
-                "response_queue": asyncio.Queue()
+                "response_queue": asyncio.Queue(),
+                "reader_lock": asyncio.Lock()  # Add lock for synchronized reading
             }
 
             await self.logger.info(f"{language} language server started with PID: {process.pid}")
@@ -258,6 +281,9 @@ class LSPIndexer:
 
             # Initialize LSP connection
             await self._initialize_lsp_connection(language)
+
+            # Start single reader task for all LSP messages
+            asyncio.create_task(self._read_lsp_messages(language))
 
         except Exception as e:
             await self.logger.error(f"Failed to start {language} language server: {e}", exc_info=True)
@@ -291,7 +317,8 @@ class LSPIndexer:
                         "references": {"dynamicRegistration": True},
                         "documentSymbol": {"dynamicRegistration": True},
                         "workspaceSymbol": {"dynamicRegistration": True},
-                        "completion": {"dynamicRegistration": True}
+                        "completion": {"dynamicRegistration": True},
+                        "publishDiagnostics": {"relatedInformation": True}
                     },
                     "workspace": {
                         "symbol": {"dynamicRegistration": True},
@@ -369,6 +396,10 @@ class LSPIndexer:
         for i, file_path in enumerate(files):
             try:
                 await self._index_file(file_path, language)
+                
+                # Also notify LSP server about this file to trigger diagnostics
+                await self._notify_file_opened(str(file_path.absolute()))
+                
                 indexed_count += 1
                 
                 # Report progress less frequently to reduce overhead
@@ -474,6 +505,7 @@ class LSPIndexer:
             
         server_info = self.language_servers[language]
         process = server_info["process"]
+        message_id = request.get("id", server_info["message_id"])
         
         try:
             # Send the request
@@ -484,35 +516,97 @@ class LSPIndexer:
             process.stdin.write((header + message_str).encode('utf-8'))
             await process.stdin.drain()
             
-            # Read response
-            return await self._read_lsp_response(process)
+            # Read response using the new queue-based method
+            response = await self._read_lsp_response(language, message_id)
+            
+            # Increment message ID for next request
+            if request.get("id") == server_info["message_id"]:
+                server_info["message_id"] += 1
+                
+            return response
             
         except Exception as e:
             await self.logger.error(f"Failed to send LSP request: {e}")
             return None
+
+    async def _read_lsp_messages(self, language: str):
+        """Read all LSP messages (responses and notifications) from the language server"""
+        if language not in self.language_servers:
+            return
             
-    async def _read_lsp_response(self, process: asyncio.subprocess.Process) -> Optional[Dict[str, Any]]:
-        """Read response from LSP server"""
-        try:
-            # Read headers
-            headers = {}
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    return None
-                line = line.decode('utf-8').strip()
-                if not line:
-                    break
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    headers[key.strip()] = value.strip()
-            
-            # Read content
-            if 'Content-Length' in headers:
-                content_length = int(headers['Content-Length'])
-                content = await process.stdout.read(content_length)
-                return json.loads(content.decode('utf-8'))
+        server_info = self.language_servers[language]
+        process = server_info["process"]
+        reader_lock = server_info["reader_lock"]
+        
+        await self.logger.info(f"Started reading LSP messages from {language} language server")
+        
+        while True:
+            try:
+                async with reader_lock:
+                    # Read headers
+                    headers = {}
+                    while True:
+                        line = await process.stdout.readline()
+                        if not line:
+                            await self.logger.info(f"LSP process stdout closed for {language}")
+                            return
+                        line = line.decode('utf-8').strip()
+                        if not line:
+                            break
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            headers[key.strip()] = value.strip()
+                    
+                    # Read content
+                    if 'Content-Length' in headers:
+                        content_length = int(headers['Content-Length'])
+                        content = await process.stdout.read(content_length)
+                        response = json.loads(content.decode('utf-8'))
+                        
+                        # Handle notifications vs responses
+                        if "method" in response:
+                            # This is a notification (like diagnostics)
+                            await self._handle_lsp_notification(language, response)
+                        else:
+                            # This is a response to a request
+                            await server_info["response_queue"].put(response)
+                            
+            except asyncio.CancelledError:
+                await self.logger.info(f"LSP message reader cancelled for {language}")
+                break
+            except Exception as e:
+                await self.logger.error(f"Error reading LSP messages for {language}: {e}")
+                break
                 
+        await self.logger.info(f"Stopped reading LSP messages from {language} language server")
+            
+    async def _read_lsp_response(self, language: str, message_id: int) -> Optional[Dict[str, Any]]:
+        """Read response from LSP server using response queue"""
+        if language not in self.language_servers:
+            return None
+            
+        server_info = self.language_servers[language]
+        response_queue = server_info["response_queue"]
+        
+        try:
+            # Wait for response with timeout
+            timeout = 10  # 10 seconds timeout
+            while True:
+                try:
+                    response = await asyncio.wait_for(response_queue.get(), timeout=timeout)
+                    
+                    # Check if this response matches our request ID
+                    if response.get("id") == message_id:
+                        return response
+                    else:
+                        # Put it back in the queue if it's not for us
+                        await response_queue.put(response)
+                        await asyncio.sleep(0.01)  # Small delay to avoid busy waiting
+                        
+                except asyncio.TimeoutError:
+                    await self.logger.error(f"Timeout waiting for LSP response {message_id}")
+                    return None
+                    
         except Exception as e:
             await self.logger.error(f"Failed to read LSP response: {e}")
             return None
@@ -583,6 +677,15 @@ class LSPIndexer:
         """Get symbols for a specific file"""
         relative_path = str(Path(file_path).relative_to(self.project_root))
         return self.symbol_index.get(relative_path, [])
+        
+    async def get_diagnostics(self, file_path: str) -> List[Dict[str, Any]]:
+        """Get diagnostics for a specific file"""
+        relative_path = str(Path(file_path).relative_to(self.project_root))
+        
+        # Ensure file is opened with LSP server to trigger diagnostics
+        await self._notify_file_opened(file_path)
+        
+        return self.diagnostics.get(relative_path, [])
         
     async def get_dependencies(self, file_path: str) -> List[str]:
         """Get dependencies for a specific file"""
@@ -767,12 +870,72 @@ class LSPIndexer:
                 
         return tree
         
+    async def _notify_file_opened(self, file_path: str):
+        """Notify LSP server that a file has been opened to trigger diagnostics"""
+        try:
+            language = await self._detect_file_language(file_path)
+            if language == "unknown" or language not in self.language_servers:
+                await self.logger.debug(f"Skipping LSP notification: language {language} not supported")
+                return
+                
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
+                await self.logger.debug(f"Skipping LSP notification: file {file_path} does not exist")
+                return
+                
+            # Read file content
+            try:
+                content = file_path_obj.read_text()
+            except Exception as e:
+                await self.logger.warning(f"Failed to read file content for LSP: {e}")
+                return
+                
+            # Build LSP URI
+            uri = f"file://{file_path_obj.absolute()}"
+            
+            # Send didOpen notification
+            did_open_notification = {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": language,
+                        "version": 1,
+                        "text": content
+                    }
+                }
+            }
+            
+            await self._send_lsp_message(language, did_open_notification)
+            await self.logger.info(f"Notified LSP server about opened file: {file_path} (URI: {uri})")
+            
+            # Request diagnostics explicitly
+            await self._request_diagnostics(language, uri)
+            
+        except Exception as e:
+            await self.logger.warning(f"Failed to notify LSP server about opened file: {e}")
+
+    async def _request_diagnostics(self, language: str, uri: str):
+        """Explicitly request diagnostics from LSP server
+        
+        Note: This method uses the standard LSP approach where textDocument/didOpen
+        triggers diagnostics via publishDiagnostics notifications. The newer
+        textDocument/diagnostic method (LSP 3.17+) is not widely supported yet.
+        """
+        # The standard LSP approach relies on textDocument/didOpen to trigger diagnostics
+        # via publishDiagnostics notifications, which are handled in _handle_lsp_notification
+        await self.logger.debug(f"Diagnostics will be provided via publishDiagnostics after didOpen: {uri}")
+
     async def get_enhanced_context_for_file(self, file_path: str, line: int = None) -> Dict[str, Any]:
         """Get enhanced context for a file including LSP outline"""
         # Ensure appropriate language server is running for this file
         file_language = await self._detect_file_language(file_path)
         if file_language != "unknown" and file_language not in self.language_servers:
             await self._start_language_server(file_language)
+        
+        # Ensure file is opened with LSP server
+        await self._notify_file_opened(file_path)
         
         outline = await self.get_document_outline(file_path)
         
@@ -857,6 +1020,76 @@ class LSPIndexer:
             language = await self._detect_language()
             await self._build_initial_index()
             
+    async def _handle_lsp_notification(self, language: str, notification: Dict[str, Any]):
+        """Handle LSP notifications, including diagnostics"""
+        try:
+            method = notification.get("method")
+            await self.logger.debug(f"Received LSP notification: {method}")
+            
+            if method == "textDocument/publishDiagnostics":
+                params = notification.get("params", {})
+                uri = params.get("uri")
+                diagnostics = params.get("diagnostics", [])
+                
+                await self.logger.debug(f"publishDiagnostics - URI: {uri}, diagnostics count: {len(diagnostics)}")
+                
+                if uri:
+                    # Convert URI back to file path
+                    file_path = uri.replace("file://", "")
+                    
+                    # Try to get relative path for project files
+                    try:
+                        file_path = str(Path(file_path).relative_to(self.project_root))
+                    except ValueError:
+                        # File is outside project root, use absolute path
+                        file_path = str(Path(file_path))
+                    
+                    self.diagnostics[file_path] = diagnostics
+                    
+                    # Log diagnostic info
+                    if diagnostics:
+                        await self.logger.info(f"Received {len(diagnostics)} diagnostics for {file_path}")
+                        for diag in diagnostics:
+                            severity = diag.get("severity", 1)
+                            message = diag.get("message", "")
+                            line = diag.get("range", {}).get("start", {}).get("line", 0) + 1
+                            await self.logger.info(f"  Line {line}: {message} (severity: {severity})")
+                    else:
+                        await self.logger.debug(f"No diagnostics for {file_path}")
+                else:
+                    await self.logger.debug("No URI in publishDiagnostics notification")
+            else:
+                await self.logger.debug(f"Ignoring non-diagnostic notification: {method}")
+        except Exception as e:
+            await self.logger.error(f"Error handling LSP notification: {e}")
+            await self.logger.error(f"Notification details: {notification}")
+
+    async def get_diagnostics(self, file_path: str = None) -> Dict[str, List[Dict[str, Any]]]:
+        """Get diagnostics for a specific file or all files"""
+        await self.logger.debug(f"get_diagnostics called with file_path: {file_path}")
+        await self.logger.debug(f"Current diagnostics cache: {list(self.diagnostics.keys())}")
+        
+        if file_path:
+            # Ensure we have an absolute path
+            abs_path = Path(file_path).resolve()
+            try:
+                relative_path = str(abs_path.relative_to(self.project_root))
+            except ValueError:
+                # File is not in project root, use absolute path
+                relative_path = str(abs_path)
+            
+            diagnostics = self.diagnostics.get(relative_path, [])
+            await self.logger.debug(f"Diagnostics for {relative_path}: {len(diagnostics)} items")
+            return {relative_path: diagnostics}
+        
+        await self.logger.debug(f"Returning all diagnostics for {len(self.diagnostics)} files")
+        for file_path, diags in self.diagnostics.items():
+            await self.logger.debug(f"  {file_path}: {len(diags)} diagnostics")
+            
+        return self.diagnostics
+
+
+
     async def shutdown(self):
         """Shutdown all language servers"""
         for language, server_info in self.language_servers.items():

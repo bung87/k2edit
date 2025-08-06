@@ -101,17 +101,22 @@ class StatusBar(Widget):
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
         with Horizontal(id="status-bar"):
-            yield self.git_branch_widget
-            yield Static(" | ", classes="status-separator")
-            yield self.cursor_pos_widget
-            yield Static(" | ", classes="status-separator")
-            yield self.diagnostics_widget
-            yield Static(" | ", classes="status-separator")
-            yield self.lang_widget
-            yield Static(" | ", classes="status-separator")
-            yield self.indent_widget
-            yield Static(" | ", classes="status-separator")
-            yield self.encoding_widget
+            with Horizontal(id="left-section", classes="status-section"):
+                yield self.git_branch_widget
+                yield Static(" | ", classes="status-separator")
+               
+                yield self.diagnostics_widget
+            with Horizontal(id="right-section", classes="status-section"):
+                yield self.cursor_pos_widget
+                yield Static(" | ", classes="status-separator")
+                yield self.indent_widget
+                yield Static(" | ", classes="status-separator")
+                yield self.encoding_widget
+                yield Static(" | ", classes="status-separator")
+                yield self.lang_widget
+                yield Static(" | ", classes="status-separator")
+                
+                
             # yield Static(" | ", classes="status-separator", shrink=True, expand=True)
             # yield self.line_ending_widget
 
@@ -155,6 +160,36 @@ class StatusBar(Widget):
     
     def update_diagnostics(self, warnings: int = 0, errors: int = 0):
         """Update diagnostics information."""
+        self.diagnostics_warnings = warnings
+        self.diagnostics_errors = errors
+
+    def update_diagnostics_from_lsp(self, diagnostics_data: Optional[Dict[str, Any]] = None):
+        """Update diagnostics from LSP server response."""
+        if diagnostics_data is None:
+            self.diagnostics_warnings = 0
+            self.diagnostics_errors = 0
+            return
+        
+        warnings = 0
+        errors = 0
+        
+        # Parse diagnostics data from LSP
+        if isinstance(diagnostics_data, dict):
+            diagnostics = diagnostics_data.get('diagnostics', [])
+            for diagnostic in diagnostics:
+                severity = diagnostic.get('severity', 1)
+                if severity == 2:  # Warning
+                    warnings += 1
+                elif severity == 1:  # Error
+                    errors += 1
+        elif isinstance(diagnostics_data, list):
+            for diagnostic in diagnostics_data:
+                severity = diagnostic.get('severity', 1)
+                if severity == 2:  # Warning
+                    warnings += 1
+                elif severity == 1:  # Error
+                    errors += 1
+        
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
 

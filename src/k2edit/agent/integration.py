@@ -25,15 +25,24 @@ class K2EditAgentIntegration:
         self.project_root = Path(project_root)
         self.logger = logger
         self.agent_initialized = False
+        self._lsp_indexer = None
         
     async def initialize(self, progress_callback=None):
         """Initialize the agentic system with progress updates"""
         try:
-            await initialize_agentic_system(str(self.project_root), self.logger, progress_callback)
+            agent = await initialize_agentic_system(str(self.project_root), self.logger, progress_callback)
             self.agent_initialized = True
+            # Store reference to the underlying agent's LSP indexer
+            if hasattr(agent, 'lsp_indexer'):
+                self._lsp_indexer = agent.lsp_indexer
         except Exception as e:
             self.agent_initialized = False
             raise  # Re-raise the exception so main.py can handle it
+            
+    @property
+    def lsp_indexer(self):
+        """Access to the LSP indexer for diagnostics and symbol information"""
+        return self._lsp_indexer
     
     async def on_file_open(self, file_path: str):
         """Called when a file is opened in the editor"""
