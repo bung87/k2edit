@@ -17,7 +17,7 @@ from aiologger import Logger
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer
+from textual.widgets import Header, Footer, TextArea
 from textual.binding import Binding
 from textual.message import Message
 from textual.logging import TextualHandler
@@ -177,6 +177,7 @@ class K2EditApp(App):
     
     def compose(self) -> ComposeResult:
         """Create the UI layout with programmatic sizing."""
+
         yield Header()
         with Horizontal():
             # File explorer with fixed width
@@ -210,7 +211,7 @@ class K2EditApp(App):
             yield self.output_panel
         # yield self.status_bar
         yield self.status_bar
-        # yield Footer()  # Removed to avoid conflict with custom status bar
+        yield Footer()  # Removed to avoid conflict with custom status bar
 
     
     def on_command_bar_command_executed(self, message) -> None:
@@ -241,12 +242,12 @@ class K2EditApp(App):
             # It's a directory, keep the tree view
             await self.logger.debug(f"Directory selected: {file_path}")
     
-    async def on_text_area_cursor_moved(self, event: CustomSyntaxEditor.CursorMoved) -> None:
-        """Handle cursor movement in editor."""
+    async def on_text_area_selection_changed(self, event: TextArea.SelectionChanged) -> None:
+        """Handle selection/cursor changes in editor."""
         if self.status_bar:
-            self.status_bar.update_cursor_position(event.cursor_location[0] + 1, event.cursor_location[1] + 1)
+            self.status_bar.update_cursor_position(self.editor.cursor_location[0] + 1, self.editor.cursor_location[1] + 1)
 
-    async def on_text_area_changed(self, event: CustomSyntaxEditor.Changed) -> None:
+    async def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Handle text changes in editor."""
         if self.status_bar:
             self.status_bar.update_from_editor(self.editor.text, str(self.editor.current_file) if self.editor.current_file else "")

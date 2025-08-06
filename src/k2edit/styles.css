@@ -6,6 +6,14 @@ Screen {
 
 /* StatusBar styling */
 
+StatusBar {
+
+    height: 1;
+    background: #3b82f6;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
+}
 
 Header {
     dock: top;

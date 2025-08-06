@@ -31,48 +31,44 @@ class StatusBar(Widget):
 
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
-        if self.logger:
-            self.logger.debug(f"watch_git_branch called with: {git_branch}")
-        self.git_branch_widget.update(git_branch)
-
-
+        if hasattr(self, 'git_branch_widget'):
+            self.git_branch_widget.update(git_branch or "main")
 
     def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
-        self._update_cursor_position_display()
+        if hasattr(self, 'cursor_pos_widget'):
+            self._update_cursor_position_display()
 
     def watch_cursor_column(self, cursor_column: int) -> None:
         """Watch for cursor column changes."""
-        self._update_cursor_position_display()
+        if hasattr(self, 'cursor_pos_widget'):
+            self._update_cursor_position_display()
 
     def watch_diagnostics_warnings(self, warnings: int) -> None:
         """Watch for diagnostics warnings changes."""
-        self._update_diagnostics_display()
+        if hasattr(self, 'diagnostics_widget'):
+            self._update_diagnostics_display()
 
     def watch_diagnostics_errors(self, errors: int) -> None:
         """Watch for diagnostics errors changes."""
-        self._update_diagnostics_display()
+        if hasattr(self, 'diagnostics_widget'):
+            self._update_diagnostics_display()
 
     def watch_language(self, language: str) -> None:
         """Watch for language changes."""
-        if self.logger:
-            self.logger.debug(f"watch_language called with: {language}")
-        display_text = language or "Text"
-        self.lang_widget.update(display_text)
-        if self.logger:
-            self.logger.debug(f"Updated lang_widget with: '{display_text}'")
+        if hasattr(self, 'lang_widget'):
+            display_text = language or "Text"
+            self.lang_widget.update(display_text)
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
-        if self.logger:
-            self.logger.debug(f"watch_indentation called with: {indentation}")
-        self.indent_widget.update(indentation)
+        if hasattr(self, 'indent_widget'):
+            self.indent_widget.update(indentation)
 
     def watch_encoding(self, encoding: str) -> None:
         """Watch for encoding changes."""
-        if self.logger:
-            self.logger.debug(f"watch_encoding called with: {encoding}")
-        self.encoding_widget.update(encoding)
+        if hasattr(self, 'encoding_widget'):
+            self.encoding_widget.update(encoding)
 
     def _update_cursor_position_display(self) -> None:
         """Update cursor position display."""
@@ -87,7 +83,7 @@ class StatusBar(Widget):
         if self.logger:
             self.logger.debug("_update_all_displays called")
             self.logger.debug(f"Current values - git_branch: '{self.git_branch}', file_path: '{self.file_path}', language: '{self.language}'")
-        self.git_branch_widget.update(self.git_branch)
+        self.git_branch_widget.update(self.git_branch or "main")
         self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
         self.diagnostics_widget.update(self._format_diagnostics())
         self.lang_widget.update(self.language or "Text")
@@ -109,7 +105,7 @@ class StatusBar(Widget):
         self.styles.color = "#f1f5f9"
         self.styles.padding = (0, 1)
         
-        # Construct widgets with default values to avoid triggering watchers during init
+        # Construct widgets first (before reactive initialization)
         self.git_branch_widget = Static("main", id="git-branch", classes="status-item")
         self.cursor_pos_widget = Static("Ln 1, Col 1", id="cursor-pos", classes="status-item")
         self.diagnostics_widget = Static("✓", id="diagnostics", classes="status-item")
@@ -117,7 +113,6 @@ class StatusBar(Widget):
         self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
         
-
 
     def compose(self) -> ComposeResult:
         """Compose the status bar layout."""
@@ -133,7 +128,8 @@ class StatusBar(Widget):
             yield self.indent_widget
             yield Static(" | ", classes="status-separator")
             yield self.encoding_widget
-
+            # yield Static(" | ", classes="status-separator")
+            # yield self.line_ending_widget
 
     @work
     async def _update_git_branch(self):
@@ -184,14 +180,25 @@ class StatusBar(Widget):
         self.cursor_line = line
         self.cursor_column = column
         # Note: Logging is handled in the async git branch update method
+        
+    def _update_cursor_position_display(self):
+        """Update the cursor position display widget."""
+        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
+        
+    def _update_diagnostics_display(self):
+        """Update the diagnostics display widget."""
+        self.diagnostics_widget.update(self._format_diagnostics())
+        
+    def _update_all_displays(self):
+        """Update all display widgets to reflect current state."""
+        self.git_branch_widget.update(self.git_branch or "main")
+        self._update_cursor_position_display()
+        self._update_diagnostics_display()
+        self.lang_widget.update(self.language or "Text")
+        self.indent_widget.update(self.indentation)
+        self.encoding_widget.update(self.encoding)
 
-    def update_from_editor(self, content: str, file_path: str):
-        """Update status bar from editor content and file path."""
-        self.file_path = file_path
-        self.language = self._detect_language_from_extension(file_path)
-        self.indentation = self._detect_indentation(content)
-        # TODO: Add detection for encoding and line_ending if needed
-        # For now, keep defaults or implement if necessary
+
 
     def _detect_language_from_extension(self, file_path: str) -> str:
         """Detect programming language from file extension."""
@@ -312,16 +319,13 @@ class StatusBar(Widget):
         """Called when the widget is mounted."""
         await self.logger.info("StatusBar mounted")
         
-        # Set initial values first to trigger reactive updates
-        self.cursor_line = 1
-        self.cursor_column = 1
-        self.file_path = "New File"
-        self.language = "Text"
-        self.indentation = "Spaces: 4"
-        self.encoding = "UTF-8"
-        
-        # Update all displays after setting values
-        self._update_all_displays()
+        # Sync widgets with initial reactive values
+        self.git_branch_widget.update(self.git_branch or "main")
+        self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")
+        self.diagnostics_widget.update(self._format_diagnostics())
+        self.lang_widget.update(self.language or "Text")
+        self.indent_widget.update(self.indentation)
+        self.encoding_widget.update(self.encoding)
         
         # Start periodic git branch updates
         self.set_interval(10, self._update_git_branch)
