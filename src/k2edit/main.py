@@ -32,13 +32,22 @@ from .views.hover_widget import HoverWidget
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
+from .utils import (
+    create_error_handler,
+    create_agent_initializer,
+    create_file_initializer,
+    get_config,
+    ErrorHandler,
+    AgentInitializer,
+    FileInitializer
+)
 
 
 class K2EditApp(App):
     """Main application class for the Kimi-K2 code editor."""
     
     TITLE = "K2Edit - Kimi-K2 Code Editor"
-    CSS_PATH = "styles.css"
+    CSS_PATH = "styles.tcss"
     
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
@@ -51,8 +60,12 @@ class K2EditApp(App):
     def __init__(self, initial_file: str = None, logger: Logger = None, **kwargs):
         super().__init__(**kwargs)
         
-        # Setup logging
+        # Setup logging and configuration
         self.logger = logger or Logger(name="k2edit")
+        self.config = get_config()
+        
+        # Initialize error handling
+        self.error_handler = create_error_handler(self.logger)
         
         # Initialize components
         self.editor = CustomSyntaxEditor(self.logger)
@@ -64,6 +77,13 @@ class K2EditApp(App):
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file
+        
+        # Initialize utility classes
+        self.agent_initializer = create_agent_initializer(self.logger, self.error_handler)
+        self.file_initializer = create_file_initializer(self.logger, self.error_handler)
+        
+        # Set error handler output panel
+        self.error_handler.output_panel = self.output_panel
         
         # Hover state
         self._last_cursor_position = (1, 1)  # (line, column)
@@ -84,13 +104,14 @@ class K2EditApp(App):
         # self.set_interval(1, self._update_status_bar)
         
         # Initialize agentic system in background after a short delay
-        self.set_timer(2.0, lambda: asyncio.create_task(self._initialize_agent_system_background()))
+        self.set_timer(self.config.ui.agent_init_delay_s, lambda: asyncio.create_task(self._initialize_agent_system()))
         
         # Connect command bar to other components
         self.command_bar.editor = self.editor
         self.command_bar.output_panel = self.output_panel
         self.command_bar.kimi_api = self.kimi_api
         self.command_bar.set_agent_integration(self.agent_integration)
+        self.command_bar.set_output_panel(self.output_panel)
         
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
@@ -100,89 +121,44 @@ class K2EditApp(App):
 
         # Load initial file if provided, otherwise start with an empty editor
         if self.initial_file:
-            file_path = Path(self.initial_file)
-            if file_path.is_file():
-                await self.logger.info(f"Loading initial file: {self.initial_file}")
-                if await self.editor.load_file(self.initial_file):
-                    self.output_panel.add_info(f"Loaded file: {self.initial_file}")
-                    await self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
-                    self.editor.focus()
-                    
-                    # Update status bar with file information
-                    self._update_status_bar()
-                    
-                    # Notify agentic system about file open (when ready)
-                    asyncio.create_task(self._on_file_open_with_agent(self.initial_file))
-                else:
-                    error_msg = f"Failed to load file: {self.initial_file}"
-                    self.output_panel.add_error(error_msg)
-                    await self.logger.error(error_msg)
-            elif file_path.is_dir():
-                await self.logger.warning(f"Initial path is a directory, not a file: {self.initial_file}")
-                self.output_panel.add_warning(f"Cannot open a directory: {self.initial_file}")
-            else:
-                # Path doesn't exist, treat as a new file
-                await self.logger.info(f"Initial file does not exist, creating new file: {self.initial_file}")
-                self.editor.load_file(self.initial_file) # This will create a new buffer
-                self.output_panel.add_info(f"New file: {self.initial_file}")
+            success = await self.file_initializer.initialize_file(
+                self.initial_file,
+                self.editor,
+                self.output_panel,
+                self._on_file_open_with_agent
+            )
+            if success:
                 self.editor.focus()
+                # Update status bar with file information
+                self._update_status_bar()
         else:
             await self.logger.info("No initial file provided, starting with an empty editor.")
             self.editor.focus()
         
         await self.logger.info("K2EditApp mounted successfully")
     
-    async def _initialize_agent_system_background(self):
-        """Initialize the agentic system in the background with progress updates"""
-        await self.logger.info("Initializing agentic system in background...")
-        try:
-            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger, self._on_diagnostics_received)
-            
-            # Define progress callback to update output panel
-            async def progress_callback(message):
-                self.output_panel.add_info(message)
-  
-            await self.agent_integration.initialize(progress_callback)
-            
-            # Update command bar with agent integration
-            if hasattr(self, 'command_bar') and self.command_bar:
-                self.command_bar.set_agent_integration(self.agent_integration)
-            
-            # Add welcome message now that AI system is ready
-            self.output_panel.add_welcome_message()
-            await self.logger.info("Agentic system initialized successfully")
-            
-            # Notify LSP server about current file if one is loaded
-            if self.editor.current_file:
-                current_file_path = str(self.editor.current_file)
-                await self.logger.info(f"Notifying LSP server about current file: {current_file_path}")
-                await self._on_file_open_with_agent(current_file_path)
-        except Exception as e:
-            await self.logger.error(f"Failed to initialize agentic system: {e}")
-            self.output_panel.add_error(f"Agentic system initialization failed: {e}")
-    
     async def _initialize_agent_system(self):
-        """Initialize the agentic system asynchronously with progress updates"""
-        await self.logger.info("Initializing agentic system...")
-        try:
-            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger, self._on_diagnostics_received)
-            
-            # Define progress callback to update output panel
-            async def progress_callback(message):
-                self.output_panel.add_info(message)
- 
-            await self.agent_integration.initialize(progress_callback)
-            
-            # Update command bar with agent integration
-            if hasattr(self, 'command_bar') and self.command_bar:
-                self.command_bar.set_agent_integration(self.agent_integration)
-            
-            # Add welcome message now that AI system is ready
-            self.output_panel.add_welcome_message()
-            await self.logger.info("Agentic system initialized successfully")
-        except Exception as e:
-            await self.logger.error(f"Failed to initialize agentic system: {e}")
-            self.output_panel.add_error(f"Agentic system initialization failed: {e}")
+        """Initialize the agentic system using the standardized initializer."""
+        # Define progress callback to update output panel
+        async def progress_callback(message):
+            self.output_panel.add_info(message)
+        
+        # Get current file if available
+        current_file = str(self.editor.current_file) if self.editor.current_file else None
+        
+        # Initialize agent system
+        self.agent_integration = await self.agent_initializer.initialize_agent_system(
+            project_root=str(Path.cwd()),
+            diagnostics_callback=self._on_diagnostics_received,
+            progress_callback=progress_callback,
+            command_bar=self.command_bar,
+            output_panel=self.output_panel,
+            current_file=current_file
+        )
+        
+        # Set output panel for agent integration error handling
+        if self.agent_integration:
+            self.agent_integration.set_output_panel(self.output_panel)
     
     async def _on_file_open_with_agent(self, file_path: str):
         """Handle file open with agentic system integration"""
@@ -193,8 +169,9 @@ class K2EditApp(App):
             if self.agent_integration.lsp_client:
                 from .agent.language_configs import LanguageConfigs
                 from pathlib import Path
+                from .utils.language_utils import detect_language_by_extension
                 
-                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                language = detect_language_by_extension(Path(file_path).suffix)
                 if language != "unknown" and not self.agent_integration.lsp_client.is_server_running(language):
                     try:
                         await self.logger.info(f"Starting {language} language server for opened file: {file_path}")
@@ -239,7 +216,11 @@ class K2EditApp(App):
             else:
                 await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
         except Exception as e:
-            await self.logger.error(f"Error in diagnostics callback: {e}")
+            await self.error_handler.handle_error(
+                e,
+                context={"file_path": file_path, "diagnostics_count": len(diagnostics)},
+                user_message="Failed to process diagnostics"
+            )
 
     async def _trigger_hover_request(self, line: int, column: int):
         """Trigger LSP hover request after cursor idle."""

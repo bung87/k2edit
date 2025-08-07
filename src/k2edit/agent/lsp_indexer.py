@@ -12,6 +12,7 @@ from .lsp_client import LSPClient
 from .language_configs import LanguageConfigs
 from .symbol_parser import SymbolParser
 from .file_filter import FileFilter
+from ..utils.language_utils import detect_language_by_extension
 
 
 class LSPIndexer:
@@ -255,7 +256,7 @@ class LSPIndexer:
             abs_path = Path(file_path)
             if not abs_path.is_absolute():
                 abs_path = self.project_root / file_path
-            language = LanguageConfigs.detect_language_by_extension(abs_path.suffix)
+            language = detect_language_by_extension(abs_path.suffix)
             return await self.symbol_parser.extract_dependencies(str(abs_path), language)
         except Exception as e:
             await self.logger.error(f"Error getting dependencies for {file_path}: {e}")
@@ -282,7 +283,7 @@ class LSPIndexer:
                 try:
                     # Convert relative path to absolute for dependency extraction
                     abs_path = str(self.project_root / file_path)
-                    language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                    language = detect_language_by_extension(Path(file_path).suffix)
                     dependencies = await self.symbol_parser.extract_dependencies(abs_path, language)
                     return file_path, dependencies
                 except Exception as e:
@@ -357,7 +358,7 @@ class LSPIndexer:
     async def get_document_outline(self, file_path: str) -> Dict[str, Any]:
         """Get structured outline for a document via LSP"""
         # Ensure appropriate language server is running for this file
-        language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+        language = detect_language_by_extension(Path(file_path).suffix)
         if language != "unknown" and not self.lsp_client.is_server_running(language):
             config = LanguageConfigs.get_config(language)
             await self.lsp_client.start_server(language, config["command"], self.project_root)

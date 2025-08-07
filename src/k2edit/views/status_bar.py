@@ -15,6 +15,7 @@ from textual.screen import Screen
 from textual import work
 from aiologger import Logger
 import asyncio
+from ..utils.language_utils import detect_language_from_file_path
 
 class GitBranchSwitch(Message):
     """Message to request git branch switching."""
@@ -333,18 +334,19 @@ class StatusBar(Widget):
             
             if result.returncode == 0:
                 branch = result.stdout.strip()
-                self.git_branch = branch
-                self.git_branch_widget.label = branch
-                await self.logger.debug(f"Git branch updated: {branch}")
+                # Only log if branch actually changed
+                if branch != self.git_branch:
+                    await self.logger.debug(f"Git branch updated: {branch}")
+                    self.git_branch = branch
             else:
-                self.git_branch = ""
-                self.git_branch_widget.label = ""
-                await self.logger.debug("Failed to get git branch")
+                if self.git_branch != "":
+                    self.git_branch = ""
+                    await self.logger.debug("Failed to get git branch")
                 
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            self.git_branch = ""
-            self.git_branch_widget.label = ""
-            await self.logger.debug(f"Error updating git branch: {e}")
+            if self.git_branch != "":
+                self.git_branch = ""
+                await self.logger.debug(f"Error updating git branch: {e}")
     
     def update_diagnostics(self, warnings: int = 0, errors: int = 0):
         """Update diagnostics information."""
@@ -411,39 +413,7 @@ class StatusBar(Widget):
         """Update the diagnostics display widget."""
         self.diagnostics_widget.label = self._format_diagnostics()
 
-    def _detect_language_from_extension(self, file_path: str) -> str:
-        """Detect programming language from file extension."""
-        if not file_path:
-            return ""
-        
-        ext_map = {
-            '.py': 'Python',
-            '.js': 'JavaScript',
-            '.ts': 'TypeScript',
-            '.jsx': 'JavaScript',
-            '.tsx': 'TypeScript',
-            '.java': 'Java',
-            '.cpp': 'C++',
-            '.c': 'C',
-            '.go': 'Go',
-            '.rs': 'Rust',
-            '.rb': 'Ruby',
-            '.php': 'PHP',
-            '.html': 'HTML',
-            '.css': 'CSS',
-            '.scss': 'SCSS',
-            '.json': 'JSON',
-            '.yaml': 'YAML',
-            '.yml': 'YAML',
-            '.xml': 'XML',
-            '.sql': 'SQL',
-            '.sh': 'Shell',
-            '.md': 'Markdown',
-            '.nim': 'Nim'
-        }
-        
-        ext = Path(file_path).suffix.lower()
-        return ext_map.get(ext, "")
+
     
     def _detect_indentation(self, content: str) -> str:
         """Detect indentation type and size from content."""
@@ -511,7 +481,7 @@ class StatusBar(Widget):
             self.file_path = file_name
             
             # Detect language from file extension
-            language = self._detect_language_from_extension(file_path)
+            language = detect_language_from_file_path(file_path)
             self.logger.debug(f"Detected language: {language} for file: {file_path}")
             self.language = language
         
@@ -537,8 +507,9 @@ class StatusBar(Widget):
         self.indent_widget.update(self.indentation)
         self.encoding_widget.update(self.encoding)
         # self.set_interval(1, self.update_from_editor)
-        # Start periodic git branch updates
-        self.set_interval(10, self._update_git_branch)
+        
+        # Initialize git branch once on mount
+        self._update_git_branch()
         
         # Log initial status
         await self.logger.debug("StatusBar initialization complete")

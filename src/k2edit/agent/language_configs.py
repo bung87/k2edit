@@ -3,6 +3,7 @@ Defines configurations for different language servers"""
 
 import sys
 from typing import Dict, List, Any
+from ..utils.language_utils import detect_language_by_extension as _detect_language_by_extension
 
 
 class LanguageConfigs:
@@ -75,14 +76,7 @@ class LanguageConfigs:
     @staticmethod
     def detect_language_by_extension(extension: str) -> str:
         """Detect language based on file extension"""
-        extension = extension.lower()
-        configs = LanguageConfigs.get_configs()
-        
-        for lang, config in configs.items():
-            if extension in config["extensions"]:
-                return lang
-        
-        return "unknown"
+        return _detect_language_by_extension(extension)
     
     @staticmethod
     def get_supported_extensions() -> List[str]:

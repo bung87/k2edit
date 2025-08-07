@@ -266,10 +266,10 @@ class LSPClient:
         """Notify LSP server that a file has been opened"""
         try:
             # Import here to avoid circular imports
-            from .language_configs import LanguageConfigs
+            from ..utils.language_utils import detect_language_by_extension
             
             if language is None:
-                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                language = detect_language_by_extension(Path(file_path).suffix)
             
             if language == "unknown" or not self.is_server_running(language):
                 return
@@ -316,7 +316,7 @@ class LSPClient:
         from .language_configs import LanguageConfigs
         
         if language is None:
-            language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+            language = detect_language_by_extension(Path(file_path).suffix)
         
         await self.logger.debug(f"Detected language: {language}")
         

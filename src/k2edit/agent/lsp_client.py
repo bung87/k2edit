@@ -10,7 +10,7 @@ import aiofiles
 from dataclasses import dataclass
 from enum import Enum
 import time
-
+from ..utils.language_utils import detect_language_by_extension
 
 class ServerStatus(Enum):
     STOPPED = "stopped"
@@ -451,11 +451,8 @@ class LSPClient:
     async def notify_file_opened(self, file_path: str, language: str = None) -> None:
         """Notify LSP server about opened file with async file reading"""
         try:
-            # Import here to avoid circular imports
-            from .language_configs import LanguageConfigs
-            
             if language is None:
-                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                language = detect_language_by_extension(Path(file_path).suffix)
             
             if language == "unknown" or not self.is_server_running(language):
                 return
@@ -496,11 +493,8 @@ class LSPClient:
     async def notify_file_changed(self, file_path: str, content: str, language: str = None) -> None:
         """Notify LSP server about file content changes"""
         try:
-            # Import here to avoid circular imports
-            from .language_configs import LanguageConfigs
-            
             if language is None:
-                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                language = detect_language_by_extension(Path(file_path).suffix)
             
             if language == "unknown" or not self.is_server_running(language):
                 return
@@ -539,11 +533,9 @@ class LSPClient:
     async def get_hover_info(self, file_path: str, line: int, character: int, language: str = None) -> Optional[Dict[str, Any]]:
         """Get hover information from LSP server"""
         try:
-            # Import here to avoid circular imports
-            from .language_configs import LanguageConfigs
-            
+
             if language is None:
-                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                language = detect_language_by_extension(Path(file_path).suffix)
             
             if language == "unknown" or not self.is_server_running(language):
                 return None

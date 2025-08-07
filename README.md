@@ -137,7 +137,7 @@ k2edit/
 │   ├── kimi_api.py         # Kimi API integration
 │   ├── schema.py           # Tool schemas
 │   └── tools.py            # Local tool implementations
-├── styles.css              # UI styling
+├── styles.tcss             # UI styling
 ├── requirements.txt        # Dependencies
 ├── .env.example           # Environment template
 └── README.md              # This file
@@ -152,7 +152,7 @@ k2edit/
 
 ### Customization
 
-- **Themes**: Modify `styles.css` for custom colors and layout
+- **Themes**: Modify `styles.tcss` for custom colors and layout
 - **Commands**: Add new commands in `views/command_bar.py`
 - **Tools**: Extend tool capabilities in `agent/tools.py`
 - **AI Prompts**: Customize prompts in command handlers

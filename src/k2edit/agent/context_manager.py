@@ -28,6 +28,7 @@ from sentence_transformers import SentenceTransformer
 
 from .memory_config import create_memory_store
 from .lsp_indexer import LSPIndexer
+from ..utils.language_utils import detect_language_from_filename, detect_project_language
 
 
 @dataclass
@@ -321,34 +322,7 @@ class AgenticContextManager:
 
     def _detect_language_from_filename(self, filename: str) -> str:
         """Detect programming language from filename"""
-        import os
-        ext_map = {
-            '.py': 'python',
-            '.js': 'javascript',
-            '.ts': 'typescript',
-            '.jsx': 'javascript',
-            '.tsx': 'typescript',
-            '.java': 'java',
-            '.cpp': 'cpp',
-            '.c': 'c',
-            '.go': 'go',
-            '.rs': 'rust',
-            '.rb': 'ruby',
-            '.php': 'php',
-            '.html': 'html',
-            '.css': 'css',
-            '.scss': 'scss',
-            '.json': 'json',
-            '.yaml': 'yaml',
-            '.yml': 'yaml',
-            '.xml': 'xml',
-            '.sql': 'sql',
-            '.sh': 'shell',
-            '.md': 'markdown'
-        }
-        
-        _, ext = os.path.splitext(filename)
-        return ext_map.get(ext.lower(), 'unknown')
+        return detect_language_from_filename(filename)
         
     async def process_agent_request(self, query: str, max_semantic_distance: float = 1.2) -> Dict[str, Any]:
         """Process an AI agent request with full context"""
@@ -438,25 +412,7 @@ class AgenticContextManager:
             
     def _detect_language(self, project_root: str) -> str:
         """Detect the primary language of the project"""
-        root = Path(project_root)
-        
-        # Common language indicators
-        language_indicators = {
-            "python": ["requirements.txt", "setup.py", "pyproject.toml", ".py"],
-            "javascript": ["package.json", "yarn.lock", ".js", ".ts"],
-            "go": ["go.mod", "go.sum", ".go"],
-            "rust": ["Cargo.toml", "Cargo.lock", ".rs"],
-            "java": ["pom.xml", "build.gradle", ".java"],
-            "cpp": ["CMakeLists.txt", "Makefile", ".cpp", ".h"],
-            "nim": ["nim.cfg", ".nim", ".nims"]
-        }
-        
-        for lang, indicators in language_indicators.items():
-            for indicator in indicators:
-                if any(root.rglob(f"*{indicator}")):
-                    return lang
-                    
-        return "unknown"
+        return detect_project_language(project_root)
         
     def _generate_diff(self, old_content: str, new_content: str) -> str:
         """Generate a simple diff between old and new content"""
@@ -507,7 +463,7 @@ class AgenticContextManager:
         """Get enhanced context for a file excluding LSP outline"""
         # Ensure appropriate language server is running for this file
         from .language_configs import LanguageConfigs
-        language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+        language = detect_language_by_extension(Path(file_path).suffix)
         if language != "unknown" and not self.lsp_indexer.lsp_client.is_server_running(language):
             config = LanguageConfigs.get_config(language)
             await self.lsp_indexer.lsp_client.start_server(language, config["command"], self.lsp_indexer.project_root)
@@ -535,17 +491,26 @@ class AgenticContextManager:
 
         try:
             await self.logger.info("Loading SentenceTransformer model...")
-            model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'all-MiniLM-L6-v2')
             os.environ['TOKENIZERS_PARALLELISM'] = 'false'
             os.environ['OMP_NUM_THREADS'] = '1'
             
+            # Try local model first, then fall back to downloading from Hugging Face
+            model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'all-MiniLM-L6-v2')
+            
             def _load_model():
-                return SentenceTransformer(model_path)
+                if os.path.exists(model_path):
+                    return SentenceTransformer(model_path)
+                else:
+                    # Download from Hugging Face if local model doesn't exist
+                    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
             
             self.embedding_model = await asyncio.to_thread(_load_model)
             
             self._embedding_lock = threading.Lock()
-            await self.logger.info("Successfully loaded local SentenceTransformer model")
+            if os.path.exists(model_path):
+                await self.logger.info("Successfully loaded local SentenceTransformer model")
+            else:
+                await self.logger.info("Successfully downloaded and loaded SentenceTransformer model from Hugging Face")
         except Exception as e:
             await self.logger.error(f"Error loading SentenceTransformer model: {e}")
             self.embedding_model = None

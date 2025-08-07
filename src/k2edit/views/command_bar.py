@@ -10,6 +10,7 @@ from textual.message import Message
 from textual.widgets import Input
 
 from ..agent.tools import ToolExecutor
+from ..utils.error_handler import ErrorHandler, ErrorSeverity
 
 
 class CommandBar(Input):
@@ -25,6 +26,8 @@ class CommandBar(Input):
         self.agent_integration = None
         self.logger = logging.getLogger("k2edit")
         self.tool_executor = ToolExecutor(editor_widget=self.editor)
+        self.error_handler = ErrorHandler(self.logger)
+        self.output_panel = None
     
     class CommandExecuted(Message):
         """Message sent when a command is executed."""
@@ -52,6 +55,11 @@ class CommandBar(Input):
     def set_agent_integration(self, agent_integration) -> None:
         """Set the agent integration reference."""
         self.agent_integration = agent_integration
+    
+    def set_output_panel(self, output_panel) -> None:
+        """Set the output panel reference for error handling."""
+        self.output_panel = output_panel
+        self.error_handler.set_output_panel(output_panel)
     
     def set_text(self, text: str) -> None:
         """Set the command bar text."""
@@ -121,7 +129,12 @@ class CommandBar(Input):
                 self.logger.warning(f"Unknown command: {cmd}")
         
         except Exception as e:
-            self.logger.error(f"Error executing command '{command}': {e}", exc_info=True)
+            await self.error_handler.handle_error(
+                e,
+                context={"command": command, "cmd": cmd, "args": args},
+                user_message=f"Failed to execute command: {cmd}",
+                severity=ErrorSeverity.ERROR
+            )
     
     async def _handle_open(self, filename: str) -> None:
         """Handle file open command."""
@@ -193,9 +206,12 @@ class CommandBar(Input):
             self.post_message(self.CommandExecuted(f"/kimi {query}", response.get('content', '')))
 
         except Exception as e:
-            self.logger.error(f"Kimi API error for query '{query}': {e}", exc_info=True)
-            # Ensure any loading indicators are dismissed
-            self.app.notify("Request failed - please wait and try again", severity="warning")
+            await self.error_handler.handle_error(
+                e,
+                context={"query": query, "context_length": len(str(context))},
+                user_message="Kimi API request failed - please wait and try again",
+                severity=ErrorSeverity.WARNING
+            )
     
     async def _handle_explain(self) -> None:
         """Handle code explanation request."""
@@ -362,7 +378,14 @@ class CommandBar(Input):
             self.post_message(self.CommandExecuted(f"/run_agent {goal}", content))
 
         except Exception as e:
-            self.logger.error(f"Agentic system error for goal '{goal}': {e}", exc_info=True)
+            await self.error_handler.handle_error(
+                e,
+                context={"goal": goal, "request_id": request_id},
+                user_message="Agentic system request failed",
+                severity=ErrorSeverity.ERROR
+            )
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_agent_progress(request_id, 0, 10, "error")
     
     async def _handle_help(self) -> None:
         """Display help information."""

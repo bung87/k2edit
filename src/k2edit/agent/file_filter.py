@@ -7,6 +7,7 @@ from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
 import re
 from aiologger import Logger
+from ..utils.language_utils import detect_project_language
 
 
 class FileFilter:
@@ -165,17 +166,7 @@ class FileFilter:
     
     def detect_project_language(self, project_root: Path) -> str:
         """Detect the primary language of the project"""
-        from .language_configs import LanguageConfigs
-        
-        configs = LanguageConfigs.get_configs()
-        
-        for language, config in configs.items():
-            extensions = config.get("extensions", [])
-            for ext in extensions:
-                if any(project_root.rglob(f"*{ext}")):
-                    return language
-        
-        return "unknown"
+        return detect_project_language(str(project_root))
     
     def get_file_info(self, file_path: Path) -> Dict[str, any]:
         """Get basic file information"""
