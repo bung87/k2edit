@@ -80,17 +80,15 @@ class FileFilter:
         if not extensions:
             return []
         
+        # Convert extensions to set for faster lookup
+        ext_set = set(extensions)
         files = []
-        for ext in extensions:
-            all_files = list(project_root.rglob(f"*{ext}"))
-            
-            # Filter files based on skip patterns
-            filtered_files = [
-                file_path for file_path in all_files 
-                if not self.should_skip_file(file_path, language, project_root)
-            ]
-            
-            files.extend(filtered_files)
+        
+        # Single directory traversal for better performance
+        for file_path in project_root.rglob("*"):
+            if file_path.is_file() and file_path.suffix in ext_set:
+                if not self.should_skip_file(file_path, language, project_root):
+                    files.append(file_path)
         
         return files
     
@@ -104,16 +102,16 @@ class FileFilter:
         if not extensions:
             return {"total": 0, "filtered": 0, "included": 0}
         
+        # Convert extensions to set for faster lookup
+        ext_set = set(extensions)
         total_files = 0
         included_files = []
         
-        # First get all files with wanted extensions
-        for ext in extensions:
-            all_files = list(project_root.rglob(f"*{ext}"))
-            total_files += len(all_files)
-            
-            # Apply skip patterns and add wanted files to list
-            for file_path in all_files:
+        # Single directory traversal for better performance
+        for file_path in project_root.rglob("*"):
+            if file_path.is_file() and file_path.suffix in ext_set:
+                total_files += 1
+                # Apply skip patterns and add wanted files to list
                 if not self.should_skip_file(file_path, language, project_root):
                     included_files.append(file_path)
         
