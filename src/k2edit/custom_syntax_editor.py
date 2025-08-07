@@ -86,8 +86,7 @@ class CustomSyntaxEditor(TextArea):
         language = detect_language_by_extension(path.suffix.lower())
         await self._set_content_with_language("", language)
         
-        if self.logger:
-            await self.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
+        await self.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
         return True
 
     async def _load_existing_file(self, path: Path) -> bool:
@@ -123,8 +122,7 @@ class CustomSyntaxEditor(TextArea):
                 return await self._load_existing_file(path)
             
         except Exception as e:
-            if self.logger:
-                 await self.logger.error(f"CUSTOM EDITOR: Error loading file {file_path}: {e}", exc_info=True)
+            await self.logger.error(f"CUSTOM EDITOR: Error loading file {file_path}: {e}", exc_info=True)
             return False
 
     def get_selected_text(self) -> Optional[str]:
@@ -284,12 +282,10 @@ class CustomSyntaxEditor(TextArea):
             return line, estimated_char
             
         except (IndexError, ValueError) as e:
-            if self.logger:
-                self.logger.error(f"Invalid text position calculation: {e}")
+            self.logger.warning(f"CUSTOM EDITOR: Error converting mouse to text position: {e}")
             return 0, 0
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Unexpected error converting mouse to text position: {e}")
+            self.logger.error(f"CUSTOM EDITOR: Unexpected error in mouse position conversion: {e}")
             return 0, 0
 
     async def on_mouse_down(self, event: MouseDown) -> None:
@@ -307,8 +303,7 @@ class CustomSyntaxEditor(TextArea):
             
             # Check if LSP server is running for this language
             if not self._lsp_client.is_server_running(language):
-                if self.logger:
-                    await self.logger.debug(f"LSP server not running for language: {language}")
+                await self.logger.debug(f"LSP server not running for language: {language}")
                 return
                 
             # Send go-to-definition request
@@ -330,32 +325,25 @@ class CustomSyntaxEditor(TextArea):
                 target_line = start.get("line", line) + 1  # LSP uses 0-based lines
                 target_char = start.get("character", 0) + 1  # LSP uses 0-based characters
                 
-                if self.logger:
-                    await self.logger.debug(f"Navigating to definition: {target_file}:{target_line}:{target_char}")
+                await self.logger.info(f"Navigating to definition: {target_file}:{target_line}:{target_char}")
                 
                 # Trigger navigation
                 self._goto_definition_callback(target_file, target_line, target_char)
             else:
-                if self.logger:
-                    await self.logger.debug("No definition found for symbol")
+                await self.logger.debug("No definitions found")
                     
         except (KeyError, ValueError, IndexError) as e:
-            if self.logger:
-                await self.logger.error(f"Invalid definition format: {e}")
+            await self.logger.warning(f"Invalid definition format: {e}")
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Unexpected error in go-to-definition: {e}")
+            await self.logger.error(f"Unexpected error in go-to-definition: {e}")
 
     async def on_text_area_selection_changed(self, event) -> None:
         """Called when cursor position or selection changes."""
         line, column = self.cursor_location
-        await self.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
-        await self.logger.debug(f"CUSTOM EDITOR: Raw cursor_location: {self.cursor_location}")
-        await self.logger.debug(f"CUSTOM EDITOR: Event details: {event}")
-
+        self.logger.debug(f"Cursor position changed: line {line}, column {column}")
+        
         # Call the callback if it exists
         if hasattr(self, 'cursor_position_changed') and self.cursor_position_changed:
-            await self.logger.debug(f"CUSTOM EDITOR: Calling cursor_position_changed with ({line}, {column})")
             self.cursor_position_changed(line, column)
 
     async def on_key(self, event: Key) -> None:
@@ -452,29 +440,24 @@ class CustomSyntaxEditor(TextArea):
     async def _show_suggestions(self):
         """Show autocomplete suggestions from LSP server."""
         if not self._lsp_client or not self.current_file:
-            if self.logger:
-                asyncio.create_task(self.logger.debug("AUTOCOMPLETE: No LSP client or current file"))
+            self.logger.debug("LSP client or current file not available")
             return
         
-        if self.logger:
-            asyncio.create_task(self.logger.debug(f"AUTOCOMPLETE: Attempting to show suggestions for {self.current_file}"))
+        self.logger.debug(f"AUTOCOMPLETE: Attempting to show suggestions for {self.current_file}")
         
         try:
             language = self._get_language_from_file(str(self.current_file))
             if not language or language == "text":
-                if self.logger:
-                    asyncio.create_task(self.logger.debug(f"AUTOCOMPLETE: Language not supported: {language}"))
+                self.logger.debug(f"No language detected for file: {self.current_file}")
                 return
             
             if not self._lsp_client.is_server_running(language):
-                if self.logger:
-                    asyncio.create_task(self.logger.debug(f"AUTOCOMPLETE: LSP server not running for {language}"))
+                self.logger.debug(f"LSP server not running for language: {language}")
                 return
             
             line, character = self.cursor_location
             
-            if self.logger:
-                asyncio.create_task(self.logger.debug(f"AUTOCOMPLETE: Getting completions for {self.current_file} at line {line}, character {character}"))
+            self.logger.debug(f"Requesting completions for {self.current_file}:{line}:{character}")
             
             # Get completions from LSP
             completions = await self._lsp_client.get_completions(
@@ -485,23 +468,19 @@ class CustomSyntaxEditor(TextArea):
             )
             
             if completions and len(completions) > 0:
-                if self.logger:
-                    asyncio.create_task(self.logger.debug(f"AUTOCOMPLETE: Found {len(completions)} suggestions"))
+                self.logger.debug(f"Found {len(completions)} completions")
                 self._suggestions = completions
                 self._selected_suggestion_index = 0
                 await self._render_suggestions()
             else:
-                if self.logger:
-                    asyncio.create_task(self.logger.debug("AUTOCOMPLETE: No completions found"))
+                self.logger.debug("No completions found")
                 self._hide_suggestions()
                 
         except (KeyError, ValueError) as e:
-            if self.logger:
-                await self.logger.error(f"Invalid LSP response format: {e}")
+            await self.logger.error(f"Invalid LSP response format: {e}")
             self._hide_suggestions()
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Unexpected error showing suggestions: {e}")
+            await self.logger.error(f"Unexpected error showing suggestions: {e}")
             self._hide_suggestions()
 
     async def _render_suggestions(self):
@@ -617,8 +596,7 @@ class CustomSyntaxEditor(TextArea):
                 self.insert_completion(insert_text)
                 
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error inserting completion: {e}")
+            await self.logger.error(f"Error inserting completion: {e}")
 
     def insert_completion(self, text: str):
         """Insert completion text at cursor position."""
@@ -643,8 +621,7 @@ class CustomSyntaxEditor(TextArea):
             self.cursor_location = (line, new_column)
             
         except Exception as e:
-            if self.logger:
-                asyncio.create_task(self.logger.error(f"Error inserting completion: {e}"))
+            self.logger.error(f"Error inserting completion: {e}")
 
     def toggle_autocomplete(self, enabled: bool = None):
         """Toggle autocomplete functionality on/off."""
@@ -656,5 +633,4 @@ class CustomSyntaxEditor(TextArea):
         if not self._autocomplete_enabled:
             self._hide_suggestions()
         
-        if self.logger:
-            asyncio.create_task(self.logger.info(f"Autocomplete {'enabled' if self._autocomplete_enabled else 'disabled'}"))
+        self.logger.info(f"Autocomplete {'enabled' if self._autocomplete_enabled else 'disabled'}")
