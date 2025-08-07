@@ -6,32 +6,28 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
-import logging
+from aiologger import Logger
 
 # Configure pytest-asyncio for async tests only
 pytestmark = []
 
-# Import the improved client
+# Import the LSP client
 try:
-    from src.k2edit.agent.improved_lsp_client import ImprovedLSPClient, LSPConnection, ServerStatus
+    from src.k2edit.agent.lsp_client import LSPClient, LSPConnection, ServerStatus
 except ImportError:
     # Fallback for different import paths
     import sys
     sys.path.append(str(Path(__file__).parent.parent))
-    from src.k2edit.agent.improved_lsp_client import ImprovedLSPClient, LSPConnection, ServerStatus
+    from src.k2edit.agent.lsp_client import LSPClient, LSPConnection, ServerStatus
 
 
 class TestImprovedLSPClient:
-    """Test suite for ImprovedLSPClient"""
+    """Test suite for LSPClient"""
     
     def create_client(self):
         """Create a test LSP client"""
-        logger = logging.getLogger("test-lsp")
-        logger.setLevel(logging.DEBUG)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            logger.addHandler(handler)
-        return ImprovedLSPClient(logger=logger)
+        logger = Logger(name="test-lsp")
+        return LSPClient(logger=logger)
     
     def create_mock_process(self):
         """Create a mock subprocess"""
@@ -418,7 +414,7 @@ class TestPerformance:
     async def test_memory_usage(self):
         """Test that connections are properly cleaned up"""
         logger = logging.getLogger("test-lsp")
-        client = ImprovedLSPClient(logger=logger)
+        client = LSPClient(logger=logger)
         
         try:
             # Create and destroy multiple connections

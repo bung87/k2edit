@@ -13,8 +13,8 @@ from pathlib import Path
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from agent.memory_config import create_memory_store, MemoryStoreConfig
-from agent.chroma_memory_store import ChromaMemoryStore
+from src.k2edit.agent.memory_config import create_memory_store, MemoryStoreConfig
+from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore
 
 class MockContextManager:
     """Mock context manager for testing"""

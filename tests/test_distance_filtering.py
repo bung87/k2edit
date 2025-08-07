@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test distance-based filtering in ChromaMemoryStore"""
 
+import pytest
 import asyncio
 import json
 import sys
@@ -10,7 +11,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent.chroma_memory_store import ChromaMemoryStore
+from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore
 
 
 class MockContextManager:
@@ -32,6 +33,7 @@ class MockContextManager:
         return vector.tolist()
 
 
+@pytest.mark.asyncio
 async def test_distance_filtering():
     """Test distance-based filtering functionality"""
     print("Testing distance-based filtering...")
@@ -142,7 +144,3 @@ async def test_distance_filtering():
         pass
     
     print("\nDistance filtering test completed!")
-
-
-if __name__ == "__main__":
-    asyncio.run(test_distance_filtering())

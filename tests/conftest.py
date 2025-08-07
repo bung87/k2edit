@@ -3,13 +3,11 @@ Pytest configuration and fixtures for K2Edit agentic system tests
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import tempfile
-import logging
 from pathlib import Path
-
-# Configure logging for tests
-logging.basicConfig(level=logging.DEBUG)
+from aiologger import Logger
 
 
 @pytest.fixture
@@ -145,5 +143,5 @@ class Calculator:
 
 @pytest.fixture
 def logger():
-    """Create a test logger."""
-    return logging.getLogger("test")
+    """Create a test logger using aiologger.Logger."""
+    return Logger(name="test")

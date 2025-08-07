@@ -9,11 +9,10 @@ if os.name == 'posix':
     try:
         multiprocessing.set_start_method('spawn', force=True)
     except RuntimeError as e:
-        logger.warning(f"Multiprocessing start method already set: {e}")  # Already set
+        pass  # Already set
 
 import asyncio
 import json
-import logging
 import re
 import threading
 import time
@@ -28,7 +27,7 @@ from sentence_transformers import SentenceTransformer
 
 from .memory_config import create_memory_store
 from .lsp_indexer import LSPIndexer
-from ..utils.language_utils import detect_language_from_filename, detect_project_language
+from ..utils.language_utils import detect_language_from_filename, detect_project_language, detect_language_by_extension
 
 
 @dataclass
@@ -55,10 +54,13 @@ class AgentContext:
 class AgenticContextManager:
     """Manages AI agent context, memory, and LSP integration"""
     
-    def __init__(self, lsp_client=None, logger: logging.Logger = None):
-        self.logger = logger or logging.getLogger("k2edit")
-        self.memory_store = create_memory_store(self, logger)
-        self.lsp_indexer = LSPIndexer(lsp_client=lsp_client, logger=logger)
+    def __init__(self, lsp_client=None, logger: Logger = None):
+        if logger is None:
+            self.logger = Logger.with_default_handlers(name="k2edit")
+        else:
+            self.logger = logger
+        self.memory_store = create_memory_store(self, self.logger)
+        self.lsp_indexer = LSPIndexer(lsp_client=lsp_client, logger=self.logger)
         self.current_context: Optional[AgentContext] = None
         self.conversation_history: List[Dict[str, Any]] = []
         self.embedding_model = None
@@ -236,7 +238,7 @@ class AgenticContextManager:
                     self.current_context.symbols = lsp_context["symbols"]
                     
             except Exception as e:
-                self.logger.error(f"Failed to get LSP context for file: {e}")
+                await self.logger.error(f"Failed to get LSP context for file: {e}")
 
         # Always include a project overview for broader context
         context["project_overview"] = await self._get_project_overview()
@@ -244,8 +246,8 @@ class AgenticContextManager:
         # Only include project-wide symbols when there's no specific file context
         is_general_query = not self.current_context.file_path
         if is_general_query:
-            self.logger.info("General query detected, initiating project-wide symbol collection...")
-            self.logger.info("Query context: {} file_path, {} selected code".format(
+            await self.logger.info("General query detected, initiating project-wide symbol collection...")
+            await self.logger.info("Query context: {} file_path, {} selected code".format(
                 "No" if not self.current_context.file_path else "Has",
                 "No" if not self.current_context.selected_code else "Has"
             ))
@@ -254,15 +256,15 @@ class AgenticContextManager:
             project_symbols = await self.lsp_indexer.get_project_symbols(top_level_only=True)
             elapsed_time = time.time() - start_time
             
-            self.logger.info(f"Completed project-wide symbol collection in {elapsed_time:.2f}s")
-            self.logger.info(f"Adding {len(project_symbols)} top-level project symbols to context")
+            await self.logger.info(f"Completed project-wide symbol collection in {elapsed_time:.2f}s")
+            await self.logger.info(f"Adding {len(project_symbols)} top-level project symbols to context")
             
             # Log sample of symbols for debugging
             if project_symbols:
                 sample_symbols = project_symbols[:5]
-                self.logger.info("Sample project symbols:")
+                await self.logger.info("Sample project symbols:")
                 for symbol in sample_symbols:
-                    self.logger.info(f"  - {symbol.get('name', 'unnamed')} ({symbol.get('kind', 'unknown')}) in {symbol.get('file_path', 'unknown')}")
+                    await self.logger.info(f"  - {symbol.get('name', 'unnamed')} ({symbol.get('kind', 'unknown')}) in {symbol.get('file_path', 'unknown')})")
             
             context["project_symbols"] = project_symbols
 
@@ -423,10 +425,10 @@ class AgenticContextManager:
             lineterm=''
         ))
 
-    def _generate_embedding(self, content: str) -> List[float]:
+    async def _generate_embedding(self, content: str) -> List[float]:
         """Generate semantic embedding for content using SentenceTransformer."""
         if not self.embedding_model:
-            self.logger.warning("Embedding model not available, returning zero vector.")
+            await self.logger.warning("Embedding model not available, returning zero vector.")
             return [0.0] * 384  # Dimension of all-MiniLM-L6-v2 is 384
 
         try:
@@ -455,7 +457,7 @@ class AgenticContextManager:
                 )
             return embedding.tolist()
         except Exception as e:
-            self.logger.error(f"Error generating embedding: {e}")
+            await self.logger.error(f"Error generating embedding: {e}")
             return [0.0] * 384
 
 
@@ -521,7 +523,7 @@ class AgenticContextManager:
 _context_manager = None
 
 
-async def get_context_manager(logger: logging.Logger = None) -> AgenticContextManager:
+async def get_context_manager(logger: Logger = None) -> AgenticContextManager:
     """Get or create the global context manager instance"""
     global _context_manager
     if _context_manager is None:

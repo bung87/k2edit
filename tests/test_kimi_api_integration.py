@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import os
 from pathlib import Path
-from agent.kimi_api import KimiAPI
+from src.k2edit.agent.kimi_api import KimiAPI
 
 
 class TestKimiAPIIntegration:

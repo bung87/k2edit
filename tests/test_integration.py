@@ -5,8 +5,8 @@ Integration tests for the complete agentic system
 import pytest
 import asyncio
 from pathlib import Path
-from k2edit.agent import initialize_agentic_system, process_agent_query, record_code_change, get_code_intelligence
-from k2edit.agent.integration import K2EditAgentIntegration
+from src.k2edit.agent import initialize_agentic_system, process_agent_query, record_code_change, get_code_intelligence
+from src.k2edit.agent.integration import K2EditAgentIntegration
 
 
 class TestIntegration:
@@ -63,7 +63,7 @@ class TestIntegration:
         )
         
         # Verify change was recorded in memory
-        from k2edit.agent import get_agent_context
+        from src.k2edit.agent import get_agent_context
         agent = await get_agent_context()
         if agent:
             changes = await agent.memory_store.search_memory("test_change.py")
@@ -177,7 +177,7 @@ class MathProcessor:
         test_file.write_text(original_content)
         
         # Update context
-        from k2edit.agent import get_agent_context
+        from src.k2edit.agent import get_agent_context
         agent = await get_agent_context()
         await agent.update_context(str(test_file))
         
@@ -294,11 +294,11 @@ class Class_{i}:
         await record_code_change(str(test_file), "add", "", "print('test')")
         
         # Shutdown
-        from k2edit.agent import shutdown_agentic_system
+        from src.k2edit.agent import shutdown_agentic_system
         await shutdown_agentic_system()
         
         # Verify system is properly shutdown
-        from k2edit.agent import get_agent_context
+        from src.k2edit.agent import get_agent_context
         agent = await get_agent_context()
         assert agent is None
 

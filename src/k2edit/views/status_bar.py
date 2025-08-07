@@ -64,15 +64,15 @@ class StatusBar(Widget):
         if hasattr(self, 'git_branch_widget'):
             self.git_branch_widget.label = git_branch or "main"
 
-    def watch_cursor_line(self, cursor_line: int) -> None:
+    async def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
-        self.logger.debug(f"watch_cursor_line: {cursor_line}")
+        await self.logger.debug(f"watch_cursor_line: {cursor_line}")
         if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
             self._update_cursor_position_display(cursor_line, self.cursor_column)
 
-    def watch_cursor_column(self, cursor_column: int) -> None:
+    async def watch_cursor_column(self, cursor_column: int) -> None:
         """Watch for cursor column changes."""
-        self.logger.debug(f"watch_cursor_column: {cursor_column}")
+        await self.logger.debug(f"watch_cursor_column: {cursor_column}")
         if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
             self._update_cursor_position_display(self.cursor_line, cursor_column)
 
@@ -86,16 +86,16 @@ class StatusBar(Widget):
         if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
             self._update_diagnostics_display()
 
-    def watch_language(self, language: str) -> None:
+    async def watch_language(self, language: str) -> None:
         """Watch for language changes."""
-        self.logger.debug(f"watch_language: {language}")
-        self.logger.debug(f"hasattr(self, 'lang_widget'): {hasattr(self, 'lang_widget')}")
-        self.logger.debug(f"lang_widget type: {type(getattr(self, 'lang_widget', None))}")
+        await self.logger.debug(f"watch_language: {language}")
+        await self.logger.debug(f"hasattr(self, 'lang_widget'): {hasattr(self, 'lang_widget')}")
+        await self.logger.debug(f"lang_widget type: {type(getattr(self, 'lang_widget', None))}")
         if hasattr(self, 'lang_widget') and self.lang_widget:
             display_text = language or "Text"
-            self.logger.debug(f"Setting lang_widget.label to: {display_text}")
+            await self.logger.debug(f"Setting lang_widget.label to: {display_text}")
             self.lang_widget.update(display_text)
-            self.logger.debug(f"lang_widget.label after update: {self.lang_widget}")
+            await self.logger.debug(f"lang_widget.label after update: {self.lang_widget}")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
@@ -151,25 +151,25 @@ class StatusBar(Widget):
             # yield Static(" | ", classes="status-separator", shrink=True, expand=True)
             # yield self.line_ending_widget
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses in the status bar."""
         button_id = event.button.id
-        self.logger.debug(f"Button pressed: {button_id}")
+        await self.logger.debug(f"Button pressed: {button_id}")
         
         if button_id == "git-branch":
-            self.logger.debug("Git branch button clicked")
+            await self.logger.debug("Git branch button clicked")
             self._handle_git_branch_click()
         elif button_id == "diagnostics":
-            self.logger.debug("Diagnostics button clicked via on_button_pressed")
-            self._handle_diagnostics_click()
+            await self.logger.debug("Diagnostics button clicked via on_button_pressed")
+            await self._handle_diagnostics_click()
 
     def _handle_git_branch_click(self) -> None:
         """Handle git branch button click - show branch switcher."""
         self._show_branch_switcher()
 
-    def _handle_diagnostics_click(self) -> None:
+    async def _handle_diagnostics_click(self) -> None:
         """Handle diagnostics button click - show diagnostics details."""
-        self._show_diagnostics_details()
+        await self._show_diagnostics_details()
 
     def _show_branch_switcher(self) -> None:
         """Show a modal to switch git branches."""
@@ -192,11 +192,11 @@ class StatusBar(Widget):
         if branch_name:
             self.switch_git_branch(branch_name)
 
-    def _show_diagnostics_details(self) -> None:
+    async def _show_diagnostics_details(self) -> None:
         """Show detailed diagnostics information."""
-        self.logger.debug("Diagnostics button clicked!")
-        self.logger.debug(f"StatusBar app reference: {getattr(self, 'app', 'NO APP REF')}")
-        self.logger.debug(f"StatusBar parent: {getattr(self, 'parent', 'NO PARENT')}")
+        await self.logger.debug("Diagnostics button clicked!")
+        await self.logger.debug(f"StatusBar app reference: {getattr(self, 'app', 'NO APP REF')}")
+        await self.logger.debug(f"StatusBar parent: {getattr(self, 'parent', 'NO PARENT')}")
         
         # Always show diagnostics modal, even if no data available
         diagnostics_to_show = self.diagnostics_data if self.diagnostics_data else []
@@ -215,15 +215,15 @@ class StatusBar(Widget):
                     'severity_name': 'Warning'
                 }
             ]
-            self.logger.debug(f"No diagnostics found, using test data with {len(diagnostics_to_show)} items")
+            await self.logger.debug(f"No diagnostics found, using test data with {len(diagnostics_to_show)} items")
         else:
-            self.logger.debug(f"Found {len(diagnostics_to_show)} diagnostics to show")
+            await self.logger.debug(f"Found {len(diagnostics_to_show)} diagnostics to show")
 
-        self.logger.debug("About to show diagnostics modal...")
+        await self.logger.debug("About to show diagnostics modal...")
         try:
             # Use direct app method call instead of message posting
             if hasattr(self, 'app') and self.app:
-                self.logger.debug(f"Calling show_diagnostics_modal on app: {self.app}")
+                await self.logger.debug(f"Calling show_diagnostics_modal on app: {self.app}")
                 # Try to call the method directly if it exists
                 if hasattr(self.app, 'show_diagnostics_modal'):
                     self.app.show_diagnostics_modal(diagnostics_to_show)
@@ -237,9 +237,9 @@ class StatusBar(Widget):
                             try:
                                 modal = DiagnosticsModal(diagnostics_to_show, logger=getattr(self.app, 'logger', None))
                                 await self.app.push_screen(modal)
-                                self.logger.debug("Diagnostics modal shown successfully via direct call")
+                                await self.logger.debug("Diagnostics modal shown successfully via direct call")
                             except Exception as e:
-                                self.logger.error(f"Error showing modal via direct call: {e}")
+                                await self.logger.error(f"Error showing modal via direct call: {e}")
                         
                         # Schedule the async call
                         if hasattr(self.app, 'call_later'):
@@ -249,17 +249,17 @@ class StatusBar(Widget):
                             import asyncio
                             asyncio.create_task(show_modal())
                     except ImportError as e:
-                        self.logger.error(f"Failed to import DiagnosticsModal: {e}")
+                        await self.logger.error(f"Failed to import DiagnosticsModal: {e}")
                         # Fallback to message posting
                         self.post_message(ShowDiagnosticsDetails(diagnostics_to_show))
                         
-                self.logger.debug("Diagnostics modal request sent to app")
+                await self.logger.debug("Diagnostics modal request sent to app")
             else:
-                self.logger.error("No app reference found!")
+                await self.logger.error("No app reference found!")
         except Exception as e:
-            self.logger.error(f"Failed to show diagnostics modal: {e}")
+            await self.logger.error(f"Failed to show diagnostics modal: {e}")
             import traceback
-            self.logger.error(traceback.format_exc())
+            await self.logger.error(traceback.format_exc())
 
     @work
     async def _update_available_branches(self) -> None:
@@ -355,7 +355,7 @@ class StatusBar(Widget):
         # Explicitly update the display
         self._update_diagnostics_display()
 
-    def update_diagnostics_from_lsp(self, diagnostics_data: Optional[Dict[str, Any]] = None):
+    async def update_diagnostics_from_lsp(self, diagnostics_data: Optional[Dict[str, Any]] = None):
         """Update diagnostics from LSP server response."""
         if diagnostics_data is None:
             self.diagnostics_warnings = 0
@@ -392,7 +392,7 @@ class StatusBar(Widget):
                     errors += 1
         else:
             # Log unexpected format
-            self.logger.warning(f"Unexpected diagnostics data format: {type(diagnostics_data)}")
+            await self.logger.warning(f"Unexpected diagnostics data format: {type(diagnostics_data)}")
             return
         
         # Update reactive properties to trigger watchers
@@ -472,9 +472,9 @@ class StatusBar(Widget):
         else:
             return "✓"
     
-    def update_from_editor(self, editor_content: str = "", file_path: str = ""):
+    async def update_from_editor(self, editor_content: str = "", file_path: str = ""):
         """Update status bar from editor content and file path."""
-        self.logger.debug(f"update_from_editor: {file_path}")
+        await self.logger.debug(f"update_from_editor: {file_path}")
         if file_path:
             # Extract just the filename for display
             file_name = os.path.basename(file_path)
@@ -482,7 +482,7 @@ class StatusBar(Widget):
             
             # Detect language from file extension
             language = detect_language_from_file_path(file_path)
-            self.logger.debug(f"Detected language: {language} for file: {file_path}")
+            await self.logger.debug(f"Detected language: {language} for file: {file_path}")
             self.language = language
         
         if editor_content:

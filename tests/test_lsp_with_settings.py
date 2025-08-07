@@ -8,8 +8,8 @@ from pathlib import Path
 # Add the src directory to the path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from k2edit.agent.lsp_client import LSPClient
-from k2edit.agent.language_configs import LanguageConfigs
+from src.k2edit.agent.lsp_client import LSPClient
+from src.k2edit.agent.language_configs import LanguageConfigs
 from aiologger import Logger
 
 async def test_lsp_with_settings():

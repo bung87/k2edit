@@ -63,7 +63,7 @@ class SymbolParser:
                     parse_symbol(child, name)
                     
             except Exception as e:
-                self.logger.debug(f"Skipping malformed symbols: {e}")
+                pass
                 return []
 
         # Handle both list and dict formats
@@ -74,7 +74,7 @@ class SymbolParser:
             elif isinstance(lsp_symbols, dict):
                 parse_symbol(lsp_symbols)
         except Exception as e:
-            self.logger.debug(f"Skipping malformed symbols: {e}")
+            pass
 
         return symbols
     
@@ -119,7 +119,7 @@ class SymbolParser:
             else:
                 return await self._get_generic_imports(file_path_obj)
         except Exception as e:
-            self.logger.warning(f"Failed to extract dependencies from {file_path}: {e}")
+            await self.logger.warning(f"Failed to extract dependencies from {file_path}: {e}")
             return []
     
     async def _get_python_imports(self, file_path: Path) -> List[str]:
@@ -140,7 +140,7 @@ class SymbolParser:
                 imports.extend(matches)
                 
         except Exception as e:
-            self.logger.warning(f"Failed to parse Python imports from {file_path}: {e}")
+            await self.logger.warning(f"Failed to parse Python imports from {file_path}: {e}")
             
         return imports
     
@@ -162,7 +162,7 @@ class SymbolParser:
                 imports.extend(matches)
                 
         except Exception as e:
-            self.logger.warning(f"Failed to parse JavaScript imports from {file_path}: {e}")
+            await self.logger.warning(f"Failed to parse JavaScript imports from {file_path}: {e}")
             
         return imports
     
@@ -184,7 +184,7 @@ class SymbolParser:
                 imports.extend(matches)
                 
         except Exception as e:
-            self.logger.warning(f"Failed to parse Nim imports from {file_path}: {e}")
+            await self.logger.warning(f"Failed to parse Nim imports from {file_path}: {e}")
             
         return imports
     

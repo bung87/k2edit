@@ -119,7 +119,7 @@ class K2EditApp(App):
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
         
         # Watch for cursor movement
-        self.editor.cursor_position_changed = self._on_cursor_position_changed
+        self.editor.cursor_position_changed = lambda line, column: asyncio.create_task(self._on_cursor_position_changed(line, column))
 
         # Load initial file if provided, otherwise start with an empty editor
         if self.initial_file:
@@ -300,26 +300,26 @@ class K2EditApp(App):
         self._last_hover_content = content
         self._last_hover_position = (line, column)
 
-    def _on_cursor_position_changed(self, line: int, column: int) -> None:
+    async def _on_cursor_position_changed(self, line: int, column: int) -> None:
         """Handle cursor position changes and trigger hover after delay."""
         new_position = (line, column)
-        self.logger.debug(f"_on_cursor_position_changed: line={line}, column={column}")
+        await self.logger.debug(f"_on_cursor_position_changed: line={line}, column={column}")
         
         # Hide hover widget on cursor movement
         if self.hover_widget.is_visible():
-            self.logger.debug("Hiding hover widget due to cursor movement")
+            await self.logger.debug("Hiding hover widget due to cursor movement")
             self.hover_widget.hide_hover()
         
         # Cancel existing hover timer
         if self._hover_timer:
-            self.logger.debug("Cancelling existing hover timer")
+            await self.logger.debug("Cancelling existing hover timer")
             self._hover_timer.stop()
             self._hover_timer = None
         
         # Check if position changed
         if new_position == self._last_hover_position and self._last_hover_content:
             # Same position, reuse cached content
-            self.logger.debug("Reusing cached hover content for same position")
+            await self.logger.debug("Reusing cached hover content for same position")
             self._show_hover_at_cursor(self._last_hover_content)
             return
         
@@ -328,7 +328,7 @@ class K2EditApp(App):
         self._last_hover_position = new_position
         
         # Start new hover timer with 500ms delay
-        self.logger.debug("Starting new hover timer with 500ms delay")
+        await self.logger.debug("Starting new hover timer with 500ms delay")
         self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
 
     async def on_key(self, event) -> None:
@@ -565,21 +565,21 @@ class K2EditApp(App):
             import traceback
             await self.logger.error(traceback.format_exc())
 
-    def show_diagnostics_modal(self, diagnostics: list[Dict[str, Any]]) -> None:
+    async def show_diagnostics_modal(self, diagnostics: list[Dict[str, Any]]) -> None:
         """Direct method to show diagnostics modal, bypassing message system."""
-        self.logger.debug("=== SHOW_DIAGNOSTICS_MODAL CALLED DIRECTLY ===")
-        self.logger.debug(f"Diagnostics count: {len(diagnostics)}")
+        await self.logger.debug("=== SHOW_DIAGNOSTICS_MODAL CALLED DIRECTLY ===")
+        await self.logger.debug(f"Diagnostics count: {len(diagnostics)}")
         
         try:
             modal = DiagnosticsModal(diagnostics, logger=self.logger)
-            self.logger.debug("Created DiagnosticsModal successfully")
-            self.push_screen(modal)
-            self.logger.debug("Pushed DiagnosticsModal to screen via direct method")
-            self.logger.debug("=== DIAGNOSTICS MODAL DISPLAYED VIA DIRECT CALL ===")
+            await self.logger.debug("Created DiagnosticsModal successfully")
+            await self.push_screen(modal)
+            await self.logger.debug("Pushed DiagnosticsModal to screen via direct method")
+            await self.logger.debug("=== DIAGNOSTICS MODAL DISPLAYED VIA DIRECT CALL ===")
         except Exception as e:
-            self.logger.error(f"Failed to show diagnostics modal via direct call: {e}")
+            await self.logger.error(f"Failed to show diagnostics modal via direct call: {e}")
             import traceback
-            self.logger.error(traceback.format_exc())
+            await self.logger.error(traceback.format_exc())
 
     async def on_status_bar_git_branch_switch(self, message: GitBranchSwitch) -> None:
         """Handle git branch switch message from status bar."""

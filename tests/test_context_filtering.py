@@ -3,23 +3,24 @@
 Test to demonstrate improved context filtering for search_relevant_context
 """
 
+import pytest
 import asyncio
 import json
-import logging
 import tempfile
 import re
 from pathlib import Path
 import sys
+from aiologger import Logger
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent.chroma_memory_store import ChromaMemoryStore, MemoryEntry
+from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore, MemoryEntry
 
 
 class MockContextManager:
     def __init__(self):
-        self.logger = logging.getLogger("test")
+        self.logger = Logger(name="test")
         
     def _generate_embedding(self, text: str):
         # Simple mock embedding
@@ -88,12 +89,13 @@ def calculate_relevance_score(content: dict, query: str, distance: float) -> flo
     return max(0, final_score)
 
 
+@pytest.mark.asyncio
 async def test_improved_filtering():
     """Test improved context filtering"""
     
     with tempfile.TemporaryDirectory() as temp_dir:
         mock_context = MockContextManager()
-        memory_store = ChromaMemoryStore(mock_context, logging.getLogger("test"))
+        memory_store = ChromaMemoryStore(mock_context, Logger(name="test"))
         
         await memory_store.initialize(temp_dir)
         
@@ -204,6 +206,7 @@ async def test_improved_filtering():
             print()
 
 
+@pytest.mark.asyncio
 async def demonstrate_quality_thresholds():
     """Demonstrate different quality thresholds"""
     
@@ -247,15 +250,3 @@ async def demonstrate_quality_thresholds():
         print(f"  Is low quality: {is_low}")
         print(f"  Content: {str(content)[:60]}...")
         print()
-
-
-async def main():
-    """Run all tests"""
-    logging.basicConfig(level=logging.INFO)
-    
-    await test_improved_filtering()
-    await demonstrate_quality_thresholds()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

@@ -6,24 +6,24 @@ This test examines whether the search method adds unnecessary context.
 
 import asyncio
 import json
-import logging
 import tempfile
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 import sys
+from aiologger import Logger
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent.chroma_memory_store import ChromaMemoryStore, MemoryEntry
-from agent.context_manager import AgenticContextManager
+from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore, MemoryEntry
+from src.k2edit.agent.context_manager import AgenticContextManager
 
 
 class MockContextManager:
     """Mock context manager for testing"""
     def __init__(self):
-        self.logger = logging.getLogger("test")
+        self.logger = Logger(name="test")
         
     def _generate_embedding(self, text: str):
         """Generate a simple mock embedding"""
@@ -39,7 +39,7 @@ async def test_search_relevant_context_behavior():
     # Setup
     with tempfile.TemporaryDirectory() as temp_dir:
         mock_context = MockContextManager()
-        memory_store = ChromaMemoryStore(mock_context, logging.getLogger("test"))
+        memory_store = ChromaMemoryStore(mock_context, Logger(name="test"))
         
         await memory_store.initialize(temp_dir)
         
@@ -143,7 +143,7 @@ async def analyze_context_quality():
     
     with tempfile.TemporaryDirectory() as temp_dir:
         mock_context = MockContextManager()
-        memory_store = ChromaMemoryStore(mock_context, logging.getLogger("test"))
+        memory_store = ChromaMemoryStore(mock_context, Logger(name="test"))
         
         await memory_store.initialize(temp_dir)
         
@@ -222,7 +222,6 @@ async def analyze_context_quality():
 
 async def main():
     """Run all tests"""
-    logging.basicConfig(level=logging.INFO)
     
     print("Testing ChromaMemoryStore search_relevant_context behavior...")
     await test_search_relevant_context_behavior()

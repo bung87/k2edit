@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """Test script to verify embedding generation fix"""
 
+import pytest
 import sys
 import os
 sys.path.insert(0, os.path.abspath('.'))
 
 import asyncio
-import logging
-from agent.context_manager import AgenticContextManager
+from aiologger import Logger
+from src.k2edit.agent.context_manager import AgenticContextManager
 
+@pytest.mark.asyncio
 async def test_embedding_generation():
     """Test that embedding generation works without errors"""
     print("=== Testing Embedding Generation Fix ===")
     print()
     
     # Set up logging to capture any errors
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logger = Logger(name=__name__)
     
     try:
         # Create context manager
@@ -39,11 +40,3 @@ async def test_embedding_generation():
     except Exception as e:
         print(f"✗ Error during embedding generation: {e}")
         return False
-
-if __name__ == "__main__":
-    success = asyncio.run(test_embedding_generation())
-    if success:
-        print("\n🎉 Embedding generation test passed!")
-    else:
-        print("\n❌ Embedding generation test failed!")
-        sys.exit(1)

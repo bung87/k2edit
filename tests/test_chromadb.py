@@ -6,14 +6,16 @@ This script tests the basic functionality without the full K2Edit application.
 
 import os
 import sys
+import pytest
 import asyncio
-import logging
 from pathlib import Path
+from aiologger import Logger
 
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
 
+@pytest.mark.asyncio
 async def test_chromadb_basic():
     """Test basic ChromaDB functionality"""
     print("Testing ChromaDB integration...")
@@ -48,8 +50,7 @@ async def test_chromadb_basic():
                 return embedding[:384]
         
         # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
+        logger = Logger(name=__name__)
         
         # Create memory store
         mock_context = MockContextManager()
@@ -108,6 +109,7 @@ async def test_chromadb_basic():
         return False
 
 
+@pytest.mark.asyncio
 async def test_memory_config():
     """Test memory configuration system"""
     print("\nTesting memory configuration...")
@@ -159,48 +161,3 @@ def test_environment_setup():
         print("❌ ChromaDB not available")
         print("Install with: pip install chromadb>=0.4.0")
         return False
-
-
-async def main():
-    """Run all tests"""
-    print("=== ChromaDB Integration Test ===")
-    print()
-    
-    # Test environment
-    env_ok = test_environment_setup()
-    if not env_ok:
-        print("\n❌ Environment setup failed")
-        return False
-    
-    # Test configuration
-    config_ok = await test_memory_config()
-    if not config_ok:
-        print("\n❌ Configuration test failed")
-        return False
-    
-    # Test basic functionality
-    basic_ok = await test_chromadb_basic()
-    if not basic_ok:
-        print("\n❌ Basic functionality test failed")
-        return False
-    
-    print("\n🎉 All tests passed! ChromaDB integration is working correctly.")
-    print("\nTo use ChromaDB in K2Edit:")
-    print("1. Run K2Edit normally: python main.py (ChromaDB is now the default)")
-    print("2. ChromaDB data will be stored in .k2edit/chroma_db/")
-    
-    return True
-
-
-if __name__ == "__main__":
-    try:
-        success = asyncio.run(main())
-        sys.exit(0 if success else 1)
-    except KeyboardInterrupt:
-        print("\nTest interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nUnexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)

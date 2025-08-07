@@ -19,10 +19,18 @@ class DiagnosticsModal(ModalScreen[None]):
         Binding("q", "dismiss", "Close"),
     ]
     
-    def __init__(self, diagnostics: List[Dict[str, Any]], logger: Logger = None, **kwargs):
+    def __init__(self, diagnostics: List[Dict[str, Any]], logger: Logger, **kwargs):
         super().__init__(**kwargs)
         self.diagnostics = diagnostics
         self.logger = logger
+    
+    async def _log_debug(self, message: str):
+        """Log debug message asynchronously"""
+        await self.logger.debug(message)
+    
+    async def _log_error(self, message: str):
+        """Log error message asynchronously"""
+        await self.logger.error(message)
     
     def compose(self) -> ComposeResult:
         """Compose the diagnostics modal."""
@@ -52,7 +60,7 @@ class DiagnosticsModal(ModalScreen[None]):
                 )
                 
     
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
+    async def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle diagnostic selection."""
         if event.item and event.item.id and event.item.id.startswith("diagnostic-"):
             try:
@@ -64,7 +72,7 @@ class DiagnosticsModal(ModalScreen[None]):
                     column = diagnostic.get('column', 1)
                     
                     if self.logger:
-                        self.logger.debug(f"Diagnostic selected: {file_path}:{line}:{column}")
+                        await self._log_debug(f"Diagnostic selected: {file_path}:{line}:{column}")
                     
                     self.app.post_message(
                         NavigateToDiagnostic(file_path, line, column)
@@ -72,7 +80,7 @@ class DiagnosticsModal(ModalScreen[None]):
                     self.dismiss()
             except (ValueError, IndexError):
                 if self.logger:
-                    self.logger.error("Invalid diagnostic selection")
+                    await self._log_error("Invalid diagnostic selection")
 
 
 class BranchSwitcherModal(ModalScreen[str]):
@@ -83,7 +91,7 @@ class BranchSwitcherModal(ModalScreen[str]):
         Binding("q", "dismiss", "Close"),
     ]
     
-    def __init__(self, branches: List[str], current_branch: str, logger: Logger = None, **kwargs):
+    def __init__(self, branches: List[str], current_branch: str, logger: Logger, **kwargs):
         super().__init__(**kwargs)
         self.branches = branches
         self.current_branch = current_branch

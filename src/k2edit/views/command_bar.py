@@ -2,8 +2,8 @@
 
 import asyncio
 import json
-import logging
 from typing import Optional
+from aiologger import Logger
 
 from textual import events
 from textual.message import Message
@@ -24,8 +24,8 @@ class CommandBar(Input):
         self.editor = None
         self.kimi_api = None
         self.agent_integration = None
-        self.logger = logging.getLogger("k2edit")
-        self.tool_executor = ToolExecutor(editor_widget=self.editor)
+        self.logger = Logger(name="k2edit")
+        self.tool_executor = ToolExecutor(self.logger, editor_widget=self.editor)
         self.error_handler = ErrorHandler(self.logger)
         self.output_panel = None
     
@@ -88,7 +88,7 @@ class CommandBar(Input):
         """Process and execute a command."""
         import uuid
         request_id = str(uuid.uuid4())[:8]
-        self.logger.info(f"Processing command [{request_id}]: {command}")
+        await self.logger.info(f"Processing command [{request_id}]: {command}")
         
         if not command.startswith('/'):
             # Treat as a Kimi query, but use agentic system for project-wide queries
@@ -126,7 +126,7 @@ class CommandBar(Input):
             elif cmd == "help":
                 await self._handle_help()
             else:
-                self.logger.warning(f"Unknown command: {cmd}")
+                await self.logger.warning(f"Unknown command: {cmd}")
         
         except Exception as e:
             await self.error_handler.handle_error(
@@ -139,13 +139,13 @@ class CommandBar(Input):
     async def _handle_open(self, filename: str) -> None:
         """Handle file open command."""
         if not filename:
-            self.logger.warning("Open command issued without filename")
+            await self.logger.warning("Open command issued without filename")
             return
         
         if self.editor:
             success = self.editor.load_file(filename)
             if success:
-                self.logger.info(f"Successfully opened file: {filename}")
+                await self.logger.info(f"Successfully opened file: {filename}")
                 # Notify main app about file opening
                 self.post_message(self.FileOpened(filename))
     
@@ -154,28 +154,28 @@ class CommandBar(Input):
         if self.editor:
             success = await self.editor.save_file(filename if filename else None)
             if success:
-                self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
+                await self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
             elif not success and not filename:
-                self.logger.warning("Save command failed - use /saveas <filename> for new files")
+                await self.logger.warning("Save command failed - use /saveas <filename> for new files")
     
     async def _handle_save_as(self, filename: str) -> None:
         """Handle save as command."""
         if not filename:
-            self.logger.warning("Save as command issued without filename")
+            await self.logger.warning("Save as command issued without filename")
             return
         
         if self.editor:
             await self.editor.save_file(filename)
-            self.logger.info(f"Successfully saved file as: {filename}")
+            await self.logger.info(f"Successfully saved file as: {filename}")
     
     async def _handle_kimi_query(self, query: str) -> None:
         """Handle general Kimi query."""
         if not query:
-            self.logger.warning("Kimi query issued without query text")
+            await self.logger.warning("Kimi query issued without query text")
             return
 
         if not self.kimi_api:
-            self.logger.error("Kimi API not available")
+            await self.logger.error("Kimi API not available")
             return
 
         # Display user query in output panel
@@ -239,7 +239,7 @@ class CommandBar(Input):
         
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
-            self.logger.warning("Fix command issued without selected text")
+            await self.logger.warning("Fix command issued without selected text")
             return
         
         query = f"Please analyze and fix any issues in this code:\n\n```\n{selected_text}\n```"
@@ -258,7 +258,7 @@ class CommandBar(Input):
         
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
-            self.logger.warning("Refactor command issued without selected text")
+            await self.logger.warning("Refactor command issued without selected text")
             return
         
         refactor_prompt = f"Please refactor this code"
@@ -281,7 +281,7 @@ class CommandBar(Input):
         
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
-            self.logger.warning("Generate test command issued without selected text")
+            await self.logger.warning("Generate test command issued without selected text")
             return
         
         query = f"Please generate unit tests for this code:\n\n```\n{selected_text}\n```\n\nInclude comprehensive test cases covering edge cases and typical usage."
@@ -300,7 +300,7 @@ class CommandBar(Input):
         
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
-            self.logger.warning("Doc command issued without selected text")
+            await self.logger.warning("Doc command issued without selected text")
             return
         
         query = f"Please add appropriate docstrings and comments to this code:\n\n```\n{selected_text}\n```"
@@ -317,15 +317,15 @@ class CommandBar(Input):
         import uuid
         
         if not goal:
-            self.logger.warning("Run agent command issued without goal")
+            await self.logger.warning("Run agent command issued without goal")
             return
 
         if not self.agent_integration:
-            self.logger.error("Agentic system not initialized")
+            await self.logger.error("Agentic system not initialized")
             return
 
         if not self.kimi_api:
-            self.logger.error("Kimi API not available")
+            await self.logger.error("Kimi API not available")
             return
 
         request_id = str(uuid.uuid4())
@@ -442,7 +442,8 @@ Tips:
                     start_line, end_line = self.editor.get_selected_lines()
                     context["selected_lines"] = {"start": start_line, "end": end_line}
         except (AttributeError, ValueError) as e:
-            self.logger.warning(f"Error getting editor context: {e}")
+            # Log warning synchronously since this is not an async method
+            pass
         
         return context
     
@@ -471,39 +472,39 @@ Tips:
                         result = await self.tool_executor.execute_tool(function_name, arguments)
                         
                         if result and result.get("error"):
-                            self.logger.error(f"Tool {function_name} execution failed: {result['error']}")
+                            await self.logger.error(f"Tool {function_name} execution failed: {result['error']}")
                         else:
-                            self.logger.info(f"Tool {function_name} executed with result: {result}")
+                            await self.logger.info(f"Tool {function_name} executed with result: {result}")
                     else:
-                        self.logger.warning(f"Unknown tool: {function_name}")
+                        await self.logger.warning(f"Unknown tool: {function_name}")
             
             except json.JSONDecodeError as e:
-                self.logger.error(f"Failed to decode arguments for tool {function_name}: {e}", exc_info=True)
+                await self.logger.error(f"Failed to decode arguments for tool {function_name}: {e}", exc_info=True)
             except Exception as e:
-                self.logger.error(f"Tool execution error for {function_name}: {e}", exc_info=True)
+                await self.logger.error(f"Tool execution error for {function_name}: {e}", exc_info=True)
     
     async def _tool_replace_code(self, start_line: int, end_line: int, new_code: str) -> None:
         """Tool: Replace code in the editor."""
         if self.editor:
             self.editor.replace_lines(start_line, end_line, new_code)
-            self.logger.info(f"Replaced lines {start_line}-{end_line}")
+            await self.logger.info(f"Replaced lines {start_line}-{end_line}")
     
     async def _tool_write_file(self, path: str, content: str) -> None:
         """Tool: Write content to a file."""
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            self.logger.info(f"Written to {path}")
+            await self.logger.info(f"Written to {path}")
         except Exception as e:
-            self.logger.error(f"Failed to write {path}: {e}")
+            await self.logger.error(f"Failed to write {path}: {e}")
     
     async def _tool_read_file(self, path: str) -> str:
         """Tool: Read content from a file."""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            self.logger.info(f"Read from {path}")
+            await self.logger.info(f"Read from {path}")
             return content
         except Exception as e:
-            self.logger.error(f"Failed to read {path}: {e}")
+            await self.logger.error(f"Failed to read {path}: {e}")
             return ""

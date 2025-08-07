@@ -8,7 +8,7 @@ to browse and open files from the filesystem.
 import os
 from pathlib import Path
 from typing import Optional, List
-import logging
+from aiologger import Logger
 
 from textual.widgets import Tree, Static, Button
 from textual.widgets.tree import TreeNode
@@ -91,7 +91,7 @@ class FileExplorer(Static):
         
         self.root_path = root_path or Path.cwd()
         self.current_path = self.root_path
-        self.logger = logging.getLogger("k2edit")
+        self.logger = Logger(name="k2edit")
     
     def compose(self):
         """Compose the file explorer."""

@@ -6,29 +6,21 @@ that the agent can properly index and understand the codebase.
 """
 
 import asyncio
-import logging
 import sys
 from pathlib import Path
 import json
 from typing import Dict, Any, List
+from aiologger import Logger
 
 # Add the current directory to path to import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from agent.integration import K2EditAgentIntegration
-from agent.context_manager import AgenticContextManager
+from src.k2edit.agent.integration import K2EditAgentIntegration
+from src.k2edit.agent.context_manager import AgenticContextManager
 
 
-# Configure logging for the test - use WARNING level to reduce verbosity
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('test_project_context.log')
-    ]
-)
-logger = logging.getLogger("k2edit")
+# Using aiologger for async logging
+logger = Logger(name="k2edit")
 
 
 class ProjectContextTester:
@@ -41,25 +33,25 @@ class ProjectContextTester:
         
     async def setup(self):
         """Initialize the agent system with the current directory as project."""
-        logger.info(f"Setting up test with project root: {self.project_root}")
+        await logger.info(f"Setting up test with project root: {self.project_root}")
         
         # Initialize agent integration
         self.agent_integration = K2EditAgentIntegration(self.project_root)
         await self.agent_integration.initialize()
         
         # Import agent module functions for direct testing
-        from k2edit.agent import get_agent_context
+        from src.k2edit.agent import get_agent_context
         agent = await get_agent_context()
         self.context_manager = agent
         
-        logger.info("Agent system initialized successfully")
+        await logger.info("Agent system initialized successfully")
         
     async def test_basic_project_structure(self):
         """Test basic project structure discovery."""
-        logger.info("Testing basic project structure discovery...")
+        await logger.info("Testing basic project structure discovery...")
         
         # Get project overview through agent
-        from k2edit.agent import process_agent_query
+        from src.k2edit.agent import process_agent_query
         result = await process_agent_query("What is the project structure and what files are in this project?")
         
         print("\n=== Project Overview ===")
@@ -69,16 +61,16 @@ class ProjectContextTester:
         assert "context" in result, "Should return context"
         context = result["context"]
         
-        logger.info("Successfully retrieved project structure via agent")
+        await logger.info("Successfully retrieved project structure via agent")
         
         return context
         
     async def test_language_detection(self):
         """Test language detection for different file types."""
-        logger.info("Testing language detection...")
+        await logger.info("Testing language detection...")
         
         # Test language detection via agent
-        from k2edit.agent import get_code_intelligence
+        from src.k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -99,16 +91,16 @@ class ProjectContextTester:
         # Should detect Python
         assert "python" in languages_found, "Should detect Python files"
         
-        logger.info(f"Detected languages: {languages_found}")
+        await logger.info(f"Detected languages: {languages_found}")
         
         return languages_found
         
     async def test_symbol_indexing(self):
         """Test symbol indexing across the project."""
-        logger.info("Testing symbol indexing...")
+        await logger.info("Testing symbol indexing...")
         
         # Test symbol indexing via agent
-        from k2edit.agent import get_code_intelligence
+        from src.k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -132,7 +124,7 @@ class ProjectContextTester:
                     print(f"  ... and {len(symbols) - 5} more")
                     
         # Log the results but don't fail if no symbols found (LSP might not be available)
-        logger.info(f"Found {total_symbols} symbols across {files_with_symbols} files")
+        await logger.info(f"Found {total_symbols} symbols across {files_with_symbols} files")
         
         if total_symbols == 0:
             print("Note: No symbols found - LSP server may not be available")
@@ -141,10 +133,10 @@ class ProjectContextTester:
         
     async def test_semantic_context(self):
         """Test semantic context gathering for specific files."""
-        logger.info("Testing semantic context...")
+        await logger.info("Testing semantic context...")
         
         # Test semantic context via agent
-        from k2edit.agent import get_code_intelligence
+        from src.k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -155,7 +147,7 @@ class ProjectContextTester:
             test_files = python_files[:3]
             
         for test_file in test_files:
-            logger.info(f"Testing semantic context for: {test_file}")
+            await logger.info(f"Testing semantic context for: {test_file}")
             
             # Get code intelligence
             intelligence = await get_code_intelligence(str(test_file))
@@ -173,10 +165,10 @@ class ProjectContextTester:
                     
     async def test_import_graph(self):
         """Test import relationship analysis."""
-        logger.info("Testing import graph analysis...")
+        await logger.info("Testing import graph analysis...")
         
         # Test import analysis via agent
-        from k2edit.agent import get_code_intelligence
+        from src.k2edit.agent import get_code_intelligence
         from pathlib import Path
         
         # Find Python files to test
@@ -201,7 +193,7 @@ class ProjectContextTester:
                 
     async def run_full_test(self):
         """Run the complete test suite."""
-        logger.info("Starting comprehensive project context test...")
+        await logger.info("Starting comprehensive project context test...")
         
         try:
             await self.setup()
@@ -222,7 +214,7 @@ class ProjectContextTester:
             print("="*60)
             
             # Summary using agent API
-            from k2edit.agent import process_agent_query
+            from src.k2edit.agent import process_agent_query
             result = await process_agent_query("Summarize this project's structure and main components")
             
             print(f"\nFinal Summary:")
@@ -239,7 +231,7 @@ class ProjectContextTester:
             return True
             
         except Exception as e:
-            logger.error(f"Test failed: {e}")
+            await logger.error(f"Test failed: {e}")
             print(f"\nTEST FAILED: {e}")
             import traceback
             traceback.print_exc()
@@ -256,10 +248,10 @@ async def main():
     success = await tester.run_full_test()
     
     if success:
-        logger.info("All tests completed successfully!")
+        await logger.info("All tests completed successfully!")
         return 0
     else:
-        logger.error("Tests failed!")
+        await logger.error("Tests failed!")
         return 1
 
 

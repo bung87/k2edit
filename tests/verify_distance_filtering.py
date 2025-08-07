@@ -10,7 +10,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent.chroma_memory_store import ChromaMemoryStore
+from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore
 
 
 class MockContextManager:

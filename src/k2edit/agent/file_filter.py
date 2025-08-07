@@ -13,8 +13,8 @@ from ..utils.language_utils import detect_project_language
 class FileFilter:
     """Handles file filtering based on language-specific patterns"""
     
-    def __init__(self, logger: Logger = None):
-        self.logger = logger or Logger(name="k2edit-filter")
+    def __init__(self, logger: Logger):
+        self.logger = logger
     
     def should_skip_file(self, file_path: Path, language: str, project_root: Path) -> bool:
         """Check if a file should be skipped based on language-specific patterns"""

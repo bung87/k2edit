@@ -4,18 +4,28 @@ import os
 import glob
 import subprocess
 import re
-import logging
+import inspect
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
+from aiologger import Logger
+
+try:
+    import aiologger
+except ImportError:
+    aiologger = None
 
 
 class ToolExecutor:
     """Executor for local tools that extend Kimi's capabilities."""
     
-    def __init__(self, editor_widget=None):
+    def __init__(self, logger, editor_widget=None):
         self.editor = editor_widget
         self.current_directory = Path.cwd()
-        self.logger = logging.getLogger("k2edit")
+        self.logger = logger
+        
+        # All logging is now standardized to async patterns
+    
+
     
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool by name with given arguments."""
@@ -40,7 +50,7 @@ class ToolExecutor:
                 return {"error": f"Unknown tool: {tool_name}"}
         
         except Exception as e:
-            self.logger.error(f"Tool execution failed: {str(e)}")
+            await self.logger.error(f"Tool execution failed: {str(e)}")
             return {"error": f"Tool execution failed: {str(e)}"}
     
     async def list_files(self, directory: str = ".", pattern: str = "*") -> Dict[str, Any]:
@@ -97,7 +107,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
-            self.logger.error(f"Failed to list files: {str(e)}")
+            await self.logger.error(f"Failed to list files: {str(e)}")
             return {"error": f"Failed to list files: {str(e)}"}
     
     async def search_code(self, pattern: str, directory: str = ".", file_types: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -147,7 +157,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
-            self.logger.error(f"Search failed: {str(e)}")
+            await self.logger.error(f"Search failed: {str(e)}")
             return {"error": f"Search failed: {str(e)}"}
     
     async def run_command(self, command: str, working_directory: str = ".") -> Dict[str, Any]:
@@ -182,10 +192,10 @@ class ToolExecutor:
             }
         
         except subprocess.TimeoutExpired:
-            self.logger.error("Command timed out after 30 seconds")
+            await self.logger.error("Command timed out after 30 seconds")
             return {"error": "Command timed out after 30 seconds"}
         except Exception as e:
-            self.logger.error(f"Command execution failed: {str(e)}")
+            await self.logger.error(f"Command execution failed: {str(e)}")
             return {"error": f"Command execution failed: {str(e)}"}
     
     async def analyze_code(self, analysis_type: str, scope: str = "selection") -> Dict[str, Any]:
@@ -222,7 +232,7 @@ class ToolExecutor:
                 return {"error": f"Unknown analysis type: {analysis_type}"}
         
         except Exception as e:
-            self.logger.error(f"Analysis failed: {str(e)}")
+            await self.logger.error(f"Analysis failed: {str(e)}")
             return {"error": f"Analysis failed: {str(e)}"}
     
     async def insert_code(self, line_number: int, code: str) -> Dict[str, Any]:
@@ -248,7 +258,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
-            self.logger.error(f"Code insertion failed: {str(e)}")
+            await self.logger.error(f"Code insertion failed: {str(e)}")
             return {"error": f"Code insertion failed: {str(e)}"}
     
     async def replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict[str, Any]:
@@ -287,7 +297,7 @@ class ToolExecutor:
             }
         
         except Exception as e:
-            self.logger.error(f"Code replacement failed: {str(e)}")
+            await self.logger.error(f"Code replacement failed: {str(e)}")
             return {"error": f"Code replacement failed: {str(e)}"}
     
     async def read_file(self, path: str) -> Dict[str, Any]:
@@ -326,7 +336,7 @@ class ToolExecutor:
         except PermissionError:
             return {"error": f"Permission denied reading file: {path}"}
         except Exception as e:
-            self.logger.error(f"Failed to read file: {str(e)}")
+            await self.logger.error(f"Failed to read file: {str(e)}")
             return {"error": f"Failed to read file: {str(e)}"}
     
     async def write_file(self, path: str, content: str) -> Dict[str, Any]:
@@ -356,7 +366,7 @@ class ToolExecutor:
         except PermissionError:
             return {"error": f"Permission denied writing to file: {path}"}
         except Exception as e:
-            self.logger.error(f"Failed to write file: {str(e)}")
+            await self.logger.error(f"Failed to write file: {str(e)}")
             return {"error": f"Failed to write file: {str(e)}"}
     
     def _analyze_structure(self, code: str) -> Dict[str, Any]:
