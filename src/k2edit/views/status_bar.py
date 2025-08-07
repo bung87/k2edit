@@ -107,6 +107,11 @@ class StatusBar(Widget):
         if hasattr(self, 'encoding_widget') and self.encoding_widget:
             self.encoding_widget.update(encoding)
 
+    def watch_line_ending(self, line_ending: str) -> None:
+        """Watch for line ending changes."""
+        if hasattr(self, 'line_ending_widget') and self.line_ending_widget:
+            self.line_ending_widget.update(line_ending)
+
     def _update_cursor_position_display(self, cursor_line: int, cursor_column: int) -> None:
         """Update cursor position display."""
         self.cursor_pos_widget.update(f"Ln {cursor_line}, Col {cursor_column}")
@@ -127,6 +132,7 @@ class StatusBar(Widget):
         self.lang_widget = Static("Text", id="lang", classes="status-item")
         self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
+        self.line_ending_widget = Static("LF", id="line-ending", classes="status-item")
 
 
     def compose(self) -> ComposeResult:
@@ -144,12 +150,10 @@ class StatusBar(Widget):
                 yield Static(" | ", classes="status-separator")
                 yield self.encoding_widget
                 yield Static(" | ", classes="status-separator")
+                yield self.line_ending_widget
+                yield Static(" | ", classes="status-separator")
                 yield self.lang_widget
                 yield Static(" | ", classes="status-separator")
-                
-                
-            # yield Static(" | ", classes="status-separator", shrink=True, expand=True)
-            # yield self.line_ending_widget
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses in the status bar."""
