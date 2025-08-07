@@ -105,20 +105,24 @@ class FileFilter:
             return {"total": 0, "filtered": 0, "included": 0}
         
         total_files = 0
-        filtered_files = 0
+        included_files = []
         
+        # First get all files with wanted extensions
         for ext in extensions:
             all_files = list(project_root.rglob(f"*{ext}"))
             total_files += len(all_files)
             
+            # Apply skip patterns and add wanted files to list
             for file_path in all_files:
-                if self.should_skip_file(file_path, language, project_root):
-                    filtered_files += 1
+                if not self.should_skip_file(file_path, language, project_root):
+                    included_files.append(file_path)
+        
+        filtered_count = total_files - len(included_files)
         
         return {
             "total": total_files,
-            "filtered": filtered_files,
-            "included": total_files - filtered_files
+            "filtered": filtered_count,
+            "included": len(included_files)
         }
     
     def detect_project_language(self, project_root: Path) -> str:
