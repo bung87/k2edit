@@ -29,6 +29,7 @@ from .views.file_explorer import FileExplorer
 from .views.status_bar import StatusBar, GitBranchSwitch, NavigateToDiagnostic, ShowDiagnosticsDetails
 from .views.modals import DiagnosticsModal, BranchSwitcherModal
 from .views.hover_widget import HoverWidget
+from .views.file_path_display import FilePathDisplay
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
@@ -76,9 +77,13 @@ class K2EditApp(App):
         self.file_explorer = FileExplorer(id="file-explorer")
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
+        self.file_path_display = FilePathDisplay(id="file-path-display")
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file
+        
+        # Set up go-to-definition navigation callback
+        self.editor.set_goto_definition_callback(self._navigate_to_definition)
         
         # Initialize utility classes
         self.agent_initializer = create_agent_initializer(self.logger, self.error_handler)
@@ -98,6 +103,10 @@ class K2EditApp(App):
     async def on_mount(self) -> None:
         """Called when the app is mounted."""
         await self.logger.info("K2Edit app mounted")
+        
+        # Set up project root for file path display
+        project_root = str(Path.cwd())
+        self.file_path_display.set_project_root(project_root)
         
         # # Force update status bar
         # self._update_status_bar()
@@ -133,8 +142,11 @@ class K2EditApp(App):
                 self.editor.focus()
                 # Update status bar with file information
                 await self._update_status_bar()
+                # Update file path display
+                self.file_path_display.set_file(self.initial_file)
         else:
             await self.logger.info("No initial file provided, starting with an empty editor.")
+            self.file_path_display.set_file(None)
             self.editor.focus()
         
         await self.logger.info("K2EditApp mounted successfully")
@@ -161,6 +173,16 @@ class K2EditApp(App):
         # Set output panel for agent integration error handling
         if self.agent_integration:
             self.agent_integration.set_output_panel(self.output_panel)
+            
+            # Update project root for file path display
+            self.file_path_display.set_project_root(str(self.agent_integration.project_root))
+            
+            # Set up LSP client for go-to-definition
+            if self.agent_integration.lsp_client:
+                self.editor.set_lsp_client(self.agent_integration.lsp_client)
+                self.status_bar.update_language_server_status("Connected")
+            else:
+                self.status_bar.update_language_server_status("Disconnected")
     
     async def _on_file_open_with_agent(self, file_path: str):
         """Handle file open with agentic system integration"""
@@ -331,6 +353,47 @@ class K2EditApp(App):
         await self.logger.debug("Starting new hover timer with 500ms delay")
         self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
 
+    async def _navigate_to_definition(self, definitions: list[dict[str, Any]]) -> None:
+        """Navigate to the definition location(s) returned by LSP."""
+        if not definitions:
+            self.status_bar.show_message("No definition found", timeout=3)
+            return
+            
+        # For now, navigate to the first definition
+        definition = definitions[0]
+        uri = definition.get('uri', '')
+        range_info = definition.get('range', {})
+        start = range_info.get('start', {})
+        line = start.get('line', 0)
+        character = start.get('character', 0)
+        
+        # Convert file URI to path
+        if uri.startswith('file://'):
+            file_path = uri[7:]  # Remove 'file://' prefix
+        else:
+            file_path = uri
+            
+        try:
+            # Check if we need to open a new file
+            if file_path != str(self.editor.current_file):
+                success = await self.file_initializer.initialize_file(
+                    file_path,
+                    self.editor,
+                    self.output_panel,
+                    self.status_bar
+                )
+                if not success:
+                    self.output_panel.add_error(f"Failed to open file: {file_path}")
+                    return
+            
+            # Navigate to the definition position
+            self.editor.cursor_location = (line, character)
+            self.status_bar.show_message(f"Navigated to definition at line {line + 1}, column {character + 1}", timeout=2)
+            
+        except Exception as e:
+            self.output_panel.add_error(f"Failed to navigate to definition: {str(e)}")
+            self.status_bar.show_message("Failed to navigate to definition", timeout=3)
+
     async def on_key(self, event) -> None:
         """Handle key presses to dismiss hover."""
         # Dismiss hover on any key press
@@ -379,7 +442,8 @@ class K2EditApp(App):
             # yield self.status_bar
             yield self.status_bar
             yield self.hover_widget
-            yield Footer()  # Removed to avoid conflict with custom status bar
+            yield self.file_path_display
+            # yield Footer()  # Removed to avoid conflict with custom status bar
 
     
     def on_command_bar_command_executed(self, message) -> None:
@@ -390,6 +454,9 @@ class K2EditApp(App):
         """Handle file opened messages from the command bar."""
         file_path = message.file_path
         await self.logger.info(f"File opened via command: {file_path}")
+        
+        # Update file path display
+        self.file_path_display.set_file(file_path)
         
         # Notify agentic system about file open
         await self._on_file_open_with_agent(file_path)
@@ -404,6 +471,9 @@ class K2EditApp(App):
                 self.output_panel.add_info(f"Loaded file: {file_path}")
                 await self.logger.info(f"Successfully loaded file from explorer: {file_path}")
                 self.editor.focus()
+                
+                # Update file path display
+                self.file_path_display.set_file(file_path)
                 
                 # Notify agentic system about file open
                 await self._on_file_open_with_agent(file_path)

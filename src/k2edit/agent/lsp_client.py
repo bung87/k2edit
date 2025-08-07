@@ -238,6 +238,43 @@ class LSPClient:
         except Exception as e:
             await self.logger.error(f"Error sending request to {language}: {e}")
             return None
+
+    async def get_definition(self, language: str, file_path: str, line: int, character: int) -> Optional[List[Dict[str, Any]]]:
+        """Send textDocument/definition request to get definition locations"""
+        if language not in self.connections:
+            await self.logger.warning(f"No connection for language: {language}")
+            return None
+        
+        definition_request = {
+            "jsonrpc": "2.0",
+            "method": "textDocument/definition",
+            "params": {
+                "textDocument": {
+                    "uri": f"file://{file_path}"
+                },
+                "position": {
+                    "line": line,
+                    "character": character
+                }
+            }
+        }
+        
+        try:
+            response = await self.send_request(language, definition_request)
+            if response and "result" in response:
+                result = response["result"]
+                if result is None:
+                    return None
+                elif isinstance(result, list):
+                    return result
+                elif isinstance(result, dict):
+                    return [result]
+                else:
+                    return None
+            return None
+        except Exception as e:
+            await self.logger.error(f"Error getting definition: {e}")
+            return None
     
     async def send_notification(self, language: str, notification: Dict[str, Any]) -> None:
         """Send LSP notification (no response expected)"""

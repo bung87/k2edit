@@ -54,6 +54,7 @@ class StatusBar(Widget):
     line_ending = reactive("LF")
     language = reactive("")
     file_path = reactive("")
+    language_server_status = reactive("Disconnected")
     
     # Additional state for interactive features
     diagnostics_data = reactive([])
@@ -97,6 +98,11 @@ class StatusBar(Widget):
             self.lang_widget.update(display_text)
             await self.logger.debug(f"lang_widget.label after update: {self.lang_widget}")
 
+    def watch_language_server_status(self, status: str) -> None:
+        """Watch for language server status changes."""
+        if hasattr(self, 'lsp_status_widget') and self.lsp_status_widget:
+            self.lsp_status_widget.update(f"LSP: {status}")
+
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
         if hasattr(self, 'indent_widget') and self.indent_widget:
@@ -133,6 +139,7 @@ class StatusBar(Widget):
         self.indent_widget = Static("Spaces: 4", id="indent", classes="status-item")
         self.encoding_widget = Static("UTF-8", id="encoding", classes="status-item")
         self.line_ending_widget = Static("LF", id="line-ending", classes="status-item")
+        self.lsp_status_widget = Static("LSP: Disconnected", id="lsp-status", classes="status-item")
 
 
     def compose(self) -> ComposeResult:
@@ -151,6 +158,8 @@ class StatusBar(Widget):
                 yield self.encoding_widget
                 yield Static(" | ", classes="status-separator")
                 yield self.line_ending_widget
+                yield Static(" | ", classes="status-separator")
+                yield self.lsp_status_widget
                 yield Static(" | ", classes="status-separator")
                 yield self.lang_widget
                 yield Static(" | ", classes="status-separator")
@@ -419,6 +428,18 @@ class StatusBar(Widget):
         self.cursor_line = line
         self.cursor_column = column
 
+    def update_language_server_status(self, status: str):
+        """Update language server status in status bar."""
+        # Add a new reactive property for LSP status
+        self.language_server_status = status
+        # Update the display (assuming we have a widget for this)
+        # For now, we'll use the language widget or add a new one
+        if hasattr(self, 'lsp_status_widget'):
+            self.lsp_status_widget.update(f"LSP: {status}")
+        else:
+            # Fallback: append to language widget
+            current_lang = self.language or "Text"
+            self.lang_widget.update(f"{current_lang} (LSP: {status})")
 
     def _update_diagnostics_display(self):
         """Update the diagnostics display widget."""
