@@ -83,13 +83,33 @@ class FileFilter:
         # Convert extensions to set for faster lookup
         ext_set = set(extensions)
         files = []
+        skip_patterns = self._get_skip_patterns(language)
         
-        # Single directory traversal for better performance
-        for file_path in project_root.rglob("*"):
-            if file_path.is_file() and file_path.suffix in ext_set:
-                if not self.should_skip_file(file_path, language, project_root):
-                    files.append(file_path)
+        # Manual directory traversal with early skip pattern checking
+        def _traverse_directory(dir_path: Path):
+            try:
+                for item in dir_path.iterdir():
+                    # Check skip patterns early for directories
+                    if item.is_dir():
+                        # Skip if directory matches skip patterns
+                        dir_str = str(item)
+                        should_skip = False
+                        for pattern in skip_patterns:
+                            if pattern in dir_str:
+                                should_skip = True
+                                break
+                        
+                        if not should_skip and not self._check_directory_patterns(item):
+                            _traverse_directory(item)
+                    
+                    elif item.is_file() and item.suffix in ext_set:
+                        if not self.should_skip_file(item, language, project_root):
+                            files.append(item)
+            except (PermissionError, OSError):
+                # Skip directories we can't access
+                pass
         
+        _traverse_directory(project_root)
         return files
     
     def count_filtered_files(self, project_root: Path, language: str) -> Dict[str, int]:
@@ -105,22 +125,42 @@ class FileFilter:
         # Convert extensions to set for faster lookup
         ext_set = set(extensions)
         total_files = 0
-        included_files = []
+        included_count = 0
+        skip_patterns = self._get_skip_patterns(language)
         
-        # Single directory traversal for better performance
-        for file_path in project_root.rglob("*"):
-            if file_path.is_file() and file_path.suffix in ext_set:
-                total_files += 1
-                # Apply skip patterns and add wanted files to list
-                if not self.should_skip_file(file_path, language, project_root):
-                    included_files.append(file_path)
+        # Manual directory traversal with early skip pattern checking
+        def _traverse_directory(dir_path: Path):
+            nonlocal total_files, included_count
+            try:
+                for item in dir_path.iterdir():
+                    # Check skip patterns early for directories
+                    if item.is_dir():
+                        # Skip if directory matches skip patterns
+                        dir_str = str(item)
+                        should_skip = False
+                        for pattern in skip_patterns:
+                            if pattern in dir_str:
+                                should_skip = True
+                                break
+                        
+                        if not should_skip and not self._check_directory_patterns(item):
+                            _traverse_directory(item)
+                    
+                    elif item.is_file() and item.suffix in ext_set:
+                        total_files += 1
+                        if not self.should_skip_file(item, language, project_root):
+                            included_count += 1
+            except (PermissionError, OSError):
+                # Skip directories we can't access
+                pass
         
-        filtered_count = total_files - len(included_files)
+        _traverse_directory(project_root)
+        filtered_count = total_files - included_count
         
         return {
             "total": total_files,
             "filtered": filtered_count,
-            "included": len(included_files)
+            "included": included_count
         }
     
     def detect_project_language(self, project_root: Path) -> str:
