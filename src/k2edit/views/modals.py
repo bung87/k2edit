@@ -91,21 +91,16 @@ class BranchSwitcherModal(ModalScreen[str]):
     
     def compose(self) -> ComposeResult:
         """Compose the branch switcher modal."""
-        with Container(id="branch-switcher-modal"):
-            yield Label("Switch Git Branch", id="branch-switcher-title")
-            
-            if not self.branches:
-                yield Label("No branches found", classes="branch-empty")
-            else:
-                with ListView(id="branch-list"):
-                    for branch in self.branches:
-                        item_text = f"{branch} (current)" if branch == self.current_branch else branch
-                        yield ListItem(
-                            Label(item_text),
-                            id=f"branch-{branch}"
-                        )
-            
-            yield Button("Cancel", id="cancel-button")
+        if not self.branches:
+            yield Label("No branches found", classes="branch-empty")
+        else:
+            with ListView(id="branch-list"):
+                for branch in self.branches:
+                    item_text = f"{branch} (current)" if branch == self.current_branch else branch
+                    yield ListItem(
+                        Label(item_text),
+                        id=f"branch-{branch}"
+                    )
     
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle branch selection."""

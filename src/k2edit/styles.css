@@ -205,7 +205,7 @@ HoverWidget {
     background: #0f172a;
     color: #f1f5f9;
     border: solid #3b82f6;
-    padding: 1;
+    padding: 0 1;
     max-width: 60;
     max-height: 10;
     overflow: auto;
@@ -228,21 +228,61 @@ HoverWidget .markdown {
     background: #0f172a;
 }
 
-HoverWidget {
-    display: none;
-    background: #0f172a;
+HoverWidget Markdown {
+    height: auto;
+    padding: 0;
+    layout: vertical;
     color: #f1f5f9;
-    border: solid #3b82f6;
-    padding: 1;
-    max-width: 60;
-    max-height: 10;
-    overflow: auto;
-    layer: overlay;
+    overflow-y: hidden;
 }
 
-HoverWidget.visible {
-    display: block;
+HoverWidget MarkdownBlock {
+    margin: 0;
+    padding: 0;
 }
+
+HoverWidget MarkdownBlock > .code_inline {
+    background: #374151;
+    color: #e6db74;
+    padding: 0 1;
+}
+
+HoverWidget MarkdownBlock > .em {
+    text-style: italic;
+    color: #60a5fa;
+}
+
+HoverWidget MarkdownBlock > .strong {
+    text-style: bold;
+    color: #f1f5f9;
+}
+
+HoverWidget MarkdownBlock > .s {
+    text-style: strike;
+}
+
+HoverWidget .markdown-code {
+    background: #1e293b;
+    color: #e6db74;
+    margin: 0;
+    padding: 0 1;
+    border: none;
+}
+
+HoverWidget .markdown-h1,
+HoverWidget .markdown-h2,
+HoverWidget .markdown-h3 {
+    color: #3b82f6;
+    text-style: bold;
+    margin: 0;
+    padding: 0;
+}
+
+HoverWidget .markdown-p {
+    margin: 0;
+    padding: 0;
+}
+
 
 #output-log {
     height: 1fr;
@@ -445,18 +485,56 @@ TextArea .tok-code {
    background: #3b82f6;
 }
 
+/* Branch Switcher Modal - Command Palette Style */
+BranchSwitcherModal {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.8);
+}
+
 #branch-list {
-    height: 1fr;
-    width: 100%;
+    height: auto;
+    max-height: 20;
+    width: 60;
+    max-width: 80;
     overflow-y: auto;
-    padding: 0;
+    padding: 1;
+    background: #1e293b;
+    border: solid #3b82f6;
 }
 
 #branch-list > ListItem {
     width: 100%;
+    height: 1;
     margin: 0;
-    padding: 0;
+    padding: 0 1;
     border: none;
+    background: transparent;
+}
+
+#branch-list > ListItem:hover {
+    background: #3b82f6;
+}
+
+#branch-list > ListItem > Label {
+    width: 100%;
+    color: #f1f5f9;
+    padding: 0;
+}
+
+#branch-list > ListItem:hover > Label {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
+.branch-empty {
+    color: #94a3b8;
+    text-align: center;
+    margin: 2;
+    padding: 2;
+    background: #1e293b;
+    border: solid #3b82f6;
+    width: 60;
+    max-width: 80;
 }
 
 

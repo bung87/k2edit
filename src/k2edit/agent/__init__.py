@@ -22,7 +22,7 @@ __all__ = [
 _agentic_system = None
 
 
-async def initialize_agentic_system(project_root: str, logger: Logger = None, progress_callback=None):
+async def initialize_agentic_system(project_root: str, logger: Logger = None, progress_callback=None, lsp_client=None):
     """
     Initialize the complete agentic system with progress updates
     
@@ -30,6 +30,7 @@ async def initialize_agentic_system(project_root: str, logger: Logger = None, pr
         project_root: Path to the project root directory
         logger: Logger instance for debugging
         progress_callback: Async callback function for progress updates
+        lsp_client: Optional LSP client to use instead of creating a new one
     """
     global _agentic_system
     
@@ -39,8 +40,8 @@ async def initialize_agentic_system(project_root: str, logger: Logger = None, pr
     if progress_callback:
         await progress_callback("Initializing agentic system...")
     
-    # Initialize context manager
-    _agentic_system = AgenticContextManager(logger)
+    # Initialize context manager with optional lsp_client
+    _agentic_system = AgenticContextManager(lsp_client=lsp_client, logger=logger)
     await _agentic_system.initialize(project_root, progress_callback)
     
     if progress_callback:

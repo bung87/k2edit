@@ -14,13 +14,14 @@ from aiologger import Logger
 class LSPClient:
     """Low-level LSP client for communication with language servers"""
     
-    def __init__(self, logger: Logger = None):
+    def __init__(self, logger: Logger = None, diagnostics_callback=None):
         self.logger = logger or Logger(name="k2edit-lsp")
         self.processes = {}
         self.response_queues = {}
         self.message_ids = {}
         self.reader_locks = {}
         self.diagnostics: Dict[str, List[Dict[str, Any]]] = {}
+        self.diagnostics_callback = diagnostics_callback
         
     async def start_server(self, language: str, command: List[str], project_root: Path) -> bool:
         """Start a language server process"""
@@ -240,6 +241,13 @@ class LSPClient:
                 file_path = uri[7:]  # Remove file:// prefix
                 self.diagnostics[file_path] = diagnostics
                 await self.logger.debug(f"Received diagnostics for {file_path}: {len(diagnostics)} items")
+                
+                # Notify callback if available
+                if self.diagnostics_callback:
+                    try:
+                        await self.diagnostics_callback(file_path, diagnostics)
+                    except Exception as e:
+                        await self.logger.error(f"Error in diagnostics callback: {e}")
         
     def _get_next_message_id(self, language: str) -> int:
         """Get next message ID for a language"""
@@ -299,6 +307,61 @@ class LSPClient:
             
         except Exception as e:
             await self.logger.warning(f"Failed to notify LSP server about opened file: {e}")
+    
+    async def get_hover_info(self, file_path: str, line: int, character: int, language: str = None) -> Optional[Dict[str, Any]]:
+        """Get hover information from LSP server for a specific position"""
+        await self.logger.debug(f"get_hover_info: file_path={file_path}, line={line}, character={character}")
+        
+        # Import here to avoid circular imports
+        from .language_configs import LanguageConfigs
+        
+        if language is None:
+            language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+        
+        await self.logger.debug(f"Detected language: {language}")
+        
+        if language == "unknown" or not self.is_server_running(language):
+            await self.logger.debug(f"Skipping hover: language={language}, server_running={self.is_server_running(language) if language != 'unknown' else 'N/A'}")
+            return None
+        
+        # Build LSP URI
+        uri = f"file://{Path(file_path).absolute()}"
+        
+        # Textual TextArea already uses 0-based indexing, so no conversion needed
+        lsp_line = line
+        lsp_character = character
+        await self.logger.debug(f"Position (already 0-based): editor({line}, {character}) -> LSP({lsp_line}, {lsp_character})")
+        
+        # Request hover information
+        request = {
+            "jsonrpc": "2.0",
+            "id": 0,  # Will be set by LSP client
+            "method": "textDocument/hover",
+            "params": {
+                "textDocument": {
+                    "uri": uri
+                },
+                "position": {
+                    "line": lsp_line,  # LSP uses 0-based indexing
+                    "character": lsp_character  # LSP uses 0-based indexing
+                }
+            }
+        }
+        
+        await self.logger.debug(f"Sending LSP hover request: {request}")
+        
+        try:
+            response = await self.send_request(language, request)
+            await self.logger.debug(f"Hover response received: {response is not None}")
+            
+            if response and "result" in response and response["result"]:
+                await self.logger.debug(f"Hover result contents: {response['result'].get('contents', 'No contents')}")
+                return response["result"]
+            return None
+            
+        except Exception as e:
+            await self.logger.error(f"Failed to get hover info: {e}")
+            return None
     
     async def shutdown(self):
         """Shutdown all language servers"""

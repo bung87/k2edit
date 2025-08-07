@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import threading
+import time
 from aiologger import Logger
 from aiologger.levels import LogLevel
 from typing import Dict, List, Optional, Any, Tuple
@@ -53,10 +54,10 @@ class AgentContext:
 class AgenticContextManager:
     """Manages AI agent context, memory, and LSP integration"""
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, lsp_client=None, logger: logging.Logger = None):
         self.logger = logger or logging.getLogger("k2edit")
         self.memory_store = create_memory_store(self, logger)
-        self.lsp_indexer = LSPIndexer(logger)
+        self.lsp_indexer = LSPIndexer(lsp_client=lsp_client, logger=logger)
         self.current_context: Optional[AgentContext] = None
         self.conversation_history: List[Dict[str, Any]] = []
         self.embedding_model = None
@@ -211,20 +212,22 @@ class AgenticContextManager:
             "recent_changes": self.current_context.recent_changes
         }
         
-        # Get LSP-based outline and enhanced context for the current file
+        # Get LSP-based enhanced context for the current file (excluding outline)
         if self.current_context.file_path:
             try:
                 line = self.current_context.cursor_position.get('line') if self.current_context.cursor_position else None
                 
-                lsp_context = await self.lsp_indexer.get_enhanced_context_for_file(
+                lsp_context = await self.get_enhanced_context_for_file(
                     self.current_context.file_path, 
                     line
                 )
                 context.update({
-                    "lsp_outline": lsp_context.get("outline", []),
                     "lsp_symbols": lsp_context.get("symbols", []),
-                    "lsp_metadata": lsp_context.get("metadata", {}),
-                    "line_context": lsp_context.get("line_context")
+                    "lsp_dependencies": lsp_context.get("dependencies", []),
+                    "lsp_metadata": {
+                        "language": lsp_context.get("language"),
+                        "project_root": lsp_context.get("project_root")
+                    }
                 })
                 
                 if lsp_context.get("symbols"):
@@ -499,6 +502,31 @@ class AgenticContextManager:
             self.logger.error(f"Error generating embedding: {e}")
             return [0.0] * 384
 
+
+    async def get_enhanced_context_for_file(self, file_path: str, line: int = None) -> Dict[str, Any]:
+        """Get enhanced context for a file excluding LSP outline"""
+        # Ensure appropriate language server is running for this file
+        from .language_configs import LanguageConfigs
+        language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+        if language != "unknown" and not self.lsp_indexer.lsp_client.is_server_running(language):
+            config = LanguageConfigs.get_config(language)
+            await self.lsp_indexer.lsp_client.start_server(language, config["command"], self.lsp_indexer.project_root)
+            await self.lsp_indexer.lsp_client.initialize_connection(language, self.lsp_indexer.project_root)
+        
+        # # Ensure file is opened with LSP server
+        # await self.lsp_indexer.lsp_client.notify_file_opened(file_path, language)
+        
+        # Get additional LSP information (excluding outline)
+        symbols = await self.lsp_indexer.get_symbols(file_path)
+        dependencies = await self.lsp_indexer.get_dependencies(file_path)
+        
+        return {
+            "file_path": file_path,
+            "language": language,
+            "symbols": symbols,
+            "dependencies": dependencies,
+            "project_root": str(self.lsp_indexer.project_root)
+        }
 
     async def _initialize_embedding_model(self):
         """Initialize the SentenceTransformer model asynchronously."""

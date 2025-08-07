@@ -136,7 +136,7 @@ class K2EditApp(App):
         """Initialize the agentic system in the background with progress updates"""
         await self.logger.info("Initializing agentic system in background...")
         try:
-            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger)
+            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger, self._on_diagnostics_received)
             
             # Define progress callback to update output panel
             async def progress_callback(message):
@@ -163,7 +163,7 @@ class K2EditApp(App):
         """Initialize the agentic system asynchronously with progress updates"""
         await self.logger.info("Initializing agentic system...")
         try:
-            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger)
+            self.agent_integration = K2EditAgentIntegration(str(Path.cwd()), self.logger, self._on_diagnostics_received)
             
             # Define progress callback to update output panel
             async def progress_callback(message):
@@ -190,7 +190,7 @@ class K2EditApp(App):
             
             # Notify LSP server about the opened file
             if self.agent_integration.lsp_indexer:
-                await self.agent_integration.lsp_indexer.lsp_client.notify_file_opened(file_path)
+                await self.agent_integration.lsp_client.notify_file_opened(file_path)
             
         # Update diagnostics for the newly opened file
         await self._update_diagnostics_from_lsp()
@@ -211,8 +211,40 @@ class K2EditApp(App):
         if not self.agent_integration.lsp_indexer:
             await self.logger.debug("No LSP indexer available")
             return
-
-
+            
+        if not self.editor.current_file:
+            await self.logger.debug("No current file to get diagnostics for")
+            return
+            
+        try:
+            # Get diagnostics for current file
+            file_path = str(self.editor.current_file)
+            diagnostics = self.agent_integration.lsp_client.get_diagnostics(file_path)
+            
+            if file_path in diagnostics:
+                file_diagnostics = diagnostics[file_path]
+                await self.logger.debug(f"Updating status bar with {len(file_diagnostics)} diagnostics for {file_path}")
+                self.status_bar.update_diagnostics_from_lsp(file_diagnostics)
+            else:
+                await self.logger.debug(f"No diagnostics found for {file_path}")
+                self.status_bar.update_diagnostics_from_lsp([])
+                
+        except Exception as e:
+            await self.logger.error(f"Error updating diagnostics from LSP: {e}")
+    
+    async def _on_diagnostics_received(self, file_path: str, diagnostics: list):
+        """Callback for when new diagnostics are received from LSP server"""
+        try:
+            await self.logger.debug(f"Diagnostics callback triggered for {file_path}: {len(diagnostics)} items")
+            
+            # Update status bar if this is the current file
+            if self.editor.current_file and str(self.editor.current_file) == file_path:
+                await self.logger.debug(f"Updating status bar for current file: {file_path}")
+                self.status_bar.update_diagnostics_from_lsp(diagnostics)
+            else:
+                await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
+        except Exception as e:
+            await self.logger.error(f"Error in diagnostics callback: {e}")
 
     async def _trigger_hover_request(self, line: int, column: int):
         """Trigger LSP hover request after cursor idle."""
@@ -232,7 +264,7 @@ class K2EditApp(App):
             await self.logger.debug(f"Requesting hover for: {file_path} at ({line}, {column})")
             
             # Request hover information
-            hover_result = await self.agent_integration.lsp_indexer.get_hover_info(file_path, line, column)
+            hover_result = await self.agent_integration.lsp_client.get_hover_info(file_path, line, column)
             await self.logger.debug(f"Hover result: {hover_result is not None}")
             
             if hover_result and "contents" in hover_result:
@@ -280,19 +312,11 @@ class K2EditApp(App):
         # Get cursor position in terminal coordinates
         line, column = self.editor.cursor_location
         
-        # Use relative positioning for terminal
-        # Position hover below cursor line, aligned with cursor column
-        hover_line = line + 1  # One line below cursor
-        hover_column = column  # Same column as cursor
+        # Position hover widget near cursor
+        hover_line = line
+        hover_column = column
         
-        # Ensure hover doesn't go off screen
-        max_line = 50  # Approximate terminal height
-        max_column = 80  # Approximate terminal width
-        
-        if hover_line + 5 > max_line:  # 5 lines for hover content
-            hover_line = max(0, line - 6)  # Position above instead
-        
-        self.hover_widget.show_hover(content, hover_line, hover_column)
+        self.hover_widget.show_hover(content, hover_line, hover_column, self.editor)
         self._last_hover_content = content
         self._last_hover_position = (line, column)
 
@@ -448,7 +472,7 @@ class K2EditApp(App):
             abs_file_path = str(Path(current_file).resolve())
             
             # Get diagnostics from LSP client
-            diagnostics = self.agent_integration.lsp_indexer.lsp_client.get_diagnostics(abs_file_path)
+            diagnostics = self.agent_integration.lsp_client.get_diagnostics(abs_file_path)
             
             # Flatten diagnostics for status bar
             all_diagnostics = []

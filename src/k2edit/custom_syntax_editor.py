@@ -214,7 +214,11 @@ class CustomSyntaxEditor(TextArea):
         line, column = self.cursor_location
         if self._app_instance and hasattr(self._app_instance, 'logger'):
             self._app_instance.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
+            self._app_instance.logger.debug(f"CUSTOM EDITOR: Raw cursor_location: {self.cursor_location}")
+            self._app_instance.logger.debug(f"CUSTOM EDITOR: Event details: {event}")
         
         # Call the callback if it exists
         if hasattr(self, 'cursor_position_changed') and self.cursor_position_changed:
+            if self._app_instance and hasattr(self._app_instance, 'logger'):
+                self._app_instance.logger.debug(f"CUSTOM EDITOR: Calling cursor_position_changed with ({line}, {column})")
             self.cursor_position_changed(line, column)

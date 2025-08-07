@@ -56,4 +56,4 @@ def is_nim_available() -> bool:
         import tree_sitter_nim
         return True
     except ImportError:
-        return False 
+        return False

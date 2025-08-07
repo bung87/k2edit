@@ -17,9 +17,9 @@ from .file_filter import FileFilter
 class LSPIndexer:
     """High-level LSP indexer that orchestrates language servers and symbol indexing"""
     
-    def __init__(self, logger: Logger = None):
+    def __init__(self, lsp_client: LSPClient = None, logger: Logger = None):
         self.logger = logger or Logger(name="k2edit-lsp")
-        self.lsp_client = LSPClient(logger=self.logger)
+        self.lsp_client = lsp_client or LSPClient(logger=self.logger)
         self.symbol_parser = SymbolParser(logger=self.logger)
         self.file_filter = FileFilter(logger=self.logger)
         self.language_configs = LanguageConfigs()
@@ -47,7 +47,12 @@ class LSPIndexer:
             await progress_callback(f"Detected language: {self.language}")
             await asyncio.sleep(0.1)
         
-        if self.language != "unknown":
+        # Check if LSP server is already running (passed from integration)
+        if self.lsp_client.is_server_running(self.language):
+            await self.logger.info(f"LSP server for {self.language} already running")
+            if progress_callback:
+                await progress_callback(f"Using existing {self.language} language server")
+        elif self.language != "unknown":
             config = LanguageConfigs.get_config(self.language)
             await self.logger.info(f"Starting language server for {self.language}...")
             
@@ -252,76 +257,7 @@ class LSPIndexer:
         
         return outline
     
-    async def get_hover_info(self, file_path: str, line: int, character: int) -> Optional[Dict[str, Any]]:
-        """Get hover information from LSP server for a specific position"""
-        await self.logger.debug(f"get_hover_info: file_path={file_path}, line={line}, character={character}")
-        
-        language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
-        await self.logger.debug(f"Detected language: {language}")
-        
-        if language == "unknown" or not self.lsp_client.is_server_running(language):
-            await self.logger.debug(f"Skipping hover: language={language}, server_running={self.lsp_client.is_server_running(language) if language != 'unknown' else 'N/A'}")
-            return None
-        
-        # Build LSP URI
-        uri = f"file://{Path(file_path).absolute()}"
-        
-        # Request hover information
-        request = {
-            "jsonrpc": "2.0",
-            "id": 0,  # Will be set by LSP client
-            "method": "textDocument/hover",
-            "params": {
-                "textDocument": {
-                    "uri": uri
-                },
-                "position": {
-                    "line": line - 1,  # LSP uses 0-based indexing
-                    "character": character - 1  # LSP uses 0-based indexing
-                }
-            }
-        }
-        
-        try:
-            response = await self.lsp_client.send_request(language, request)
-            await self.logger.debug(f"Hover response received: {response is not None}")
-            
-            if response and "result" in response and response["result"]:
-                await self.logger.debug(f"Hover result contents: {response['result'].get('contents', 'No contents')}")
-                return response["result"]
-            return None
-            
-        except Exception as e:
-            await self.logger.error(f"Failed to get hover info: {e}")
-            return None
-    
-    async def get_enhanced_context_for_file(self, file_path: str, line: int = None) -> Dict[str, Any]:
-        """Get enhanced context for a file including LSP outline"""
-        # Ensure appropriate language server is running for this file
-        language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
-        if language != "unknown" and not self.lsp_client.is_server_running(language):
-            config = LanguageConfigs.get_config(language)
-            await self.lsp_client.start_server(language, config["command"], self.project_root)
-            await self.lsp_client.initialize_connection(language, self.project_root)
-        
-        # Ensure file is opened with LSP server
-        await self.lsp_client.notify_file_opened(file_path, language)
-        
-        # Get document outline
-        outline = await self.get_document_outline(file_path)
-        
-        # Get additional LSP information
-        symbols = await self.get_symbols(file_path)
-        dependencies = await self.get_dependencies(file_path)
-        
-        return {
-            "file_path": file_path,
-            "language": language,
-            "outline": outline,
-            "symbols": symbols,
-            "dependencies": dependencies,
-            "project_root": str(self.project_root)
-        }
+
     
     async def shutdown(self):
         """Shutdown the LSP indexer and all language servers"""
