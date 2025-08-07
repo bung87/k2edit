@@ -34,10 +34,12 @@ from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
 from .utils import (
     create_error_handler,
+    get_config,
+    ErrorHandler
+)
+from .utils.initialization import (
     create_agent_initializer,
     create_file_initializer,
-    get_config,
-    ErrorHandler,
     AgentInitializer,
     FileInitializer
 )

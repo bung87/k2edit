@@ -22,12 +22,9 @@ from .config import (
     load_config_from_file
 )
 
-from .initialization import (
-    AgentInitializer,
-    FileInitializer,
-    create_agent_initializer,
-    create_file_initializer
-)
+# Initialization imports moved to avoid circular dependencies
+# Import these directly when needed:
+# from .initialization import AgentInitializer, FileInitializer
 
 from .language_utils import (
     detect_language_by_extension,
@@ -61,11 +58,7 @@ __all__ = [
     "set_config",
     "load_config_from_file",
     
-    # Initialization
-    "AgentInitializer",
-    "FileInitializer",
-    "create_agent_initializer",
-    "create_file_initializer",
+    # Initialization - import directly from .initialization when needed
     
     # Language utilities
     "detect_language_by_extension",
