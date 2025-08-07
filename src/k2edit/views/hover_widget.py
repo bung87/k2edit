@@ -19,11 +19,12 @@ class HoverWidget(Widget):
     """A floating widget to display LSP hover information."""
  
     
-    def __init__(self, **kwargs):
+    def __init__(self, logger=None, **kwargs):
         super().__init__(**kwargs)
         self._content = ""
         self._visible = False
         self._markdown = None
+        self.logger = logger or Logger(name="k2edit")
         # Explicitly set overlay to 'none' to avoid any default 'cursor' value
         self.styles.overlay = "none"
         self.styles.position = "absolute"
@@ -35,8 +36,7 @@ class HoverWidget(Widget):
     
     async def show_hover(self, content: str, line: int, column: int, editor=None) -> None:
         """Show hover content near the cursor position."""
-        logger = Logger(name="k2edit")
-        await logger.debug(f"HoverWidget.show_hover: line={line}, column={column}, content_length={len(content)}")
+        await self.logger.debug(f"HoverWidget.show_hover: line={line}, column={column}, content_length={len(content)}")
         
         self._content = content
         self._visible = True
@@ -58,20 +58,20 @@ class HoverWidget(Widget):
             if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
                 cursor_line, cursor_column = cursor_location[0], cursor_location[1]
             else:
-                await logger.error(f"Invalid cursor_location format: {cursor_location}")
+                await self.logger.error(f"Invalid cursor_location format: {cursor_location}")
                 return
         except Exception as e:
-            await logger.error(f"Error getting cursor location: {e}")
+            await self.logger.error(f"Error getting cursor location: {e}")
             return
         
-        await logger.debug(f"Editor region: {editor_region}")
-        await logger.debug(f"Cursor location: line={cursor_line}, column={cursor_column}")
-        await logger.debug(f"Raw cursor_location: {cursor_location}")
+        await self.logger.debug(f"Editor region: {editor_region}")
+        await self.logger.debug(f"Cursor location: line={cursor_line}, column={cursor_column}")
+        await self.logger.debug(f"Raw cursor_location: {cursor_location}")
         
         # Calculate absolute screen coordinates
         # Add editor's position to cursor position, accounting for scroll offset
         scroll_offset = editor.scroll_offset
-        await logger.debug(f"Editor scroll offset: {scroll_offset}")
+        await self.logger.debug(f"Editor scroll offset: {scroll_offset}")
         
         # Adjust cursor position by scroll offset
         visible_cursor_line = cursor_line - scroll_offset.y
@@ -88,17 +88,17 @@ class HoverWidget(Widget):
         
         # Get widget height to position it properly above cursor
         widget_height = self.size.height
-        await logger.debug(f"Widget size: {self.size}, height: {widget_height}")
+        await self.logger.debug(f"Widget size: {self.size}, height: {widget_height}")
         
         # If widget still has no height after refresh, calculate based on content
         if widget_height <= 0:
             # Count lines in content to estimate height
             content_lines = len(content.split('\n'))
             widget_height = content_lines + 2  # Add padding for borders/margins
-            await logger.debug(f"Widget height calculated from content lines: {content_lines} -> height: {widget_height}")
+            await self.logger.debug(f"Widget height calculated from content lines: {content_lines} -> height: {widget_height}")
         
         hover_y = max(0, absolute_y - widget_height - 1)  # Position above cursor with widget height offset
-        await logger.debug(f"Positioning: absolute_y={absolute_y}, widget_height={widget_height}, final hover_y={hover_y}")
+        await self.logger.debug(f"Positioning: absolute_y={absolute_y}, widget_height={widget_height}, final hover_y={hover_y}")
         
         # Use absolute positioning with screen overlay
         # The offset is relative to the screen origin (0,0) when using overlay="screen"
@@ -111,14 +111,13 @@ class HoverWidget(Widget):
         self.styles.text_align = "left"
         self.styles.content_align = "left top"
         
-        await logger.debug(f"Hover positioned at absolute coordinates: ({hover_x}, {hover_y})")
-        await logger.debug(f"Calculated from editor region ({editor_region.x}, {editor_region.y}) + visible cursor ({visible_cursor_column}, {visible_cursor_line})")
-        await logger.debug(f"Original cursor ({cursor_column}, {cursor_line}) adjusted by scroll offset ({scroll_offset.x}, {scroll_offset.y})")
+        await self.logger.debug(f"Hover positioned at absolute coordinates: ({hover_x}, {hover_y})")
+        await self.logger.debug(f"Calculated from editor region ({editor_region.x}, {editor_region.y}) + visible cursor ({visible_cursor_column}, {visible_cursor_line})")
+        await self.logger.debug(f"Original cursor ({cursor_column}, {cursor_line}) adjusted by scroll offset ({scroll_offset.x}, {scroll_offset.y})")
         
     async def hide_hover(self) -> None:
         """Hide the hover widget."""
-        logger = Logger(name="k2edit")
-        await logger.debug("HoverWidget.hide_hover called")
+        await self.logger.debug("HoverWidget.hide_hover called")
         
         self._visible = False
         self.remove_class("visible")

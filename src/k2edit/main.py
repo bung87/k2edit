@@ -75,7 +75,7 @@ class K2EditApp(App):
         self.output_panel = OutputPanel(id="output-panel")
         self.file_explorer = FileExplorer(id="file-explorer")
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
-        self.hover_widget = HoverWidget(id="hover-widget")
+        self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
         self.kimi_api = KimiAPI()
         self.agent_integration = None
         self.initial_file = initial_file

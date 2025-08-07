@@ -52,6 +52,12 @@ class LSPClient:
         self.health_monitor_task: Optional[asyncio.Task] = None
         self.message_readers: Dict[str, asyncio.Task] = {}
         
+        # Configuration
+        self.request_timeout = 10.0
+        self.health_check_interval = 30.0
+        self.max_failed_health_checks = 3
+        self.failed_health_checks: Dict[str, int] = {}
+        
     async def _log_info(self, message: str):
         """Log info message asynchronously"""
         await self.logger.info(message)
@@ -67,12 +73,6 @@ class LSPClient:
     async def _log_error(self, message: str, exc_info: bool = False):
         """Log error message asynchronously"""
         await self.logger.error(message, exc_info=exc_info)
-        
-        # Configuration
-        self.request_timeout = 10.0
-        self.health_check_interval = 30.0
-        self.max_failed_health_checks = 3
-        self.failed_health_checks: Dict[str, int] = {}
         
     async def start_server(self, language: str, command: List[str], project_root: Path) -> bool:
         """Start a language server with improved error handling"""
