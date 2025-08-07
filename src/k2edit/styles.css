@@ -521,7 +521,7 @@ BranchSwitcherModal {
     padding: 0;
 }
 
-#branch-list > ListItem:hover > Label {
+#branch-list > ListItem > Label:hover,#branch-list > ListItem:focus > Label {
     background: #3b82f6;
     color: #ffffff;
 }

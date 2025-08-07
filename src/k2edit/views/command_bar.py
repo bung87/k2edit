@@ -139,7 +139,7 @@ class CommandBar(Input):
     async def _handle_save(self, filename: str = "") -> None:
         """Handle file save command."""
         if self.editor:
-            success = self.editor.save_file(filename if filename else None)
+            success = await self.editor.save_file(filename if filename else None)
             if success:
                 self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
             elif not success and not filename:
@@ -152,7 +152,7 @@ class CommandBar(Input):
             return
         
         if self.editor:
-            self.editor.save_file(filename)
+            await self.editor.save_file(filename)
             self.logger.info(f"Successfully saved file as: {filename}")
     
     async def _handle_kimi_query(self, query: str) -> None:

@@ -55,7 +55,7 @@ class K2EditApp(App):
         self.logger = logger or Logger(name="k2edit")
         
         # Initialize components
-        self.editor = CustomSyntaxEditor(app_instance=self)
+        self.editor = CustomSyntaxEditor(app_instance=self, logger=self.logger)
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
         self.file_explorer = FileExplorer(id="file-explorer")
@@ -103,7 +103,7 @@ class K2EditApp(App):
             file_path = Path(self.initial_file)
             if file_path.is_file():
                 await self.logger.info(f"Loading initial file: {self.initial_file}")
-                if self.editor.load_file(self.initial_file):
+                if await self.editor.load_file(self.initial_file):
                     self.output_panel.add_info(f"Loaded file: {self.initial_file}")
                     await self.logger.info(f"Successfully loaded initial file: {self.initial_file}")
                     self.editor.focus()
@@ -188,6 +188,22 @@ class K2EditApp(App):
         if self.agent_integration:
             await self.agent_integration.on_file_open(file_path)
             
+            # Start language server if not running for this file's language
+            if self.agent_integration.lsp_client:
+                from .agent.language_configs import LanguageConfigs
+                from pathlib import Path
+                
+                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                if language != "unknown" and not self.agent_integration.lsp_client.is_server_running(language):
+                    try:
+                        await self.logger.info(f"Starting {language} language server for opened file: {file_path}")
+                        config = LanguageConfigs.get_config(language)
+                        await self.agent_integration.lsp_client.start_server(language, config["command"], str(self.agent_integration.project_root))
+                        await self.agent_integration.lsp_client.initialize_connection(language, str(self.agent_integration.project_root))
+                        await self.logger.info(f"Started {language} language server successfully")
+                    except Exception as e:
+                        await self.logger.error(f"Failed to start {language} language server: {e}")
+            
             # Notify LSP server about the opened file
             if self.agent_integration.lsp_indexer:
                 await self.agent_integration.lsp_client.notify_file_opened(file_path)
@@ -264,7 +280,9 @@ class K2EditApp(App):
             await self.logger.debug(f"Requesting hover for: {file_path} at ({line}, {column})")
             
             # Request hover information
-            hover_result = await self.agent_integration.lsp_client.get_hover_info(file_path, line, column)
+            hover_result = await self.agent_integration.lsp_client.get_hover_info(
+                file_path, line, column
+            )
             await self.logger.debug(f"Hover result: {hover_result is not None}")
             
             if hover_result and "contents" in hover_result:
@@ -420,7 +438,7 @@ class K2EditApp(App):
         await self.logger.info(f"File selected from explorer: {file_path}")
         
         if Path(file_path).is_file():
-            if self.editor.load_file(file_path):
+            if await self.editor.load_file(file_path):
                 self.output_panel.add_info(f"Loaded file: {file_path}")
                 await self.logger.info(f"Successfully loaded file from explorer: {file_path}")
                 self.editor.focus()

@@ -320,8 +320,13 @@ class LSPClient:
         
         await self.logger.debug(f"Detected language: {language}")
         
-        if language == "unknown" or not self.is_server_running(language):
-            await self.logger.debug(f"Skipping hover: language={language}, server_running={self.is_server_running(language) if language != 'unknown' else 'N/A'}")
+        if language == "unknown":
+            await self.logger.debug(f"Skipping hover: language={language}")
+            return None
+            
+        # Check if language server is running
+        if not self.is_server_running(language):
+            await self.logger.debug(f"Skipping hover: language={language}, server_running=False")
             return None
         
         # Build LSP URI

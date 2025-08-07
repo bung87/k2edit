@@ -12,9 +12,10 @@ from .nim_highlight import register_nim_language, is_nim_available
 class CustomSyntaxEditor(TextArea):
     """Custom syntax-aware text editor with enhanced file handling."""
     
-    def __init__(self, app_instance=None, **kwargs):
+    def __init__(self, app_instance=None, logger=None, **kwargs):
         super().__init__(**kwargs)
         self._app_instance = app_instance
+        self.logger = logger
         self.current_file = None
         self.is_modified = False
         self.read_only = False
@@ -80,7 +81,7 @@ class CustomSyntaxEditor(TextArea):
         self.language = None
         self.read_only = True
 
-    def load_file(self, file_path: Union[str, Path]) -> bool:
+    async def load_file(self, file_path: Union[str, Path]) -> bool:
         """Load a file into the editor."""
         try:
             path = Path(file_path)
@@ -102,8 +103,8 @@ class CustomSyntaxEditor(TextArea):
                             self.language = language
                         except Exception as e:
                             # Language not supported or other error, fall back to plain text
-                            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                                self._app_instance.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
+                            if self.logger:
+                                 await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
                             self.text = ""
                             self.language = None
                     else:
@@ -118,8 +119,8 @@ class CustomSyntaxEditor(TextArea):
                     else:
                         raise  # Re-raise if it's a different ValueError
                 
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
+                if self.logger:
+                     await self.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
                 return True
             
             with open(path, 'r', encoding='utf-8') as f:
@@ -139,8 +140,8 @@ class CustomSyntaxEditor(TextArea):
                         self.language = language
                     except Exception as e:
                         # Language not supported or other error, fall back to plain text
-                        if self._app_instance and hasattr(self._app_instance, 'logger'):
-                            self._app_instance.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
+                        if self.logger:
+                             await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
                         self.text = content
                         self.language = None
                 else:
@@ -148,8 +149,8 @@ class CustomSyntaxEditor(TextArea):
                     self.language = None
             except ValueError as e:
                 if "Parsing failed" in str(e):
-                    if self._app_instance and hasattr(self._app_instance, 'logger'):
-                        self._app_instance.logger.warning(f"CUSTOM_EDITOR: Tree-sitter parsing failed for {path}, falling back to plain text mode")
+                    if self.logger:
+                         await self.logger.warning(f"CUSTOM_EDITOR: Tree-sitter parsing failed for {path}, falling back to plain text mode")
                     self.text = content
                     self.language = None  # Fall back to plain text
                 else:
@@ -162,21 +163,21 @@ class CustomSyntaxEditor(TextArea):
             return True
             
         except Exception as e:
-            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                self._app_instance.logger.error(f"CUSTOM EDITOR: Error loading file {file_path}: {e}", exc_info=True)
+            if self.logger:
+                 await self.logger.error(f"CUSTOM EDITOR: Error loading file {file_path}: {e}", exc_info=True)
             return False
 
     def get_selected_text(self) -> Optional[str]:
         """Get the currently selected text. Returns None if no selection."""
         return self.selected_text
 
-    def save_file(self, file_path: Optional[Union[str, Path]] = None) -> bool:
+    async def save_file(self, file_path: Optional[Union[str, Path]] = None) -> bool:
         """Save the current content to a file."""
         try:
             path = Path(file_path) if file_path else self.current_file
             if not path:
-                if self._app_instance and hasattr(self._app_instance, 'logger'):
-                    self._app_instance.logger.error("CUSTOM EDITOR: No file path specified for saving.")
+                if self.logger:
+                     await self.logger.error("CUSTOM EDITOR: No file path specified for saving.")
                 return False
 
             # Ensure parent directory exists
@@ -189,14 +190,14 @@ class CustomSyntaxEditor(TextArea):
             self.current_file = path
             self.is_modified = False
 
-            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                self._app_instance.logger.info(f"CUSTOM EDITOR: Successfully saved file: {path}")
+            if self.logger:
+                 await self.logger.info(f"CUSTOM EDITOR: Successfully saved file: {path}")
             
             return True
 
         except Exception as e:
-            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                self._app_instance.logger.error(f"CUSTOM EDITOR: Error saving file: {e}", exc_info=True)
+            if self.logger:
+                 await self.logger.error(f"CUSTOM EDITOR: Error saving file: {e}", exc_info=True)
             return False
 
     @property
@@ -209,16 +210,16 @@ class CustomSyntaxEditor(TextArea):
         """Get cursor column."""
         return self.cursor_location[1]
 
-    def on_text_area_selection_changed(self, event) -> None:
+    async def on_text_area_selection_changed(self, event) -> None:
         """Called when cursor position or selection changes."""
         line, column = self.cursor_location
-        if self._app_instance and hasattr(self._app_instance, 'logger'):
-            self._app_instance.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
-            self._app_instance.logger.debug(f"CUSTOM EDITOR: Raw cursor_location: {self.cursor_location}")
-            self._app_instance.logger.debug(f"CUSTOM EDITOR: Event details: {event}")
+        if self.logger:
+             await self.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
+             await self.logger.debug(f"CUSTOM EDITOR: Raw cursor_location: {self.cursor_location}")
+             await self.logger.debug(f"CUSTOM EDITOR: Event details: {event}")
         
         # Call the callback if it exists
         if hasattr(self, 'cursor_position_changed') and self.cursor_position_changed:
-            if self._app_instance and hasattr(self._app_instance, 'logger'):
-                self._app_instance.logger.debug(f"CUSTOM EDITOR: Calling cursor_position_changed with ({line}, {column})")
+            if self.logger:
+                 await self.logger.debug(f"CUSTOM EDITOR: Calling cursor_position_changed with ({line}, {column})")
             self.cursor_position_changed(line, column)
