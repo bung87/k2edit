@@ -132,7 +132,7 @@ class K2EditApp(App):
             if success:
                 self.editor.focus()
                 # Update status bar with file information
-                self._update_status_bar()
+                await self._update_status_bar()
         else:
             await self.logger.info("No initial file provided, starting with an empty editor.")
             self.editor.focus()
@@ -255,7 +255,7 @@ class K2EditApp(App):
                 if content and content.strip():
                     self._last_hover_content = content
                     await self.logger.debug("Showing hover content")
-                    self._show_hover_at_cursor(content)
+                    await self._show_hover_at_cursor(content)
                 else:
                     await self.logger.debug("Hover content empty or invalid")
             else:
@@ -284,7 +284,7 @@ class K2EditApp(App):
         
         return ""
 
-    def _show_hover_at_cursor(self, content: str) -> None:
+    async def _show_hover_at_cursor(self, content: str) -> None:
         """Show hover content at cursor position in terminal."""
         if not content or not content.strip():
             return
@@ -296,7 +296,7 @@ class K2EditApp(App):
         hover_line = line
         hover_column = column
         
-        self.hover_widget.show_hover(content, hover_line, hover_column, self.editor)
+        await self.hover_widget.show_hover(content, hover_line, hover_column, self.editor)
         self._last_hover_content = content
         self._last_hover_position = (line, column)
 
@@ -320,7 +320,7 @@ class K2EditApp(App):
         if new_position == self._last_hover_position and self._last_hover_content:
             # Same position, reuse cached content
             await self.logger.debug("Reusing cached hover content for same position")
-            self._show_hover_at_cursor(self._last_hover_content)
+            await self._show_hover_at_cursor(self._last_hover_content)
             return
         
         # Reset cached content for new position
@@ -442,7 +442,8 @@ class K2EditApp(App):
     
     def on_editor_content_changed(self, event) -> None:
         """Handle editor content changes."""
-        self._update_status_bar()
+        # Schedule the async status bar update
+        asyncio.create_task(self._update_status_bar())
     
     async def _add_file_to_context(self, file_path: str) -> None:
         """Add file to AI agent context."""
@@ -499,7 +500,7 @@ class K2EditApp(App):
         """Focus the editor."""
         self.editor.focus()
     
-    def _update_status_bar(self):
+    async def _update_status_bar(self):
         """Update status bar with current editor information."""
         if self.editor and self.status_bar:
             # Update cursor position
@@ -516,7 +517,7 @@ class K2EditApp(App):
             editor_content = self.editor.text
             
             # Update status bar with editor content and file path
-            self.status_bar.update_from_editor(editor_content, current_file)
+            await self.status_bar.update_from_editor(editor_content, current_file)
             
             # Force refresh of status bar
             self.status_bar.refresh()
