@@ -214,7 +214,7 @@ class K2EditApp(App):
                     'diagnostics': diagnostics,
                     'file_path': file_path
                 }
-                self.status_bar.update_diagnostics_from_lsp(diagnostics_data)
+                await self.status_bar.update_diagnostics_from_lsp(diagnostics_data)
             else:
                 await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
         except Exception as e:
@@ -308,7 +308,7 @@ class K2EditApp(App):
         # Hide hover widget on cursor movement
         if self.hover_widget.is_visible():
             await self.logger.debug("Hiding hover widget due to cursor movement")
-            self.hover_widget.hide_hover()
+            await self.hover_widget.hide_hover()
         
         # Cancel existing hover timer
         if self._hover_timer:
@@ -335,7 +335,7 @@ class K2EditApp(App):
         """Handle key presses to dismiss hover."""
         # Dismiss hover on any key press
         if hasattr(self, 'hover_widget') and self.hover_widget.is_visible():
-            self.hover_widget.hide_hover()
+            await self.hover_widget.hide_hover()
         
         # Cancel any pending hover request
         if hasattr(self, '_hover_timer') and self._hover_timer is not None:
@@ -423,7 +423,7 @@ class K2EditApp(App):
     async def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Handle text changes in editor."""
         if self.status_bar:
-            self.status_bar.update_from_editor(self.editor.text, str(self.editor.current_file) if self.editor.current_file else "")
+            await self.status_bar.update_from_editor(self.editor.text, str(self.editor.current_file) if self.editor.current_file else "")
 
     async def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
         """Handle adding file to AI context from file explorer."""

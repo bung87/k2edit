@@ -226,7 +226,14 @@ class StatusBar(Widget):
                 await self.logger.debug(f"Calling show_diagnostics_modal on app: {self.app}")
                 # Try to call the method directly if it exists
                 if hasattr(self.app, 'show_diagnostics_modal'):
-                    self.app.show_diagnostics_modal(diagnostics_to_show)
+                    await self.logger.debug("About to call show_diagnostics_modal method directly")
+                    try:
+                        await self.app.show_diagnostics_modal(diagnostics_to_show)
+                        await self.logger.debug("Successfully called show_diagnostics_modal method")
+                    except Exception as e:
+                        await self.logger.error(f"Error calling show_diagnostics_modal: {e}")
+                        import traceback
+                        await self.logger.error(traceback.format_exc())
                 else:
                     # Fallback to using the message handler directly
                     try:
