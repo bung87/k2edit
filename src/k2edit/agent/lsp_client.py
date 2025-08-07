@@ -58,26 +58,12 @@ class LSPClient:
         self.max_failed_health_checks = 3
         self.failed_health_checks: Dict[str, int] = {}
         
-    async def _log_info(self, message: str):
-        """Log info message asynchronously"""
-        await self.logger.info(message)
-    
-    async def _log_debug(self, message: str):
-        """Log debug message asynchronously"""
-        await self.logger.debug(message)
-    
-    async def _log_warning(self, message: str):
-        """Log warning message asynchronously"""
-        await self.logger.warning(message)
-    
-    async def _log_error(self, message: str, exc_info: bool = False):
-        """Log error message asynchronously"""
-        await self.logger.error(message, exc_info=exc_info)
+
         
     async def start_server(self, language: str, command: List[str], project_root: Path) -> bool:
         """Start a language server with improved error handling"""
         try:
-            await self._log_info(f"Starting {language} language server: {' '.join(command)}")
+            await self.logger.info(f"Starting {language} language server: {' '.join(command)}")
             
             # Stop existing server if running
             if language in self.connections:
@@ -108,7 +94,7 @@ class LSPClient:
             # Start stderr logger
             asyncio.create_task(self._stderr_logger(language))
             
-            await self._log_info(f"{language} server started with PID: {process.pid}")
+            await self.logger.info(f"{language} server started with PID: {process.pid}")
             
             # Start health monitoring if not already running
             if self.health_monitor_task is None:
@@ -117,7 +103,7 @@ class LSPClient:
             return True
             
         except Exception as e:
-            await self._log_error(f"Failed to start {language} server: {e}", exc_info=True)
+            await self.logger.error(f"Failed to start {language} server: {e}", exc_info=True)
             return False
     
     async def stop_server(self, language: str) -> None:
@@ -147,10 +133,10 @@ class LSPClient:
                     connection.process.kill()
                     await connection.process.wait()
             
-            await self._log_info(f"Stopped {language} language server")
+            await self.logger.info(f"Stopped {language} language server")
             
         except Exception as e:
-            await self._log_error(f"Error stopping {language} server: {e}")
+            await self.logger.error(f"Error stopping {language} server: {e}")
         finally:
             del self.connections[language]
             self.failed_health_checks.pop(language, None)
@@ -203,26 +189,26 @@ class LSPClient:
                     "params": {}
                 })
                 
-                await self._log_info(f"{language} server initialized successfully")
+                await self.logger.info(f"{language} server initialized successfully")
                 return True
             else:
-                await self._log_error(f"Failed to initialize {language} server")
+                await self.logger.error(f"Failed to initialize {language} server")
                 return False
                 
         except Exception as e:
-            await self._log_error(f"Error initializing {language} server: {e}")
+            await self.logger.error(f"Error initializing {language} server: {e}")
             return False
     
     async def send_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Send LSP request with improved response correlation"""
         if language not in self.connections:
-            await self._log_warning(f"No connection for language: {language}")
+            await self.logger.warning(f"No connection for language: {language}")
             return None
         
         connection = self.connections[language]
         
         if not connection.is_healthy():
-            await self._log_warning(f"Connection unhealthy for {language}")
+            await self.logger.warning(f"Connection unhealthy for {language}")
             return None
         
         try:
@@ -243,14 +229,14 @@ class LSPClient:
                 response = await asyncio.wait_for(response_future, timeout=self.request_timeout)
                 return response
             except asyncio.TimeoutError:
-                await self._log_warning(f"Request {message_id} timed out for {language}")
+                await self.logger.warning(f"Request {message_id} timed out for {language}")
                 return None
             finally:
                 # Clean up pending request
                 connection.pending_requests.pop(message_id, None)
                 
         except Exception as e:
-            await self._log_error(f"Error sending request to {language}: {e}")
+            await self.logger.error(f"Error sending request to {language}: {e}")
             return None
     
     async def send_notification(self, language: str, notification: Dict[str, Any]) -> None:
@@ -267,7 +253,7 @@ class LSPClient:
             await self._send_message(connection, notification)
             connection.last_activity = time.time()
         except Exception as e:
-            await self._log_error(f"Error sending notification to {language}: {e}")
+            await self.logger.error(f"Error sending notification to {language}: {e}")
     
     async def _send_message(self, connection: LSPConnection, message: Dict[str, Any]) -> None:
         """Send message to language server process"""
@@ -286,7 +272,7 @@ class LSPClient:
             return
         
         connection = self.connections[language]
-        await self._log_info(f"Started message reader for {language}")
+        await self.logger.info(f"Started message reader for {language}")
         
         try:
             while connection.is_healthy():
@@ -309,12 +295,12 @@ class LSPClient:
                             future.set_result(message)
                 
         except asyncio.CancelledError:
-            await self._log_info(f"Message reader cancelled for {language}")
+            await self.logger.info(f"Message reader cancelled for {language}")
         except Exception as e:
-            await self._log_error(f"Error in message reader for {language}: {e}")
+            await self.logger.error(f"Error in message reader for {language}: {e}")
             connection.status = ServerStatus.ERROR
         finally:
-            await self._log_info(f"Message reader stopped for {language}")
+            await self.logger.info(f"Message reader stopped for {language}")
     
     async def _read_single_message(self, connection: LSPConnection) -> Optional[Dict[str, Any]]:
         """Read a single LSP message from the connection"""
@@ -342,13 +328,13 @@ class LSPClient:
             content = await connection.process.stdout.read(content_length)
             
             if len(content) != content_length:
-                await self._log_warning(f"Incomplete message read for {connection.language}")
+                await self.logger.warning(f"Incomplete message read for {connection.language}")
                 return None
             
             return json.loads(content.decode('utf-8'))
             
         except Exception as e:
-            await self._log_error(f"Error reading message: {e}")
+            await self.logger.error(f"Error reading message: {e}")
             return None
     
     async def _handle_notification(self, language: str, notification: Dict[str, Any]) -> None:
@@ -371,14 +357,14 @@ class LSPClient:
             file_path = uri[7:]  # Remove file:// prefix
             self.diagnostics[file_path] = diagnostics
             
-            await self._log_debug(f"Received {len(diagnostics)} diagnostics for {file_path}")
+            await self.logger.debug(f"Received {len(diagnostics)} diagnostics for {file_path}")
             
             # Notify callback if available
             if self.diagnostics_callback:
                 try:
                     await self.diagnostics_callback(file_path, diagnostics)
                 except Exception as e:
-                    await self._log_error(f"Error in diagnostics callback: {e}")
+                    await self.logger.error(f"Error in diagnostics callback: {e}")
     
     async def _handle_log_message(self, language: str, params: Dict[str, Any]) -> None:
         """Handle log message from language server"""
@@ -386,11 +372,11 @@ class LSPClient:
         message_type = params.get("type", 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
         
         if message_type == 1:
-            await self._log_error(f"[{language}-lsp] {message}")
+            await self.logger.error(f"[{language}-lsp] {message}")
         elif message_type == 2:
-            await self._log_warning(f"[{language}-lsp] {message}")
+            await self.logger.warning(f"[{language}-lsp] {message}")
         else:
-            await self._log_info(f"[{language}-lsp] {message}")
+            await self.logger.info(f"[{language}-lsp] {message}")
     
     async def _stderr_logger(self, language: str) -> None:
         """Log stderr from language server"""
@@ -407,23 +393,23 @@ class LSPClient:
                 
                 message = line.decode('utf-8').strip()
                 if message:
-                    await self._log_warning(f"[{language}-stderr] {message}")
+                    await self.logger.warning(f"[{language}-stderr] {message}")
                     
         except Exception as e:
-            await self._log_error(f"Error reading stderr for {language}: {e}")
+            await self.logger.error(f"Error reading stderr for {language}: {e}")
     
     async def _health_monitor(self) -> None:
         """Monitor health of all language servers"""
-        await self._log_info("Started LSP health monitor")
+        await self.logger.info("Started LSP health monitor")
         
         try:
             while True:
                 await asyncio.sleep(self.health_check_interval)
                 await self._check_all_servers()
         except asyncio.CancelledError:
-            await self._log_info("Health monitor cancelled")
+            await self.logger.info("Health monitor cancelled")
         except Exception as e:
-            await self._log_error(f"Error in health monitor: {e}")
+            await self.logger.error(f"Error in health monitor: {e}")
     
     async def _check_all_servers(self) -> None:
         """Check health of all running servers"""
@@ -439,18 +425,18 @@ class LSPClient:
         
         # Check if process is still alive
         if not connection.is_healthy():
-            await self._log_warning(f"Server {language} is unhealthy, attempting restart")
+            await self.logger.warning(f"Server {language} is unhealthy, attempting restart")
             await self._restart_server(language)
             return
         
         # Check for activity timeout
         time_since_activity = time.time() - connection.last_activity
         if time_since_activity > 300:  # 5 minutes
-            await self._log_warning(f"Server {language} inactive for {time_since_activity:.1f}s")
+            await self.logger.warning(f"Server {language} inactive for {time_since_activity:.1f}s")
     
     async def _restart_server(self, language: str) -> None:
         """Restart a language server"""
-        await self._log_info(f"Restarting {language} server")
+        await self.logger.info(f"Restarting {language} server")
         
         # This would need to be implemented with access to the original command and project_root
         # For now, just stop the server - the application layer should handle restart
@@ -474,7 +460,7 @@ class LSPClient:
                 async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
                     content = await f.read()
             except Exception as e:
-                await self._log_warning(f"Failed to read file content: {e}")
+                await self.logger.warning(f"Failed to read file content: {e}")
                 return
             
             # Send didOpen notification
@@ -493,10 +479,10 @@ class LSPClient:
             }
             
             await self.send_notification(language, notification)
-            await self._log_info(f"Notified LSP about opened file: {file_path}")
+            await self.logger.info(f"Notified LSP about opened file: {file_path}")
             
         except Exception as e:
-            await self._log_warning(f"Failed to notify LSP about opened file: {e}")
+            await self.logger.warning(f"Failed to notify LSP about opened file: {e}")
     
     async def notify_file_changed(self, file_path: str, content: str, language: str = None) -> None:
         """Notify LSP server about file content changes"""
@@ -533,10 +519,10 @@ class LSPClient:
             self._file_versions[file_path] = notification["params"]["textDocument"]["version"]
             
             await self.send_notification(language, notification)
-            await self._log_info(f"Notified LSP about file change: {file_path}")
+            await self.logger.info(f"Notified LSP about file change: {file_path}")
             
         except Exception as e:
-            await self._log_warning(f"Failed to notify LSP about file change: {e}")
+            await self.logger.warning(f"Failed to notify LSP about file change: {e}")
     
     async def get_hover_info(self, file_path: str, line: int, character: int, language: str = None) -> Optional[Dict[str, Any]]:
         """Get hover information from LSP server"""
@@ -566,7 +552,7 @@ class LSPClient:
             return None
             
         except Exception as e:
-            await self._log_error(f"Failed to get hover info: {e}")
+            await self.logger.error(f"Failed to get hover info: {e}")
             return None
     
     def is_server_running(self, language: str) -> bool:
@@ -576,7 +562,7 @@ class LSPClient:
     
     async def shutdown(self) -> None:
         """Shutdown all language servers"""
-        await self._log_info("Shutting down all LSP servers")
+        await self.logger.info("Shutting down all LSP servers")
         
         # Cancel health monitor
         if self.health_monitor_task:
@@ -592,7 +578,7 @@ class LSPClient:
         for language in list(self.connections.keys()):
             await self.stop_server(language)
         
-        await self._log_info("All LSP servers shut down")
+        await self.logger.info("All LSP servers shut down")
     
     def get_diagnostics(self, file_path: str = None) -> Dict[str, List[Dict[str, Any]]]:
         """Get diagnostics for a specific file or all files"""
