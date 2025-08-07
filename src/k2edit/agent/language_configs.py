@@ -1,8 +1,7 @@
-"""
-Language Server Configurations for K2Edit Agentic System
-Defines configurations for different language servers
-"""
+"""Language Server Configurations for K2Edit Agentic System
+Defines configurations for different language servers"""
 
+import sys
 from typing import Dict, List, Any
 
 
@@ -14,7 +13,7 @@ class LanguageConfigs:
         """Get all language server configurations"""
         return {
             "python": {
-                "command": ["/Users/bung/Library/Python/3.9/bin/pylsp"],
+                "command": [sys.executable, "-m", "pylsp"],
                 "extensions": [".py"],
                 "settings": {
                     "pylsp": {
