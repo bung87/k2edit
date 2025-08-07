@@ -591,6 +591,45 @@ class LSPClient:
         except Exception as e:
             await self.logger.error(f"Failed to get hover info: {e}")
             return None
+
+    async def get_completions(self, file_path: str, line: int, character: int, language: str = None) -> Optional[List[Dict[str, Any]]]:
+        """Get completion suggestions from LSP server"""
+        try:
+            if language is None:
+                language = detect_language_by_extension(Path(file_path).suffix)
+            
+            if language == "unknown" or not self.is_server_running(language):
+                return None
+            
+            uri = f"file://{Path(file_path).absolute()}"
+            
+            request = {
+                "jsonrpc": "2.0",
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character},
+                    "context": {
+                        "triggerKind": 1  # Invoked manually
+                    }
+                }
+            }
+            
+            response = await self.send_request(language, request)
+            
+            if response and "result" in response:
+                result = response["result"]
+                if isinstance(result, list):
+                    return result
+                elif isinstance(result, dict) and "items" in result:
+                    return result["items"]
+                elif isinstance(result, dict):
+                    return [result]
+            return []
+            
+        except Exception as e:
+            await self.logger.error(f"Failed to get completions: {e}")
+            return None
     
     def is_server_running(self, language: str) -> bool:
         """Check if a language server is running"""

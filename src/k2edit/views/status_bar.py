@@ -87,6 +87,11 @@ class StatusBar(Widget):
         if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
             self._update_diagnostics_display()
 
+    def watch_language_server_status(self, status: str) -> None:
+        """Watch for language server status changes."""
+        if hasattr(self, 'lsp_status_widget') and self.lsp_status_widget:
+            self.lsp_status_widget.update(f"LSP: {status}")
+
     async def watch_language(self, language: str) -> None:
         """Watch for language changes."""
         await self.logger.debug(f"watch_language: {language}")
@@ -436,10 +441,7 @@ class StatusBar(Widget):
         # For now, we'll use the language widget or add a new one
         if hasattr(self, 'lsp_status_widget'):
             self.lsp_status_widget.update(f"LSP: {status}")
-        else:
-            # Fallback: append to language widget
-            current_lang = self.language or "Text"
-            self.lang_widget.update(f"{current_lang} (LSP: {status})")
+
 
     def _update_diagnostics_display(self):
         """Update the diagnostics display widget."""
