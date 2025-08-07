@@ -85,7 +85,7 @@ class LSPIndexer:
 
     
     async def _build_initial_index_background(self, progress_callback=None):
-        """Build initial symbol index for all files in background with progress updates"""
+        """Build initial symbol index for all files in background with progress updates using concurrent processing"""
         if self.language == "unknown":
             await self.logger.info("Unknown language detected, skipping initial indexing")
             if progress_callback:
@@ -106,30 +106,64 @@ class LSPIndexer:
             filter_percentage = (stats["filtered"] / stats["total"]) * 100
             await self.logger.info(f"Filtered out {stats['filtered']} files ({filter_percentage:.1f}%)")
         
-        # Index each file with progress logging
+        # Index files concurrently with progress logging
         indexed_count = 0
         failed_count = 0
         
-        for i, file_path in enumerate(files):
-            try:
-                await self._index_file(file_path)
-                indexed_count += 1
-                
-                # Report progress
-                progress = (i + 1) / len(files) * 100
-                if progress_callback and (i + 1) % 10 == 0:
-                    await progress_callback(f"Indexing symbols... {i + 1}/{len(files)} files ({progress:.1f}%)")
-                
-                if indexed_count % 20 == 0:
-                    await self.logger.info(f"Indexed {indexed_count}/{len(files)} files...")
-                    
-            except Exception as e:
-                failed_count += 1
-                await self.logger.warning(f"Failed to index {file_path}: {e}")
+        # Determine optimal number of workers (max 8 to avoid overwhelming LSP server)
+        max_workers = min(8, max(1, len(files) // 10))
+        await self.logger.info(f"Using {max_workers} concurrent workers for indexing")
+        
+        # Process files in batches to manage memory and provide progress updates
+        batch_size = max(10, len(files) // 20)  # Process in batches for better progress reporting
+        
+        for batch_start in range(0, len(files), batch_size):
+            batch_end = min(batch_start + batch_size, len(files))
+            batch_files = files[batch_start:batch_end]
+            
+            # Process current batch concurrently
+            batch_results = await self._index_files_batch(batch_files, max_workers)
+            
+            # Update counters
+            for success in batch_results:
+                if success:
+                    indexed_count += 1
+                else:
+                    failed_count += 1
+            
+            # Report progress
+            total_processed = batch_end
+            progress = total_processed / len(files) * 100
+            if progress_callback:
+                await progress_callback(f"Indexing symbols... {total_processed}/{len(files)} files ({progress:.1f}%)")
+            
+            await self.logger.info(f"Batch complete: {indexed_count}/{total_processed} files indexed...")
         
         await self.logger.info(f"Initial indexing complete: {indexed_count} successful, {failed_count} failed")
         if progress_callback:
             await progress_callback(f"Indexing complete: {indexed_count} files indexed, {failed_count} failed")
+    
+    async def _index_files_batch(self, files: List[Path], max_workers: int) -> List[bool]:
+        """Index a batch of files concurrently using asyncio semaphore for controlled concurrency"""
+        # Use semaphore to limit concurrent operations to avoid overwhelming the LSP server
+        semaphore = asyncio.Semaphore(max_workers)
+        
+        async def _index_file_with_semaphore(file_path: Path) -> bool:
+            """Index a single file with semaphore control"""
+            async with semaphore:
+                try:
+                    await self._index_file(file_path)
+                    await self.logger.debug(f"Successfully indexed: {file_path}")
+                    return True
+                except Exception as e:
+                    await self.logger.warning(f"Failed to index {file_path}: {e}")
+                    return False
+        
+        # Execute all file indexing tasks concurrently with controlled concurrency
+        tasks = [_index_file_with_semaphore(file_path) for file_path in files]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        
+        return results
     
     async def _index_file(self, file_path: Path):
         """Index a single file for symbols"""
@@ -211,23 +245,91 @@ class LSPIndexer:
         language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
         return await self.symbol_parser.extract_dependencies(file_path, language)
     
+    async def get_project_dependencies(self, file_paths: List[str] = None) -> Dict[str, List[str]]:
+        """Get dependencies for multiple files concurrently"""
+        if file_paths is None:
+            # Get all indexed files
+            file_paths = list(self.symbol_index.keys())
+        
+        if not file_paths:
+            return {}
+        
+        await self.logger.info(f"Extracting dependencies for {len(file_paths)} files")
+        
+        # Process files concurrently for better performance
+        max_workers = min(8, max(1, len(file_paths) // 5))
+        semaphore = asyncio.Semaphore(max_workers)
+        
+        async def _extract_file_dependencies(file_path: str) -> tuple[str, List[str]]:
+            """Extract dependencies for a single file"""
+            async with semaphore:
+                try:
+                    # Convert relative path to absolute for dependency extraction
+                    abs_path = str(self.project_root / file_path)
+                    language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+                    dependencies = await self.symbol_parser.extract_dependencies(abs_path, language)
+                    return file_path, dependencies
+                except Exception as e:
+                    await self.logger.warning(f"Failed to extract dependencies for {file_path}: {e}")
+                    return file_path, []
+        
+        # Create tasks for concurrent processing
+        tasks = [_extract_file_dependencies(file_path) for file_path in file_paths]
+        
+        # Execute all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        
+        # Build dependency map
+        dependency_map = {file_path: deps for file_path, deps in results}
+        
+        total_deps = sum(len(deps) for deps in dependency_map.values())
+        await self.logger.info(f"Extracted {total_deps} total dependencies from {len(file_paths)} files")
+        
+        return dependency_map
+    
     async def get_project_symbols(self, top_level_only: bool = False) -> List[Dict[str, Any]]:
-        """Get symbols across the project, optionally filtering for top-level symbols only"""
+        """Get symbols across the project, optionally filtering for top-level symbols only with concurrent processing"""
         await self.logger.info(f"Starting project-wide symbol fetching (top_level_only={top_level_only})")
         
-        all_symbols = []
         total_files = len(self.symbol_index)
-        
         await self.logger.info(f"Symbol index contains {total_files} files")
         
-        for file_path, symbols in self.symbol_index.items():
-            for symbol in symbols:
-                # Filter for top-level symbols only if requested
-                if top_level_only and symbol.get("parent"):
-                    continue
+        if not self.symbol_index:
+            return []
+        
+        # Process files concurrently for better performance with large projects
+        max_workers = min(8, max(1, total_files // 5))
+        semaphore = asyncio.Semaphore(max_workers)
+        
+        async def _process_file_symbols(file_path: str, symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            """Process symbols from a single file with filtering"""
+            async with semaphore:
+                file_symbols = []
+                for symbol in symbols:
+                    # Filter for top-level symbols only if requested
+                    if top_level_only and symbol.get("parent"):
+                        continue
                     
-                symbol["file_path"] = file_path
-                all_symbols.append(symbol)
+                    # Create a copy to avoid modifying the original
+                    symbol_copy = symbol.copy()
+                    symbol_copy["file_path"] = file_path
+                    file_symbols.append(symbol_copy)
+                
+                return file_symbols
+        
+        # Create tasks for concurrent processing
+        tasks = [
+            _process_file_symbols(file_path, symbols)
+            for file_path, symbols in self.symbol_index.items()
+        ]
+        
+        # Execute all tasks concurrently
+        file_results = await asyncio.gather(*tasks, return_exceptions=False)
+        
+        # Flatten results
+        all_symbols = []
+        for file_symbols in file_results:
+            all_symbols.extend(file_symbols)
         
         # Log statistics
         stats = await self.symbol_parser.get_symbol_statistics(self.symbol_index)
