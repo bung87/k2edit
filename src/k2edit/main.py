@@ -55,7 +55,7 @@ class K2EditApp(App):
         self.logger = logger or Logger(name="k2edit")
         
         # Initialize components
-        self.editor = CustomSyntaxEditor(app_instance=self, logger=self.logger)
+        self.editor = CustomSyntaxEditor(self.logger)
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
         self.file_explorer = FileExplorer(id="file-explorer")

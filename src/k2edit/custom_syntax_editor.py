@@ -12,9 +12,8 @@ from .nim_highlight import register_nim_language, is_nim_available
 class CustomSyntaxEditor(TextArea):
     """Custom syntax-aware text editor with enhanced file handling."""
     
-    def __init__(self, app_instance=None, logger=None, **kwargs):
+    def __init__(self, logger, **kwargs):
         super().__init__(**kwargs)
-        self._app_instance = app_instance
         self.logger = logger
         self.current_file = None
         self.is_modified = False
@@ -81,86 +80,73 @@ class CustomSyntaxEditor(TextArea):
         self.language = None
         self.read_only = True
 
+    async def _create_new_file(self, path: Path) -> bool:
+        """Create a new file buffer."""
+        self.current_file = path
+        self.is_modified = False
+        self.read_only = False
+        
+        # Try to set language and load content with fallback to plain text if parsing fails
+        language = self._language_map.get(path.suffix.lower(), "text")
+        await self._set_content_with_language("", language)
+        
+        if self.logger:
+             await self.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
+        return True
+
+    async def _load_existing_file(self, path: Path) -> bool:
+        """Load content from an existing file."""
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Set language based on file extension
+        extension = path.suffix.lower()
+        language = self._language_map.get(extension)
+        
+        await self._set_content_with_language(content, language)
+        
+        self.current_file = path
+        self.is_modified = False
+        self.read_only = False
+        
+        return True
+
+    async def _set_content_with_language(self, content: str, language: Optional[str]) -> None:
+        """Set content with language support, falling back to plain text if needed."""
+        try:
+            # Use built-in tree-sitter support from Textual
+            if language and language != "text":
+                try:
+                    # Set the text and language properties
+                    self.text = content
+                    self.language = language
+                except Exception as e:
+                    # Language not supported or other error, fall back to plain text
+                    if self.logger:
+                         await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
+                    self.text = content
+                    self.language = None
+            else:
+                self.text = content
+                self.language = None
+        except ValueError as e:
+            if "Parsing failed" in str(e):
+                if self.logger:
+                     await self.logger.warning(f"CUSTOM_EDITOR: Tree-sitter parsing failed, falling back to plain text mode")
+                self.text = content
+                self.language = None  # Fall back to plain text
+            else:
+                raise  # Re-raise if it's a different ValueError
+
     async def load_file(self, file_path: Union[str, Path]) -> bool:
         """Load a file into the editor."""
         try:
             path = Path(file_path)
             
             if not path.exists():
-                # Create new file
-                self.current_file = path
-                self.is_modified = False
-                self.read_only = False
-                
-                # Try to set language and load content with fallback to plain text if parsing fails
-                language = self._language_map.get(path.suffix.lower(), "text")
-                try:
-                    # Use built-in tree-sitter support from Textual
-                    if language and language != "text":
-                        try:
-                            # Set the text and language properties
-                            self.text = ""
-                            self.language = language
-                        except Exception as e:
-                            # Language not supported or other error, fall back to plain text
-                            if self.logger:
-                                 await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
-                            self.text = ""
-                            self.language = None
-                    else:
-                        self.text = ""
-                        self.language = None
-                except ValueError as e:
-                    if "Parsing failed" in str(e):
-                        if self._app_instance and hasattr(self._app_instance, 'logger'):
-                            self._app_instance.logger.warning(f"CUSTOM EDITOR: Tree-sitter parsing failed for new file {path}, falling back to plain text mode")
-                        self.text = ""
-                        self.language = None  # Fall back to plain text
-                    else:
-                        raise  # Re-raise if it's a different ValueError
-                
-                if self.logger:
-                     await self.logger.info(f"CUSTOM EDITOR: Created new file buffer for: {path}")
-                return True
-            
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Set language based on file extension
-            extension = path.suffix.lower()
-            language = self._language_map.get(extension)
-            
-            # Try to load content with syntax highlighting, fall back to plain text if parsing fails
-            try:
-                # Use built-in tree-sitter support from Textual
-                if language and language != "text":
-                    try:
-                        # Set the text and language properties
-                        self.text = content
-                        self.language = language
-                    except Exception as e:
-                        # Language not supported or other error, fall back to plain text
-                        if self.logger:
-                             await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
-                        self.text = content
-                        self.language = None
-                else:
-                    self.text = content
-                    self.language = None
-            except ValueError as e:
-                if "Parsing failed" in str(e):
-                    if self.logger:
-                         await self.logger.warning(f"CUSTOM_EDITOR: Tree-sitter parsing failed for {path}, falling back to plain text mode")
-                    self.text = content
-                    self.language = None  # Fall back to plain text
-                else:
-                    raise  # Re-raise if it's a different ValueError
-            
-            self.current_file = path
-            self.is_modified = False
-            self.read_only = False
-            
-            return True
+                return await self._create_new_file(path)
+            else:
+                return await self._load_existing_file(path)
             
         except Exception as e:
             if self.logger:
