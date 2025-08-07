@@ -1,32 +1,79 @@
-"""
-LSP Client for K2Edit Agentic System
-Handles low-level Language Server Protocol communication
-"""
+"""Improved LSP Client with Non-blocking Concurrent Operations"""
 
 import json
 import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 from pathlib import Path
 import subprocess
-from aiologger import Logger
+import logging
+import aiofiles
+from dataclasses import dataclass
+from enum import Enum
+import time
+
+
+class ServerStatus(Enum):
+    STOPPED = "stopped"
+    STARTING = "starting"
+    RUNNING = "running"
+    ERROR = "error"
+
+
+@dataclass
+class LSPConnection:
+    """Represents a connection to a language server"""
+    language: str
+    process: asyncio.subprocess.Process
+    status: ServerStatus
+    last_activity: float
+    pending_requests: Dict[int, asyncio.Future]
+    message_id_counter: int = 0
+    
+    def is_healthy(self) -> bool:
+        """Check if connection is healthy"""
+        return (self.status in [ServerStatus.STARTING, ServerStatus.RUNNING] and 
+                self.process.returncode is None)
+    
+    def get_next_message_id(self) -> int:
+        """Get next message ID for this connection"""
+        self.message_id_counter += 1
+        return self.message_id_counter
 
 
 class LSPClient:
-    """Low-level LSP client for communication with language servers"""
+    """Improved LSP client with non-blocking concurrent operations"""
     
-    def __init__(self, logger: Logger = None, diagnostics_callback=None):
-        self.logger = logger or Logger(name="k2edit-lsp")
-        self.processes = {}
-        self.response_queues = {}
-        self.message_ids = {}
-        self.reader_locks = {}
+    def __init__(self, logger: logging.Logger = None, diagnostics_callback: Callable = None):
+        if logger is None:
+            self.logger = logging.getLogger("k2edit-lsp-improved")
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+                self.logger.setLevel(logging.INFO)
+        else:
+            self.logger = logger
+        self.connections: Dict[str, LSPConnection] = {}
         self.diagnostics: Dict[str, List[Dict[str, Any]]] = {}
         self.diagnostics_callback = diagnostics_callback
+        self.health_monitor_task: Optional[asyncio.Task] = None
+        self.message_readers: Dict[str, asyncio.Task] = {}
+        
+        # Configuration
+        self.request_timeout = 10.0
+        self.health_check_interval = 30.0
+        self.max_failed_health_checks = 3
+        self.failed_health_checks: Dict[str, int] = {}
         
     async def start_server(self, language: str, command: List[str], project_root: Path) -> bool:
-        """Start a language server process"""
+        """Start a language server with improved error handling"""
         try:
-            await self.logger.info(f"Starting {language} language server with command: {' '.join(command)}")
+            self.logger.info(f"Starting {language} language server: {' '.join(command)}")
+            
+            # Stop existing server if running
+            if language in self.connections:
+                await self.stop_server(language)
             
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -36,46 +83,77 @@ class LSPClient:
                 cwd=str(project_root)
             )
             
-            self.processes[language] = process
-            self.response_queues[language] = asyncio.Queue()
-            self.message_ids[language] = 0
-            self.reader_locks[language] = asyncio.Lock()
+            connection = LSPConnection(
+                language=language,
+                process=process,
+                status=ServerStatus.STARTING,
+                last_activity=time.time(),
+                pending_requests={}
+            )
             
-            await self.logger.info(f"{language} language server started with PID: {process.pid}")
+            self.connections[language] = connection
             
-            # Start message reader and stderr logger
-            asyncio.create_task(self._read_lsp_messages(language))
-            asyncio.create_task(self._log_stderr(language, process.stderr))
+            # Start message reader
+            reader_task = asyncio.create_task(self._message_reader(language))
+            self.message_readers[language] = reader_task
+            
+            # Start stderr logger
+            asyncio.create_task(self._stderr_logger(language))
+            
+            self.logger.info(f"{language} server started with PID: {process.pid}")
+            
+            # Start health monitoring if not already running
+            if self.health_monitor_task is None:
+                self.health_monitor_task = asyncio.create_task(self._health_monitor())
             
             return True
             
         except Exception as e:
-            await self.logger.error(f"Failed to start {language} language server: {e}", exc_info=True)
+            self.logger.error(f"Failed to start {language} server: {e}", exc_info=True)
             return False
     
-    async def stop_server(self, language: str):
-        """Stop a language server process"""
-        if language in self.processes:
-            process = self.processes[language]
-            try:
-                process.terminate()
-                await process.wait()
-                await self.logger.info(f"Stopped {language} language server")
-            except Exception as e:
-                await self.logger.error(f"Error stopping {language} language server: {e}")
-            finally:
-                del self.processes[language]
-                if language in self.response_queues:
-                    del self.response_queues[language]
+    async def stop_server(self, language: str) -> None:
+        """Stop a language server gracefully"""
+        if language not in self.connections:
+            return
+            
+        connection = self.connections[language]
+        
+        try:
+            # Cancel pending requests
+            for future in connection.pending_requests.values():
+                if not future.done():
+                    future.cancel()
+            
+            # Stop message reader
+            if language in self.message_readers:
+                self.message_readers[language].cancel()
+                del self.message_readers[language]
+            
+            # Terminate process
+            if connection.process.returncode is None:
+                connection.process.terminate()
+                try:
+                    await asyncio.wait_for(connection.process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    connection.process.kill()
+                    await connection.process.wait()
+            
+            self.logger.info(f"Stopped {language} language server")
+            
+        except Exception as e:
+            self.logger.error(f"Error stopping {language} server: {e}")
+        finally:
+            del self.connections[language]
+            self.failed_health_checks.pop(language, None)
     
     async def initialize_connection(self, language: str, project_root: Path) -> bool:
         """Initialize LSP connection with capabilities"""
-        if language not in self.processes:
+        if language not in self.connections:
             return False
-            
+        
         init_request = {
             "jsonrpc": "2.0",
-            "id": self._get_next_message_id(language),
             "method": "initialize",
             "params": {
                 "processId": None,
@@ -98,172 +176,274 @@ class LSPClient:
             }
         }
         
-        return await self.send_request(language, init_request) is not None
+        try:
+            response = await self.send_request(language, init_request)
+            if response and "result" in response:
+                # Mark connection as running
+                self.connections[language].status = ServerStatus.RUNNING
+                
+                # Send initialized notification
+                await self.send_notification(language, {
+                    "jsonrpc": "2.0",
+                    "method": "initialized",
+                    "params": {}
+                })
+                
+                self.logger.info(f"{language} server initialized successfully")
+                return True
+            else:
+                self.logger.error(f"Failed to initialize {language} server")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error initializing {language} server: {e}")
+            return False
     
     async def send_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Send LSP request and wait for response"""
-        if language not in self.processes:
+        """Send LSP request with improved response correlation"""
+        if language not in self.connections:
+            self.logger.warning(f"No connection for language: {language}")
             return None
-            
+        
+        connection = self.connections[language]
+        
+        if not connection.is_healthy():
+            self.logger.warning(f"Connection unhealthy for {language}")
+            return None
+        
         try:
-            message_id = request.get("id", self._get_next_message_id(language))
+            # Assign message ID
+            message_id = connection.get_next_message_id()
             request["id"] = message_id
             
-            await self._send_lsp_message(language, request)
-            response = await self._read_lsp_response(language, message_id)
+            # Create future for response
+            response_future = asyncio.Future()
+            connection.pending_requests[message_id] = response_future
             
-            return response
+            # Send message
+            await self._send_message(connection, request)
+            connection.last_activity = time.time()
             
+            # Wait for response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout=self.request_timeout)
+                return response
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Request {message_id} timed out for {language}")
+                return None
+            finally:
+                # Clean up pending request
+                connection.pending_requests.pop(message_id, None)
+                
         except Exception as e:
-            await self.logger.error(f"Failed to send LSP request: {e}")
+            self.logger.error(f"Error sending request to {language}: {e}")
             return None
     
-    async def send_notification(self, language: str, notification: Dict[str, Any]):
+    async def send_notification(self, language: str, notification: Dict[str, Any]) -> None:
         """Send LSP notification (no response expected)"""
-        if language not in self.processes:
+        if language not in self.connections:
             return
-            
-        try:
-            await self._send_lsp_message(language, notification)
-        except Exception as e:
-            await self.logger.error(f"Failed to send LSP notification: {e}")
-    
-    async def _send_lsp_message(self, language: str, message: Dict[str, Any]):
-        """Send message to language server"""
-        process = self.processes[language]
         
+        connection = self.connections[language]
+        
+        if not connection.is_healthy():
+            return
+        
+        try:
+            await self._send_message(connection, notification)
+            connection.last_activity = time.time()
+        except Exception as e:
+            self.logger.error(f"Error sending notification to {language}: {e}")
+    
+    async def _send_message(self, connection: LSPConnection, message: Dict[str, Any]) -> None:
+        """Send message to language server process"""
         message_str = json.dumps(message)
         content_length = len(message_str.encode('utf-8'))
         
-        # LSP protocol format
         header = f"Content-Length: {content_length}\r\n\r\n"
-        process.stdin.write((header + message_str).encode('utf-8'))
-        await process.stdin.drain()
+        full_message = (header + message_str).encode('utf-8')
+        
+        connection.process.stdin.write(full_message)
+        await connection.process.stdin.drain()
     
-    async def _read_lsp_messages(self, language: str):
-        """Read all LSP messages from the language server"""
-        if language not in self.processes:
+    async def _message_reader(self, language: str) -> None:
+        """Read and route messages concurrently"""
+        if language not in self.connections:
             return
-            
-        process = self.processes[language]
-        reader_lock = self.reader_locks[language]
         
-        await self.logger.info(f"Started reading LSP messages from {language} language server")
-        
-        while True:
-            try:
-                async with reader_lock:
-                    # Read headers
-                    headers = {}
-                    while True:
-                        line = await process.stdout.readline()
-                        if not line:
-                            await self.logger.info(f"LSP process stdout closed for {language}")
-                            return
-                        line = line.decode('utf-8').strip()
-                        if not line:
-                            break
-                        if ':' in line:
-                            key, value = line.split(':', 1)
-                            headers[key.strip()] = value.strip()
-                    
-                    # Read content
-                    if 'Content-Length' in headers:
-                        content_length = int(headers['Content-Length'])
-                        content = await process.stdout.read(content_length)
-                        response = json.loads(content.decode('utf-8'))
-                        
-                        # Handle notifications vs responses
-                        if "method" in response:
-                            # This is a notification (like diagnostics)
-                            await self._handle_lsp_notification(language, response)
-                        else:
-                            # This is a response to a request
-                            await self.response_queues[language].put(response)
-                            
-            except asyncio.CancelledError:
-                await self.logger.info(f"LSP message reader cancelled for {language}")
-                break
-            except Exception as e:
-                await self.logger.error(f"Error reading LSP messages for {language}: {e}")
-                break
-                
-        await self.logger.info(f"Stopped reading LSP messages from {language} language server")
-    
-    async def _read_lsp_response(self, language: str, message_id: int) -> Optional[Dict[str, Any]]:
-        """Read response from LSP server using response queue"""
-        if language not in self.response_queues:
-            return None
-            
-        response_queue = self.response_queues[language]
+        connection = self.connections[language]
+        self.logger.info(f"Started message reader for {language}")
         
         try:
-            # Wait for response with timeout
-            timeout = 10  # 10 seconds timeout
-            while True:
-                try:
-                    response = await asyncio.wait_for(response_queue.get(), timeout=timeout)
-                    
-                    # Check if this response matches our request ID
-                    if response.get("id") == message_id:
-                        return response
-                    else:
-                        # Put it back in the queue if it's not for us
-                        await response_queue.put(response)
-                        await asyncio.sleep(0.01)  # Small delay to avoid busy waiting
-                        
-                except asyncio.TimeoutError:
-                    await self.logger.error(f"Timeout waiting for LSP response {message_id}")
-                    return None
-                    
+            while connection.is_healthy():
+                message = await self._read_single_message(connection)
+                if message is None:
+                    break
+                
+                connection.last_activity = time.time()
+                
+                # Route message without blocking
+                if "method" in message:
+                    # Handle notification asynchronously
+                    asyncio.create_task(self._handle_notification(language, message))
+                elif "id" in message:
+                    # Resolve pending request
+                    message_id = message["id"]
+                    if message_id in connection.pending_requests:
+                        future = connection.pending_requests[message_id]
+                        if not future.done():
+                            future.set_result(message)
+                
+        except asyncio.CancelledError:
+            self.logger.info(f"Message reader cancelled for {language}")
         except Exception as e:
-            await self.logger.error(f"Failed to read LSP response: {e}")
+            self.logger.error(f"Error in message reader for {language}: {e}")
+            connection.status = ServerStatus.ERROR
+        finally:
+            self.logger.info(f"Message reader stopped for {language}")
+    
+    async def _read_single_message(self, connection: LSPConnection) -> Optional[Dict[str, Any]]:
+        """Read a single LSP message from the connection"""
+        try:
+            # Read headers
+            headers = {}
+            while True:
+                line = await connection.process.stdout.readline()
+                if not line:
+                    return None
+                
+                line = line.decode('utf-8').strip()
+                if not line:
+                    break
+                
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    headers[key.strip()] = value.strip()
+            
+            # Read content
+            if 'Content-Length' not in headers:
+                return None
+            
+            content_length = int(headers['Content-Length'])
+            content = await connection.process.stdout.read(content_length)
+            
+            if len(content) != content_length:
+                self.logger.warning(f"Incomplete message read for {connection.language}")
+                return None
+            
+            return json.loads(content.decode('utf-8'))
+            
+        except Exception as e:
+            self.logger.error(f"Error reading message: {e}")
             return None
     
-    async def _log_stderr(self, language: str, stderr):
-        """Log stderr from language server process"""
-        while not stderr.at_eof():
-            line = await stderr.readline()
-            if line:
-                await self.logger.error(f"[{language}-lsp-stderr] {line.decode().strip()}")
-    
-    async def _handle_lsp_notification(self, language: str, notification: Dict[str, Any]):
-        """Handle LSP notifications (like diagnostics)"""
+    async def _handle_notification(self, language: str, notification: Dict[str, Any]) -> None:
+        """Handle LSP notifications asynchronously"""
         method = notification.get("method")
         params = notification.get("params", {})
         
         if method == "textDocument/publishDiagnostics":
-            uri = params.get("uri", "")
-            diagnostics = params.get("diagnostics", [])
+            await self._handle_diagnostics(params)
+        elif method == "window/logMessage":
+            await self._handle_log_message(language, params)
+        # Add more notification handlers as needed
+    
+    async def _handle_diagnostics(self, params: Dict[str, Any]) -> None:
+        """Handle diagnostics notification"""
+        uri = params.get("uri", "")
+        diagnostics = params.get("diagnostics", [])
+        
+        if uri.startswith("file://"):
+            file_path = uri[7:]  # Remove file:// prefix
+            self.diagnostics[file_path] = diagnostics
             
-            # Convert URI to relative path
-            if uri.startswith("file://"):
-                file_path = uri[7:]  # Remove file:// prefix
-                self.diagnostics[file_path] = diagnostics
-                await self.logger.debug(f"Received diagnostics for {file_path}: {len(diagnostics)} items")
+            self.logger.debug(f"Received {len(diagnostics)} diagnostics for {file_path}")
+            
+            # Notify callback if available
+            if self.diagnostics_callback:
+                try:
+                    await self.diagnostics_callback(file_path, diagnostics)
+                except Exception as e:
+                    self.logger.error(f"Error in diagnostics callback: {e}")
+    
+    async def _handle_log_message(self, language: str, params: Dict[str, Any]) -> None:
+        """Handle log message from language server"""
+        message = params.get("message", "")
+        message_type = params.get("type", 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
+        
+        if message_type == 1:
+            self.logger.error(f"[{language}-lsp] {message}")
+        elif message_type == 2:
+            self.logger.warning(f"[{language}-lsp] {message}")
+        else:
+            self.logger.info(f"[{language}-lsp] {message}")
+    
+    async def _stderr_logger(self, language: str) -> None:
+        """Log stderr from language server"""
+        if language not in self.connections:
+            return
+        
+        connection = self.connections[language]
+        
+        try:
+            while connection.is_healthy():
+                line = await connection.process.stderr.readline()
+                if not line:
+                    break
                 
-                # Notify callback if available
-                if self.diagnostics_callback:
-                    try:
-                        await self.diagnostics_callback(file_path, diagnostics)
-                    except Exception as e:
-                        await self.logger.error(f"Error in diagnostics callback: {e}")
-        
-    def _get_next_message_id(self, language: str) -> int:
-        """Get next message ID for a language"""
-        if language not in self.message_ids:
-            self.message_ids[language] = 0
-        
-        message_id = self.message_ids[language]
-        self.message_ids[language] += 1
-        return message_id
+                message = line.decode('utf-8').strip()
+                if message:
+                    self.logger.warning(f"[{language}-stderr] {message}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error reading stderr for {language}: {e}")
     
-    def is_server_running(self, language: str) -> bool:
-        """Check if a language server is running"""
-        return language in self.processes and self.processes[language].returncode is None
+    async def _health_monitor(self) -> None:
+        """Monitor health of all language servers"""
+        self.logger.info("Started LSP health monitor")
+        
+        try:
+            while True:
+                await asyncio.sleep(self.health_check_interval)
+                await self._check_all_servers()
+        except asyncio.CancelledError:
+            self.logger.info("Health monitor cancelled")
+        except Exception as e:
+            self.logger.error(f"Error in health monitor: {e}")
     
-    async def notify_file_opened(self, file_path: str, language: str = None):
-        """Notify LSP server that a file has been opened"""
+    async def _check_all_servers(self) -> None:
+        """Check health of all running servers"""
+        for language in list(self.connections.keys()):
+            await self._check_server_health(language)
+    
+    async def _check_server_health(self, language: str) -> None:
+        """Check health of a specific server"""
+        if language not in self.connections:
+            return
+        
+        connection = self.connections[language]
+        
+        # Check if process is still alive
+        if not connection.is_healthy():
+            self.logger.warning(f"Server {language} is unhealthy, attempting restart")
+            await self._restart_server(language)
+            return
+        
+        # Check for activity timeout
+        time_since_activity = time.time() - connection.last_activity
+        if time_since_activity > 300:  # 5 minutes
+            self.logger.warning(f"Server {language} inactive for {time_since_activity:.1f}s")
+    
+    async def _restart_server(self, language: str) -> None:
+        """Restart a language server"""
+        self.logger.info(f"Restarting {language} server")
+        
+        # This would need to be implemented with access to the original command and project_root
+        # For now, just stop the server - the application layer should handle restart
+        await self.stop_server(language)
+    
+    async def notify_file_opened(self, file_path: str, language: str = None) -> None:
+        """Notify LSP server about opened file with async file reading"""
         try:
             # Import here to avoid circular imports
             from .language_configs import LanguageConfigs
@@ -278,18 +458,17 @@ class LSPClient:
             if not file_path_obj.exists():
                 return
             
-            # Read file content
+            # Async file reading
             try:
-                content = file_path_obj.read_text()
+                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                    content = await f.read()
             except Exception as e:
-                await self.logger.warning(f"Failed to read file content for LSP: {e}")
+                self.logger.warning(f"Failed to read file content: {e}")
                 return
             
-            # Build LSP URI
-            uri = f"file://{file_path_obj.absolute()}"
-            
             # Send didOpen notification
-            did_open_notification = {
+            uri = f"file://{file_path_obj.absolute()}"
+            notification = {
                 "jsonrpc": "2.0",
                 "method": "textDocument/didOpen",
                 "params": {
@@ -302,79 +481,85 @@ class LSPClient:
                 }
             }
             
-            await self.send_notification(language, did_open_notification)
-            await self.logger.info(f"Notified LSP server about opened file: {file_path}")
+            await self.send_notification(language, notification)
+            self.logger.info(f"Notified LSP about opened file: {file_path}")
             
         except Exception as e:
-            await self.logger.warning(f"Failed to notify LSP server about opened file: {e}")
+            self.logger.warning(f"Failed to notify LSP about opened file: {e}")
     
     async def get_hover_info(self, file_path: str, line: int, character: int, language: str = None) -> Optional[Dict[str, Any]]:
-        """Get hover information from LSP server for a specific position"""
-        await self.logger.debug(f"get_hover_info: file_path={file_path}, line={line}, character={character}")
-        
-        # Import here to avoid circular imports
-        from .language_configs import LanguageConfigs
-        
-        if language is None:
-            language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
-        
-        await self.logger.debug(f"Detected language: {language}")
-        
-        if language == "unknown":
-            await self.logger.debug(f"Skipping hover: language={language}")
-            return None
+        """Get hover information from LSP server"""
+        try:
+            # Import here to avoid circular imports
+            from .language_configs import LanguageConfigs
             
-        # Check if language server is running
-        if not self.is_server_running(language):
-            await self.logger.debug(f"Skipping hover: language={language}, server_running=False")
-            return None
-        
-        # Build LSP URI
-        uri = f"file://{Path(file_path).absolute()}"
-        
-        # Textual TextArea already uses 0-based indexing, so no conversion needed
-        lsp_line = line
-        lsp_character = character
-        await self.logger.debug(f"Position (already 0-based): editor({line}, {character}) -> LSP({lsp_line}, {lsp_character})")
-        
-        # Request hover information
-        request = {
-            "jsonrpc": "2.0",
-            "id": 0,  # Will be set by LSP client
-            "method": "textDocument/hover",
-            "params": {
-                "textDocument": {
-                    "uri": uri
-                },
-                "position": {
-                    "line": lsp_line,  # LSP uses 0-based indexing
-                    "character": lsp_character  # LSP uses 0-based indexing
+            if language is None:
+                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+            
+            if language == "unknown" or not self.is_server_running(language):
+                return None
+            
+            uri = f"file://{Path(file_path).absolute()}"
+            
+            request = {
+                "jsonrpc": "2.0",
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "position": {"line": line, "character": character}
                 }
             }
-        }
-        
-        await self.logger.debug(f"Sending LSP hover request: {request}")
-        
-        try:
+            
             response = await self.send_request(language, request)
-            await self.logger.debug(f"Hover response received: {response is not None}")
             
             if response and "result" in response and response["result"]:
-                await self.logger.debug(f"Hover result contents: {response['result'].get('contents', 'No contents')}")
                 return response["result"]
             return None
             
         except Exception as e:
-            await self.logger.error(f"Failed to get hover info: {e}")
+            self.logger.error(f"Failed to get hover info: {e}")
             return None
     
-    async def shutdown(self):
+    def is_server_running(self, language: str) -> bool:
+        """Check if a language server is running"""
+        return (language in self.connections and 
+                self.connections[language].is_healthy())
+    
+    async def shutdown(self) -> None:
         """Shutdown all language servers"""
-        for language in list(self.processes.keys()):
+        self.logger.info("Shutting down all LSP servers")
+        
+        # Cancel health monitor
+        if self.health_monitor_task:
+            self.health_monitor_task.cancel()
+            try:
+                # Only await if it's actually an asyncio task
+                if hasattr(self.health_monitor_task, '__await__'):
+                    await self.health_monitor_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Stop all servers
+        for language in list(self.connections.keys()):
             await self.stop_server(language)
+        
+        self.logger.info("All LSP servers shut down")
     
     def get_diagnostics(self, file_path: str = None) -> Dict[str, List[Dict[str, Any]]]:
         """Get diagnostics for a specific file or all files"""
         if file_path:
             return {file_path: self.diagnostics.get(file_path, [])}
         return self.diagnostics.copy()
+    
+    def get_server_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Get statistics for all language servers"""
+        stats = {}
+        for language, connection in self.connections.items():
+            stats[language] = {
+                "status": connection.status.value,
+                "pid": connection.process.pid if connection.process else None,
+                "pending_requests": len(connection.pending_requests),
+                "last_activity": connection.last_activity,
+                "failed_health_checks": self.failed_health_checks.get(language, 0)
+            }
+        return stats

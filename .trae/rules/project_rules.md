@@ -1,2 +1,2 @@
 This is terminal based project based on textual library. there's no http://localhost:8000/ server.
-The virtual environment is located in venv directory, and it is activated by running `source venv/bin/activate`
+The virtual environment is located in`venv` directory, and it is activated by running `source venv/bin/activate`

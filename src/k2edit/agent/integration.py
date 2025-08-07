@@ -185,7 +185,7 @@ class K2EditAgentIntegration:
             if self.lsp_client:
                 try:
                     # Stop all running language servers
-                    for language in list(self.lsp_client.processes.keys()):
+                    for language in list(self.lsp_client.connections.keys()):
                         await self.lsp_client.stop_server(language)
                     await self.logger.info("LSP client shutdown")
                 except Exception as e:
