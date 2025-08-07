@@ -350,6 +350,8 @@ class StatusBar(Widget):
         """Update diagnostics information."""
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
+        # Explicitly update the display
+        self._update_diagnostics_display()
 
     def update_diagnostics_from_lsp(self, diagnostics_data: Optional[Dict[str, Any]] = None):
         """Update diagnostics from LSP server response."""
@@ -357,6 +359,8 @@ class StatusBar(Widget):
             self.diagnostics_warnings = 0
             self.diagnostics_errors = 0
             self.diagnostics_data = []
+            # Explicitly update the display when clearing diagnostics
+            self._update_diagnostics_display()
             return
         
         warnings = 0
@@ -403,9 +407,13 @@ class StatusBar(Widget):
                 elif diagnostic.get('severity', 1) == 1:  # Error
                     errors += 1
         
+        # Update reactive properties to trigger watchers
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
         self.diagnostics_data = all_diagnostics
+        
+        # Explicitly update the display
+        self._update_diagnostics_display()
 
     def update_cursor_position(self, line: int, column: int):
         """Update cursor position."""
