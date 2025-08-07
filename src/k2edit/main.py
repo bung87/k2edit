@@ -141,16 +141,12 @@ class K2EditApp(App):
             # Define progress callback to update output panel
             async def progress_callback(message):
                 self.output_panel.add_info(message)
-                # Don't log here since main.py already logs high-level messages
-            
+  
             await self.agent_integration.initialize(progress_callback)
             
             # Update command bar with agent integration
             if hasattr(self, 'command_bar') and self.command_bar:
                 self.command_bar.set_agent_integration(self.agent_integration)
-            
-            # Connect LSP diagnostics to status bar
-    
             
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
@@ -174,8 +170,7 @@ class K2EditApp(App):
             # Define progress callback to update output panel
             async def progress_callback(message):
                 self.output_panel.add_info(message)
-                # Don't log here since main.py already logs high-level messages
-            
+ 
             await self.agent_integration.initialize(progress_callback)
             
             # Update command bar with agent integration
@@ -460,9 +455,6 @@ class K2EditApp(App):
             error_msg = f"Cannot add directory to context: {file_path}"
             await self.logger.error(error_msg)
             self.output_panel.add_error(error_msg)
-    
-
-    
 
     
     def on_editor_content_changed(self, event) -> None:

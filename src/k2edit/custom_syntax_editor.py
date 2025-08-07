@@ -122,8 +122,7 @@ class CustomSyntaxEditor(TextArea):
                     self.language = language
                 except Exception as e:
                     # Language not supported or other error, fall back to plain text
-                    if self.logger:
-                         await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
+                    await self.logger.debug(f"CUSTOM EDITOR: Language '{language}' not available: {e}")
                     self.text = content
                     self.language = None
             else:
@@ -162,8 +161,7 @@ class CustomSyntaxEditor(TextArea):
         try:
             path = Path(file_path) if file_path else self.current_file
             if not path:
-                if self.logger:
-                     await self.logger.error("CUSTOM EDITOR: No file path specified for saving.")
+                await self.logger.error("CUSTOM EDITOR: No file path specified for saving.")
                 return False
 
             # Ensure parent directory exists
@@ -176,14 +174,12 @@ class CustomSyntaxEditor(TextArea):
             self.current_file = path
             self.is_modified = False
 
-            if self.logger:
-                 await self.logger.info(f"CUSTOM EDITOR: Successfully saved file: {path}")
+            await self.logger.info(f"CUSTOM EDITOR: Successfully saved file: {path}")
             
             return True
 
         except Exception as e:
-            if self.logger:
-                 await self.logger.error(f"CUSTOM EDITOR: Error saving file: {e}", exc_info=True)
+            await self.logger.error(f"CUSTOM EDITOR: Error saving file: {e}", exc_info=True)
             return False
 
     @property
@@ -199,13 +195,11 @@ class CustomSyntaxEditor(TextArea):
     async def on_text_area_selection_changed(self, event) -> None:
         """Called when cursor position or selection changes."""
         line, column = self.cursor_location
-        if self.logger:
-             await self.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
-             await self.logger.debug(f"CUSTOM EDITOR: Raw cursor_location: {self.cursor_location}")
-             await self.logger.debug(f"CUSTOM EDITOR: Event details: {event}")
-        
+        await self.logger.debug(f"CUSTOM EDITOR: Cursor moved to line {line}, column {column}")
+        await self.logger.debug(f"CUSTOM EDITOR: Raw cursor_location: {self.cursor_location}")
+        await self.logger.debug(f"CUSTOM EDITOR: Event details: {event}")
+
         # Call the callback if it exists
         if hasattr(self, 'cursor_position_changed') and self.cursor_position_changed:
-            if self.logger:
-                 await self.logger.debug(f"CUSTOM EDITOR: Calling cursor_position_changed with ({line}, {column})")
+            await self.logger.debug(f"CUSTOM EDITOR: Calling cursor_position_changed with ({line}, {column})")
             self.cursor_position_changed(line, column)
