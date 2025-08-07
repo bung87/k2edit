@@ -147,33 +147,39 @@ class LSPClient:
             del self.connections[language]
             self.failed_health_checks.pop(language, None)
     
-    async def initialize_connection(self, language: str, project_root: Path) -> bool:
-        """Initialize LSP connection with capabilities"""
+    async def initialize_connection(self, language: str, project_root: Path, settings: Dict[str, Any] = None) -> bool:
+        """Initialize LSP connection with capabilities and settings"""
         if language not in self.connections:
             return False
+        
+        init_params = {
+            "processId": None,
+            "rootUri": f"file://{project_root}",
+            "capabilities": {
+                "textDocument": {
+                    "hover": {"dynamicRegistration": True},
+                    "definition": {"dynamicRegistration": True},
+                    "references": {"dynamicRegistration": True},
+                    "documentSymbol": {"dynamicRegistration": True},
+                    "workspaceSymbol": {"dynamicRegistration": True},
+                    "completion": {"dynamicRegistration": True},
+                    "publishDiagnostics": {"relatedInformation": True}
+                },
+                "workspace": {
+                    "symbol": {"dynamicRegistration": True},
+                    "workspaceFolders": True
+                }
+            }
+        }
+        
+        # Add language-specific settings if provided
+        if settings:
+            init_params["initializationOptions"] = settings
         
         init_request = {
             "jsonrpc": "2.0",
             "method": "initialize",
-            "params": {
-                "processId": None,
-                "rootUri": f"file://{project_root}",
-                "capabilities": {
-                    "textDocument": {
-                        "hover": {"dynamicRegistration": True},
-                        "definition": {"dynamicRegistration": True},
-                        "references": {"dynamicRegistration": True},
-                        "documentSymbol": {"dynamicRegistration": True},
-                        "workspaceSymbol": {"dynamicRegistration": True},
-                        "completion": {"dynamicRegistration": True},
-                        "publishDiagnostics": {"relatedInformation": True}
-                    },
-                    "workspace": {
-                        "symbol": {"dynamicRegistration": True},
-                        "workspaceFolders": True
-                    }
-                }
-            }
+            "params": init_params
         }
         
         try:
@@ -486,6 +492,49 @@ class LSPClient:
             
         except Exception as e:
             self.logger.warning(f"Failed to notify LSP about opened file: {e}")
+    
+    async def notify_file_changed(self, file_path: str, content: str, language: str = None) -> None:
+        """Notify LSP server about file content changes"""
+        try:
+            # Import here to avoid circular imports
+            from .language_configs import LanguageConfigs
+            
+            if language is None:
+                language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
+            
+            if language == "unknown" or not self.is_server_running(language):
+                return
+            
+            file_path_obj = Path(file_path)
+            uri = f"file://{file_path_obj.absolute()}"
+            
+            # Send didChange notification
+            notification = {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": {
+                        "uri": uri,
+                        "version": getattr(self, '_file_versions', {}).get(file_path, 1) + 1
+                    },
+                    "contentChanges": [
+                        {
+                            "text": content
+                        }
+                    ]
+                }
+            }
+            
+            # Track file versions
+            if not hasattr(self, '_file_versions'):
+                self._file_versions = {}
+            self._file_versions[file_path] = notification["params"]["textDocument"]["version"]
+            
+            await self.send_notification(language, notification)
+            self.logger.info(f"Notified LSP about file change: {file_path}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to notify LSP about file change: {e}")
     
     async def get_hover_info(self, file_path: str, line: int, character: int, language: str = None) -> Optional[Dict[str, Any]]:
         """Get hover information from LSP server"""

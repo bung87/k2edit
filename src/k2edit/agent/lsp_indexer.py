@@ -237,13 +237,29 @@ class LSPIndexer:
     # Public API methods
     async def get_symbols(self, file_path: str) -> List[Dict[str, Any]]:
         """Get symbols for a specific file"""
-        relative_path = str(Path(file_path).relative_to(self.project_root))
-        return self.symbol_index.get(relative_path, [])
+        try:
+            # Ensure file_path is absolute
+            abs_path = Path(file_path)
+            if not abs_path.is_absolute():
+                abs_path = self.project_root / file_path
+            relative_path = str(abs_path.relative_to(self.project_root))
+            return self.symbol_index.get(relative_path, [])
+        except ValueError:
+            # If file is not within project root, return empty list
+            return []
     
     async def get_dependencies(self, file_path: str) -> List[str]:
         """Get dependencies for a specific file"""
-        language = LanguageConfigs.detect_language_by_extension(Path(file_path).suffix)
-        return await self.symbol_parser.extract_dependencies(file_path, language)
+        try:
+            # Ensure file_path is absolute
+            abs_path = Path(file_path)
+            if not abs_path.is_absolute():
+                abs_path = self.project_root / file_path
+            language = LanguageConfigs.detect_language_by_extension(abs_path.suffix)
+            return await self.symbol_parser.extract_dependencies(str(abs_path), language)
+        except Exception as e:
+            await self.logger.error(f"Error getting dependencies for {file_path}: {e}")
+            return []
     
     async def get_project_dependencies(self, file_paths: List[str] = None) -> Dict[str, List[str]]:
         """Get dependencies for multiple files concurrently"""

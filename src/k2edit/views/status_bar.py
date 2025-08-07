@@ -367,7 +367,7 @@ class StatusBar(Widget):
         errors = 0
         all_diagnostics = []
         
-        # Parse diagnostics data from LSP
+        # Expect consistent dict format: {'diagnostics': [...], 'file_path': '...'}
         if isinstance(diagnostics_data, dict):
             diagnostics = diagnostics_data.get('diagnostics', [])
             file_path = diagnostics_data.get('file_path', '')
@@ -388,24 +388,10 @@ class StatusBar(Widget):
                     warnings += 1
                 elif diagnostic.get('severity', 1) == 1:  # Error
                     errors += 1
-        elif isinstance(diagnostics_data, list):
-            for diagnostic in diagnostics_data:
-                diagnostic_info = {
-                    'file_path': diagnostic.get('file_path', ''),
-                    'message': diagnostic.get('message', ''),
-                    'severity': diagnostic.get('severity', 1),
-                    'line': diagnostic.get('range', {}).get('start', {}).get('line', 0) + 1,
-                    'column': diagnostic.get('range', {}).get('start', {}).get('character', 0) + 1,
-                    'source': diagnostic.get('source', ''),
-                    'code': diagnostic.get('code', ''),
-                    'severity_name': 'Error' if diagnostic.get('severity', 1) == 1 else 'Warning'
-                }
-                all_diagnostics.append(diagnostic_info)
-                
-                if diagnostic.get('severity', 1) == 2:  # Warning
-                    warnings += 1
-                elif diagnostic.get('severity', 1) == 1:  # Error
-                    errors += 1
+        else:
+            # Log unexpected format
+            self.logger.warning(f"Unexpected diagnostics data format: {type(diagnostics_data)}")
+            return
         
         # Update reactive properties to trigger watchers
         self.diagnostics_warnings = warnings

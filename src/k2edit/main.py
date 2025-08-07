@@ -150,11 +150,17 @@ class K2EditApp(App):
                 self.command_bar.set_agent_integration(self.agent_integration)
             
             # Connect LSP diagnostics to status bar
-            # self.set_interval(2.0, self._update_diagnostics_from_lsp)
+    
             
             # Add welcome message now that AI system is ready
             self.output_panel.add_welcome_message()
             await self.logger.info("Agentic system initialized successfully")
+            
+            # Notify LSP server about current file if one is loaded
+            if self.editor.current_file:
+                current_file_path = str(self.editor.current_file)
+                await self.logger.info(f"Notifying LSP server about current file: {current_file_path}")
+                await self._on_file_open_with_agent(current_file_path)
         except Exception as e:
             await self.logger.error(f"Failed to initialize agentic system: {e}")
             self.output_panel.add_error(f"Agentic system initialization failed: {e}")
@@ -205,48 +211,21 @@ class K2EditApp(App):
                         await self.logger.error(f"Failed to start {language} language server: {e}")
             
             # Notify LSP server about the opened file
-            if self.agent_integration.lsp_indexer:
+            if self.agent_integration.lsp_client:
                 await self.agent_integration.lsp_client.notify_file_opened(file_path)
             
-        # Update diagnostics for the newly opened file
-        await self._update_diagnostics_from_lsp()
+        # Diagnostics will be updated automatically via _on_diagnostics_received callback
     
     async def _on_file_change_with_agent(self, file_path: str, old_content: str, new_content: str):
         """Handle file change with agentic system integration"""
         if self.agent_integration:
             await self.agent_integration.on_file_change(file_path, old_content, new_content)
             
-    async def _update_diagnostics_from_lsp(self):
-        """Update status bar with LSP diagnostics for the current file"""
-        await self.logger.debug("Starting _update_diagnostics_from_lsp")
-        
-        if not self.agent_integration:
-            await self.logger.debug("No agent integration available")
-            return
+            # Notify LSP server about file content changes
+            if self.agent_integration.lsp_client:
+                await self.agent_integration.lsp_client.notify_file_changed(file_path, new_content)
             
-        if not self.agent_integration.lsp_indexer:
-            await self.logger.debug("No LSP indexer available")
-            return
-            
-        if not self.editor.current_file:
-            await self.logger.debug("No current file to get diagnostics for")
-            return
-            
-        try:
-            # Get diagnostics for current file
-            file_path = str(self.editor.current_file)
-            diagnostics = self.agent_integration.lsp_client.get_diagnostics(file_path)
-            
-            if file_path in diagnostics:
-                file_diagnostics = diagnostics[file_path]
-                await self.logger.debug(f"Updating status bar with {len(file_diagnostics)} diagnostics for {file_path}")
-                self.status_bar.update_diagnostics_from_lsp(file_diagnostics)
-            else:
-                await self.logger.debug(f"No diagnostics found for {file_path}")
-                self.status_bar.update_diagnostics_from_lsp([])
-                
-        except Exception as e:
-            await self.logger.error(f"Error updating diagnostics from LSP: {e}")
+
     
     async def _on_diagnostics_received(self, file_path: str, diagnostics: list):
         """Callback for when new diagnostics are received from LSP server"""
@@ -256,7 +235,12 @@ class K2EditApp(App):
             # Update status bar if this is the current file
             if self.editor.current_file and str(self.editor.current_file) == file_path:
                 await self.logger.debug(f"Updating status bar for current file: {file_path}")
-                self.status_bar.update_diagnostics_from_lsp(diagnostics)
+                # Format diagnostics data correctly for status bar
+                diagnostics_data = {
+                    'diagnostics': diagnostics,
+                    'file_path': file_path
+                }
+                self.status_bar.update_diagnostics_from_lsp(diagnostics_data)
             else:
                 await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
         except Exception as e:
@@ -479,33 +463,7 @@ class K2EditApp(App):
     
 
     
-    async def _update_diagnostics_from_lsp(self) -> None:
-        """Update diagnostics from LSP server."""
-        try:
-            current_file = self.editor.current_file
-            if not current_file or not self.agent_integration or not self.agent_integration.lsp_indexer:
-                return
-                
-            # Ensure absolute path for LSP client
-            abs_file_path = str(Path(current_file).resolve())
-            
-            # Get diagnostics from LSP client
-            diagnostics = self.agent_integration.lsp_client.get_diagnostics(abs_file_path)
-            
-            # Flatten diagnostics for status bar
-            all_diagnostics = []
-            for file_path, file_diagnostics in diagnostics.items():
-                for diagnostic in file_diagnostics:
-                    diagnostic_with_path = dict(diagnostic)
-                    diagnostic_with_path['file_path'] = file_path
-                    all_diagnostics.append(diagnostic_with_path)
-            
-            # Update status bar with diagnostics
-            if hasattr(self.status_bar, 'update_diagnostics_from_lsp'):
-                self.status_bar.update_diagnostics_from_lsp(all_diagnostics)
-                
-        except Exception as e:
-            await self.logger.error(f"Error updating diagnostics from LSP: {e}")
+
     
     def on_editor_content_changed(self, event) -> None:
         """Handle editor content changes."""

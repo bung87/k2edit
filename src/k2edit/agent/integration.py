@@ -71,8 +71,8 @@ class K2EditAgentIntegration:
                 )
                 
                 if success:
-                    # Initialize the connection
-                    await self.lsp_client.initialize_connection(language, self.project_root)
+                    # Initialize the connection with settings
+                    await self.lsp_client.initialize_connection(language, self.project_root, config.get("settings"))
                     await self.logger.info(f"LSP server for {language} started successfully")
                     if progress_callback:
                         await progress_callback(f"{language} language server ready")
