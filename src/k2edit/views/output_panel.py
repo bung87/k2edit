@@ -313,9 +313,6 @@ class OutputPanel(Vertical):
             
             # Update widget width
             self.styles.width = new_width
-            self.refresh()
-            event.stop()
-            return
         else:
             # Check if hovering over left edge
             is_on_edge = self._is_on_left_edge(event.x)
@@ -331,16 +328,12 @@ class OutputPanel(Vertical):
             # Get current width in cells
             self._resize_start_width = self.region.width
             self.capture_mouse()
-            event.stop()
-            return
     
     def on_mouse_up(self, event: events.MouseUp) -> None:
         """Handle mouse up events to stop resizing."""
         if self._is_resizing:
             self._is_resizing = False
             self.release_mouse()
-            event.stop()
-            return
     
     def on_leave(self, event: events.Leave) -> None:
         """Handle mouse leave events to clear hover state."""

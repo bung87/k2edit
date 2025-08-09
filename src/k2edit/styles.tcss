@@ -759,3 +759,67 @@ CustomSyntaxEditor .tok-code {
     color: #e6db74;
     background: #3e3d32;
 }
+
+/* Terminal Panel Styles */
+TerminalPanel {
+    dock: bottom;
+    height: 30%;
+    min-height: 10;
+    max-height: 80%;
+    border: solid #3b82f6;
+    background: #1e293b;
+    display: none;
+}
+
+TerminalPanel:focus {
+    border: solid #10b981;
+}
+
+#terminal-container {
+    height: 100%;
+    background: #1e293b;
+}
+
+#terminal-title {
+    dock: top;
+    height: 1;
+    background: #3b82f6;
+    color: #f1f5f9;
+    text-align: center;
+    padding: 0 1;
+    text-style: bold;
+}
+
+#terminal-output {
+    background: #0f172a;
+    color: #f1f5f9;
+    border: none;
+    padding: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    scrollbar-background: #1e293b;
+    scrollbar-color: #3b82f6;
+    scrollbar-corner-color: #1e293b;
+}
+
+#terminal-output:focus {
+    border: none;
+}
+
+/* Terminal text styling */
+.terminal-input {
+    color: #10b981;
+}
+
+.terminal-output {
+    color: #f1f5f9;
+}
+
+.terminal-error {
+    color: #ef4444;
+}
+
+.terminal-prompt {
+    color: #3b82f6;
+    text-style: bold;
+}

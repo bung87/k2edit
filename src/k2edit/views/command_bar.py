@@ -10,8 +10,6 @@ from textual.message import Message
 from textual.widgets import Input
 
 from ..agent.tools import ToolExecutor
-# Error handler removed - using basic exception handling
-
 
 class CommandBar(Input):
     """Command input widget with command processing."""

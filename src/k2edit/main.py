@@ -30,6 +30,7 @@ from .views.status_bar import StatusBar, GitBranchSwitch, NavigateToDiagnostic, 
 from .views.modals import DiagnosticsModal, BranchSwitcherModal
 from .views.hover_widget import HoverWidget
 from .views.file_path_display import FilePathDisplay
+from .views.terminal_panel import TerminalPanel
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
@@ -54,6 +55,7 @@ class K2EditApp(App):
         Binding("ctrl+s", "save_file", "Save"),
         Binding("ctrl+k", "focus_command", "Command"),
         Binding("escape", "focus_editor", "Editor"),
+        Binding("ctrl+grave_accent", "toggle_terminal", "Terminal"),
     ]
     
     def __init__(self, initial_file: str = None, logger: Logger = None, **kwargs):
@@ -63,8 +65,7 @@ class K2EditApp(App):
         self.logger = logger or Logger(name="k2edit")
         self.config = get_config()
         
-        # Removed error_handler - using basic exception handling
-        
+
         # Initialize components
         self.editor = CustomSyntaxEditor(self.logger)
         self.command_bar = CommandBar()
@@ -73,6 +74,7 @@ class K2EditApp(App):
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
         self.file_path_display = FilePathDisplay(id="file-path-display")
+        self.terminal_panel = TerminalPanel(id="terminal-panel", logger=self.logger)
         self.kimi_api = KimiAPI(self.logger)
         self.agent_integration = None
         self.initial_file = initial_file
@@ -98,12 +100,6 @@ class K2EditApp(App):
         # Set up project root for file path display
         project_root = str(Path.cwd())
         self.file_path_display.set_project_root(project_root)
-        
-        # # Force update status bar
-        # self._update_status_bar()
-        
-        # # Set up periodic status bar updates
-        # self.set_interval(1, self._update_status_bar)
         
         # Initialize agentic system in background after a short delay
         self.set_timer(self.config.ui.agent_init_delay_s, lambda: asyncio.create_task(self._initialize_agent_system()))
@@ -304,8 +300,7 @@ class K2EditApp(App):
             # Notify LSP server about the opened file
             if self.agent_integration.lsp_client:
                 await self.agent_integration.lsp_client.notify_file_opened(file_path)
-            
-        # Diagnostics will be updated automatically via _on_diagnostics_received callback
+
     
     async def _update_lsp_status(self):
         """Update LSP status bar based on current connection state"""
@@ -530,24 +525,20 @@ class K2EditApp(App):
                 
                 # Main editor panel with flexible width
                 with Vertical(id="main-panel") as main_panel:
-                    # main_panel.styles.width = "1fr"  # Take remaining space
-                    
-                    # self.editor.styles.height = "1fr"
-                    # self.editor.styles.width = "100%"
                     self.editor.styles.overflow_x = "hidden"
                     self.editor.styles.overflow_y = "auto"
                     yield self.editor
                     
-                    # self.command_bar.styles.height = 3
-                    # self.command_bar.styles.min_height = 3
-                    # self.command_bar.styles.max_height = 3
-                    # self.command_bar.styles.width = "100%"
                     yield self.command_bar
                 
                 # Output panel with initial width (resizable)
                 self.output_panel.styles.width = 25
                 self.output_panel.styles.min_width = 15
                 yield self.output_panel
+            
+            # Terminal panel (initially hidden)
+            yield self.terminal_panel
+            
             yield self.status_bar
             yield self.hover_widget
             yield self.file_path_display
@@ -664,6 +655,25 @@ class K2EditApp(App):
         """Focus the editor."""
         self.editor.focus()
     
+    async def action_toggle_terminal(self) -> None:
+        """Toggle terminal panel visibility."""
+        await self.logger.debug("User triggered terminal toggle")
+        await self.terminal_panel.toggle_visibility()
+        
+        # Focus terminal if it's now visible
+        if self.terminal_panel.is_visible:
+            self.terminal_panel.focus()
+    
+    async def on_terminal_panel_toggle_visibility(self, message: TerminalPanel.ToggleVisibility) -> None:
+        """Handle terminal panel visibility toggle messages."""
+        await self.logger.info(f"Terminal panel visibility changed: {message.visible}")
+        
+        # Update layout if needed
+        if message.visible:
+            await self.logger.debug("Terminal panel is now visible")
+        else:
+            await self.logger.debug("Terminal panel is now hidden")
+    
     async def _update_status_bar(self):
         """Update status bar with current editor information."""
         if self.editor and self.status_bar:
@@ -707,8 +717,15 @@ class K2EditApp(App):
     async def on_unmount(self) -> None:
         """Called when the app is unmounted."""
         await self.logger.info("Shutting down K2EditApp")
+        
+        # Clean up terminal panel
+        if hasattr(self, 'terminal_panel'):
+            await self.terminal_panel.cleanup()
+        
+        # Shutdown agentic system
         if self.agent_integration:
             await self.agent_integration.shutdown()
+        
         await self.logger.shutdown()
 
     async def on_status_bar_show_diagnostics_details(self, message: ShowDiagnosticsDetails) -> None:
