@@ -145,12 +145,20 @@ class TerminalPanel(Widget):
                 # Unix-like systems implementation with PTY
                 self._master_fd, self._slave_fd = pty.openpty()
                 
+                def safe_setsid():
+                    """Safely set session ID, ignoring errors."""
+                    try:
+                        os.setsid()
+                    except OSError:
+                        # Ignore errors if setsid fails
+                        pass
+                
                 self._process = subprocess.Popen(
                     self._shell_command,
                     stdin=self._slave_fd,
                     stdout=self._slave_fd,
                     stderr=self._slave_fd,
-                    preexec_fn=os.setsid,
+                    preexec_fn=safe_setsid,
                     start_new_session=True
                 )
                 
