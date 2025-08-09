@@ -519,44 +519,38 @@ class K2EditApp(App):
             self._hover_timer = None
     
     def compose(self) -> ComposeResult:
-        """Create the UI layout with programmatic sizing."""
+        """Create the UI layout with resizable panels."""
         with Vertical():
             yield Header()
             with Horizontal():
-                # File explorer with fixed width
-                self.file_explorer.styles.width = "25%"
-                self.file_explorer.styles.min_width = "25%"
-                self.file_explorer.styles.max_width = "25%"
+                # File explorer with initial width (resizable)
+                self.file_explorer.styles.width = 25
+                self.file_explorer.styles.min_width = 20
                 yield self.file_explorer
                 
-                # Main editor panel with explicit width
+                # Main editor panel with flexible width
                 with Vertical(id="main-panel") as main_panel:
-                    main_panel.styles.width = "50%"
-                    main_panel.styles.min_width = "50%"
-                    main_panel.styles.max_width = "50%"
+                    # main_panel.styles.width = "1fr"  # Take remaining space
                     
-                    self.editor.styles.height = "1fr"
-                    self.editor.styles.width = "100%"
+                    # self.editor.styles.height = "1fr"
+                    # self.editor.styles.width = "100%"
                     self.editor.styles.overflow_x = "hidden"
                     self.editor.styles.overflow_y = "auto"
                     yield self.editor
                     
-                    self.command_bar.styles.height = 3
-                    self.command_bar.styles.min_height = 3
-                    self.command_bar.styles.max_height = 3
-                    self.command_bar.styles.width = "100%"
+                    # self.command_bar.styles.height = 3
+                    # self.command_bar.styles.min_height = 3
+                    # self.command_bar.styles.max_height = 3
+                    # self.command_bar.styles.width = "100%"
                     yield self.command_bar
                 
-                # Output panel with fixed width
-                self.output_panel.styles.width = "25%"
-                self.output_panel.styles.min_width = "25%"
-                self.output_panel.styles.max_width = "25%"
+                # Output panel with initial width (resizable)
+                self.output_panel.styles.width = 25
+                self.output_panel.styles.min_width = 15
                 yield self.output_panel
-            # yield self.status_bar
             yield self.status_bar
             yield self.hover_widget
             yield self.file_path_display
-            # yield Footer()  # Removed to avoid conflict with custom status bar
 
     
     def on_command_bar_command_executed(self, message) -> None:

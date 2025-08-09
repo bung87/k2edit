@@ -13,6 +13,7 @@ from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.message import Message
 from textual.containers import Horizontal
+from textual import events
 from ..logger import get_logger
 
 
@@ -27,6 +28,10 @@ class FileExplorer(Static):
         border-right: solid #3b82f6;
         margin: 0;
         padding: 0;
+    }
+    
+    FileExplorer.resize-cursor {
+        border-right: solid #60a5fa;
     }
     
     FileExplorer .tree--label {
@@ -91,6 +96,14 @@ class FileExplorer(Static):
         self.root_path = root_path or Path.cwd()
         self.current_path = self.root_path
         self.logger = logger or get_logger()
+        
+        # Resize functionality attributes
+        self._is_resizing = False
+        self._is_hovering_edge = False
+        self._resize_start_x = 0
+        self._resize_start_width = 0
+        self._min_width = 15  # Minimum width in cells
+        self._edge_threshold = 2  # Pixels from edge to trigger resize
     
     def compose(self):
         """Compose the file explorer."""
@@ -212,3 +225,49 @@ class FileExplorer(Static):
         await self.logger.debug(f"self.root_path is now type: {type(self.root_path)}, value: {self.root_path}")
         
         self.refresh_explorer()
+    
+    def _is_on_right_edge(self, x: int) -> bool:
+        """Check if the mouse is on the right edge for resizing."""
+        return x >= self.size.width - self._edge_threshold
+    
+    def _update_edge_highlight(self, hovering: bool) -> None:
+        """Update visual feedback for resize edge."""
+        if hovering != self._is_hovering_edge:
+            self._is_hovering_edge = hovering
+            if hovering:
+                self.add_class("resize-cursor")
+            else:
+                self.remove_class("resize-cursor")
+    
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Handle mouse movement for resizing and edge detection."""
+        if self._is_resizing:
+            # Calculate new width based on mouse movement
+            delta_x = event.x - self._resize_start_x
+            new_width = max(self._min_width, self._resize_start_width + delta_x)
+            
+            # Update the width
+            self.styles.width = new_width
+        else:
+            # Check if hovering over resize edge
+            on_edge = self._is_on_right_edge(event.x)
+            self._update_edge_highlight(on_edge)
+    
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Handle mouse down for starting resize."""
+        if self._is_on_right_edge(event.x):
+            self._is_resizing = True
+            self._resize_start_x = event.x
+            self._resize_start_width = self.size.width
+            self.capture_mouse()
+    
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Handle mouse up for ending resize."""
+        if self._is_resizing:
+            self._is_resizing = False
+            self.release_mouse()
+    
+    def on_leave(self, event: events.Leave) -> None:
+        """Handle mouse leaving the widget."""
+        if not self._is_resizing:
+            self._update_edge_highlight(False)

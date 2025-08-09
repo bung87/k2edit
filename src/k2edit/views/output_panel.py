@@ -3,6 +3,7 @@
 from textual.widgets import RichLog, Static
 from textual.containers import Vertical
 from textual.message import Message
+from textual import events
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.panel import Panel
@@ -13,8 +14,48 @@ from datetime import datetime
 class OutputPanel(Vertical):
     """Panel for displaying command outputs and AI responses."""
     
+    DEFAULT_CSS = """
+    OutputPanel {
+        width: 25%;
+        height: 100%;
+        background: #0f172a;
+        border-left: solid #3b82f6;
+        margin: 0;
+        padding: 1;
+        min-width: 15;
+    }
+    
+    OutputPanel.resize-hover {
+        border-left: thick #60a5fa;
+        background: #1e40af20;
+    }
+    
+    OutputPanel #output-title {
+        background: #1e293b;
+        color: #f1f5f9;
+        text-align: center;
+        padding: 0 1;
+        margin-bottom: 1;
+        text-style: bold;
+    }
+    
+    OutputPanel #output-log {
+        background: #0f172a;
+        color: #f1f5f9;
+        border: none;
+        scrollbar-background: #1e293b;
+        scrollbar-color: #3b82f6;
+    }
+    """
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._is_resizing = False
+        self._is_hovering_edge = False
+        self._resize_start_x = 0
+        self._resize_start_width = 0
+        self._min_width = 15
+        self._edge_threshold = 3
     
     def compose(self):
         """Compose the output panel layout."""
@@ -250,3 +291,59 @@ class OutputPanel(Vertical):
     def on_command_bar_command_executed(self, message) -> None:
         """Handle command execution messages."""
         self.add_command_result(message.command, message.result)
+    
+    def _is_on_left_edge(self, mouse_x: int) -> bool:
+        """Check if mouse is on the left edge for resizing."""
+        return mouse_x <= self._edge_threshold
+    
+    def _update_edge_highlight(self) -> None:
+        """Update visual highlighting when hovering over resize edge."""
+        if self._is_hovering_edge:
+            self.add_class("resize-hover")
+        else:
+            self.remove_class("resize-hover")
+    
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Handle mouse move events for resizing from left edge."""
+        if self._is_resizing:
+            # Calculate new width based on mouse movement
+            # For left edge: dragging right should shrink, dragging left should expand
+            delta_x = self._resize_start_x - event.x
+            new_width = max(self._min_width, self._resize_start_width + delta_x)
+            
+            # Update widget width
+            self.styles.width = new_width
+            self.refresh()
+            event.stop()
+            return
+        else:
+            # Check if hovering over left edge
+            is_on_edge = self._is_on_left_edge(event.x)
+            if is_on_edge != self._is_hovering_edge:
+                self._is_hovering_edge = is_on_edge
+                self._update_edge_highlight()
+    
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Handle mouse down events to start resizing from left edge."""
+        if self._is_on_left_edge(event.x):
+            self._is_resizing = True
+            self._resize_start_x = event.x
+            # Get current width in cells
+            self._resize_start_width = self.region.width
+            self.capture_mouse()
+            event.stop()
+            return
+    
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Handle mouse up events to stop resizing."""
+        if self._is_resizing:
+            self._is_resizing = False
+            self.release_mouse()
+            event.stop()
+            return
+    
+    def on_leave(self, event: events.Leave) -> None:
+        """Handle mouse leave events to clear hover state."""
+        if self._is_hovering_edge:
+            self._is_hovering_edge = False
+            self._update_edge_highlight()
