@@ -142,21 +142,37 @@ class CommandBar(Input):
             await self.logger.warning("Open command issued without filename")
             return
         
-        if self.editor:
-            success = self.editor.load_file(filename)
+        try:
+            # Use the main app's centralized open_file method
+            success = await self.app.open_path(filename)
             if success:
-                await self.logger.info(f"Successfully opened file: {filename}")
                 # Notify main app about file opening
                 self.post_message(self.FileOpened(filename))
+        except Exception as e:
+            await self.logger.error(f"Error opening file {filename}: {e}", exc_info=True)
     
     async def _handle_save(self, filename: str = "") -> None:
         """Handle file save command."""
-        if self.editor:
-            success = await self.editor.save_file(filename if filename else None)
-            if success:
-                await self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
-            elif not success and not filename:
-                await self.logger.warning("Save command failed - use /saveas <filename> for new files")
+        try:
+            from ..utils.path_validation import validate_path_for_save
+            
+            if filename:
+                # Validate save path using centralized utility
+                is_valid, error_msg = validate_path_for_save(filename)
+                if not is_valid:
+                    if self.output_panel:
+                        self.output_panel.add_error(error_msg)
+                    await self.logger.error(error_msg)
+                    return
+            
+            if self.editor:
+                success = await self.editor.save_file(filename if filename else None)
+                if success:
+                    await self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
+                elif not success and not filename:
+                    await self.logger.warning("Save command failed - use /saveas <filename> for new files")
+        except Exception as e:
+            await self.logger.error(f"Error saving file: {e}", exc_info=True)
     
     async def _handle_save_as(self, filename: str) -> None:
         """Handle save as command."""
@@ -164,9 +180,22 @@ class CommandBar(Input):
             await self.logger.warning("Save as command issued without filename")
             return
         
-        if self.editor:
-            await self.editor.save_file(filename)
-            await self.logger.info(f"Successfully saved file as: {filename}")
+        try:
+            from ..utils.path_validation import validate_path_for_save
+            
+            # Validate save path using centralized utility
+            is_valid, error_msg = validate_path_for_save(filename)
+            if not is_valid:
+                if self.output_panel:
+                    self.output_panel.add_error(error_msg)
+                await self.logger.error(error_msg)
+                return
+            
+            if self.editor:
+                await self.editor.save_file(filename)
+                await self.logger.info(f"Successfully saved file as: {filename}")
+        except Exception as e:
+            await self.logger.error(f"Error saving file as {filename}: {e}", exc_info=True)
     
     async def _handle_kimi_query(self, query: str) -> None:
         """Handle general Kimi query."""

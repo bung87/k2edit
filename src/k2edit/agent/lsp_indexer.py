@@ -51,15 +51,9 @@ class LSPIndexer:
         if progress_callback:
             await asyncio.sleep(0.1)
         
-        # Check if LSP server is already running (passed from integration)
-        if self.lsp_client.is_server_running(self.language):
-            await self.logger.info(f"LSP server for {self.language} already running")
-            if progress_callback:
-                await progress_callback(f"Using existing {self.language} language server")
-        elif self.language != "unknown":
-            config = LanguageConfigs.get_config(self.language)
-            await self.logger.info(f"Starting language server for {self.language}...")
-            
+        # Start language server
+        config = LanguageConfigs.get_config(self.language)
+        if config:
             success = await self.lsp_client.start_server(
                 self.language, 
                 config["command"], 
@@ -68,6 +62,7 @@ class LSPIndexer:
             
             if success:
                 await self.lsp_client.initialize_connection(self.language, self.project_root)
+                await self.logger.info(f"Successfully started {self.language} language server")
                 if progress_callback:
                     await progress_callback(f"Started {self.language} language server")
             else:
@@ -75,9 +70,9 @@ class LSPIndexer:
                 if progress_callback:
                     await progress_callback(f"Failed to start {self.language} language server")
         else:
-            await self.logger.warning(f"No language server configured for {self.language}")
+            await self.logger.warning(f"No configuration found for {self.language}")
             if progress_callback:
-                await progress_callback(f"No language server configured for {self.language}")
+                await progress_callback(f"No language server configuration for {self.language}")
         
         # Build initial index in background (non-blocking)
         asyncio.create_task(self._build_initial_index_background(progress_callback))
@@ -85,6 +80,14 @@ class LSPIndexer:
         await self.logger.info(f"LSP indexer initialized for {self.language}")
         if progress_callback:
             await progress_callback("Symbol indexing started in background...")
+    
+    async def ensure_language_server(self, language: str) -> bool:
+        """Ensure LSP server is running for the given language"""
+        if self.lsp_client.is_server_running(language):
+            await self.logger.debug(f"LSP server for {language} already running")
+            return True
+        
+        return False
     
 
     

@@ -72,10 +72,11 @@ class AgenticContextManager:
         if progress_callback:
             await progress_callback("Initializing memory store...")
         
-        # Initialize memory store and embedding model in the background
+        # Initialize memory store in the background (non-blocking)
         asyncio.create_task(self.memory_store.initialize(project_root))
-        asyncio.create_task(self._initialize_embedding_model())
-
+        
+        # Start embedding model loading in background (non-blocking)
+        asyncio.create_task(self._initialize_embedding_model_background(progress_callback))
         
         if progress_callback:
             await progress_callback("Starting symbol indexing...")
@@ -486,13 +487,13 @@ class AgenticContextManager:
             "project_root": str(self.lsp_indexer.project_root)
         }
 
-    async def _initialize_embedding_model(self):
-        """Initialize the SentenceTransformer model asynchronously."""
+    async def _initialize_embedding_model_background(self, progress_callback=None):
+        """Initialize the SentenceTransformer model in background with progress updates."""
         if self.embedding_model:
             return
 
         try:
-            await self.logger.info("Loading SentenceTransformer model...")
+            await self.logger.info("Loading SentenceTransformer model in background...")
             os.environ['TOKENIZERS_PARALLELISM'] = 'false'
             os.environ['OMP_NUM_THREADS'] = '1'
             
@@ -517,6 +518,10 @@ class AgenticContextManager:
             await self.logger.error(f"Error loading SentenceTransformer model: {e}")
             self.embedding_model = None
             self._embedding_lock = None
+    
+    async def _initialize_embedding_model(self):
+        """Initialize the SentenceTransformer model asynchronously (legacy method)."""
+        await self._initialize_embedding_model_background()
 
 
 # Global context manager instance

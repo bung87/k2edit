@@ -515,8 +515,6 @@ class StatusBar(Widget):
     
     async def on_mount(self):
         """Called when the widget is mounted."""
-        await self.logger.info("StatusBar mounted")
-        await self.logger.info(f"Children: {self.children}")
         # Sync widgets with initial reactive values
         self.git_branch_widget.label = self.git_branch or "main"
         self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {self.cursor_column}")

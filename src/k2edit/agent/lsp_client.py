@@ -564,6 +564,10 @@ class LSPClient:
     async def get_hover_info(self, file_path: str, line: int, character: int, language: str = None) -> Optional[Dict[str, Any]]:
         """Get hover information from LSP server"""
         try:
+            # Validate line and character parameters
+            if line < 0 or character < 0:
+                await self.logger.warning(f"Invalid position for hover: line={line}, character={character}")
+                return None
 
             if language is None:
                 language = detect_language_by_extension(Path(file_path).suffix)
@@ -595,6 +599,11 @@ class LSPClient:
     async def get_completions(self, file_path: str, line: int, character: int, language: str = None) -> Optional[List[Dict[str, Any]]]:
         """Get completion suggestions from LSP server"""
         try:
+            # Validate line and character parameters
+            if line < 0 or character < 0:
+                await self.logger.warning(f"Invalid position for completions: line={line}, character={character}")
+                return None
+                
             if language is None:
                 language = detect_language_by_extension(Path(file_path).suffix)
             

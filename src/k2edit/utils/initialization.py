@@ -141,94 +141,9 @@ class AgentInitializer:
             await self.logger.error(f"Failed to start language server: {e}")
 
 
-class FileInitializer:
-    """Handles file initialization with proper error handling."""
-    
-    def __init__(self, logger: Logger, error_handler: ErrorHandler):
-        self.logger = logger
-        self.error_handler = error_handler
-    
-    async def initialize_file(
-        self,
-        file_path: str,
-        editor,
-        output_panel=None,
-        on_file_open_callback: Optional[Callable[[str], Any]] = None
-    ) -> bool:
-        """Initialize a file with proper error handling."""
-        
-        try:
-            path = Path(file_path)
-            
-            if path.is_file():
-                return await self._load_existing_file(
-                    file_path, editor, output_panel, on_file_open_callback
-                )
-            elif path.is_dir():
-                await self._handle_directory_path(file_path, output_panel)
-                return False
-            else:
-                return await self._create_new_file(
-                    file_path, editor, output_panel
-                )
-                
-        except Exception as e:
-            await self.error_handler.handle_error(
-                e,
-                context={"file_path": file_path},
-                user_message=f"Failed to initialize file: {file_path}"
-            )
-            return False
-    
-    async def _load_existing_file(
-        self, 
-        file_path: str, 
-        editor, 
-        output_panel, 
-        on_file_open_callback
-    ) -> bool:
-        """Load an existing file."""
-        await self.logger.info(f"Loading existing file: {file_path}")
-        
-        success = await editor.load_file(file_path)
-        if success:
-            if output_panel:
-                output_panel.add_info(f"Loaded file: {file_path}")
-            await self.logger.info(f"Successfully loaded file: {file_path}")
-            
-            if on_file_open_callback:
-                await on_file_open_callback(file_path)
-            
-            return True
-        else:
-            error_msg = f"Failed to load file: {file_path}"
-            if output_panel:
-                output_panel.add_error(error_msg)
-            await self.logger.error(error_msg)
-            return False
-    
-    async def _handle_directory_path(self, file_path: str, output_panel):
-        """Handle case where provided path is a directory."""
-        await self.logger.warning(f"Path is a directory, not a file: {file_path}")
-        if output_panel:
-            output_panel.add_warning(f"Cannot open a directory: {file_path}")
-    
-    async def _create_new_file(self, file_path: str, editor, output_panel) -> bool:
-        """Create a new file."""
-        await self.logger.info(f"File does not exist, creating new file: {file_path}")
-        
-        editor.load_file(file_path)  # This will create a new buffer
-        if output_panel:
-            output_panel.add_info(f"New file: {file_path}")
-        
-        return True
+
 
 
 def create_agent_initializer(logger: Logger, error_handler: ErrorHandler) -> AgentInitializer:
     """Factory function to create an agent initializer."""
     return AgentInitializer(logger, error_handler)
-
-
-def create_file_initializer(logger: Logger, error_handler: ErrorHandler) -> FileInitializer:
-    """Factory function to create a file initializer."""
-    return FileInitializer(logger, error_handler)

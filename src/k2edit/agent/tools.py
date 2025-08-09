@@ -153,7 +153,7 @@ class ToolExecutor:
                 "pattern": pattern,
                 "matches": matches,
                 "total_matches": len(matches),
-                "files_searched": len([f for f in dir_path.rglob(file_pattern) if f.is_file()])
+                "files_searched": len([f for f in dir_path.rglob("**/*") if f.is_file()])
             }
         
         except Exception as e:

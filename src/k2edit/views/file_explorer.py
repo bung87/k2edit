@@ -7,14 +7,13 @@ to browse and open files from the filesystem.
 
 import os
 from pathlib import Path
-from typing import Optional, List
-from aiologger import Logger
-
-from textual.widgets import Tree, Static, Button
+from typing import Optional
+from textual.widgets import Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.message import Message
 from textual.containers import Horizontal
+from ..logger import get_logger
 
 
 class FileExplorer(Static):
@@ -86,12 +85,12 @@ class FileExplorer(Static):
     
     current_path = reactive(Path.cwd())
     
-    def __init__(self, root_path: Optional[Path] = None, **kwargs):
+    def __init__(self, root_path: Optional[Path] = None, logger=None, **kwargs):
         super().__init__(**kwargs)
         
         self.root_path = root_path or Path.cwd()
         self.current_path = self.root_path
-        self.logger = Logger(name="k2edit")
+        self.logger = logger or get_logger()
     
     def compose(self):
         """Compose the file explorer."""
@@ -110,6 +109,11 @@ class FileExplorer(Static):
     
     def _add_directory(self, parent: TreeNode, path: Path) -> None:
         """Add a directory and its contents to the tree."""
+        # Debug: Check if path is actually a string instead of Path object
+        if isinstance(path, str):
+            # This is the bug! Convert string to Path object
+            path = Path(path)
+        
         if not path.exists() or not path.is_dir():
             return
             
@@ -184,8 +188,27 @@ class FileExplorer(Static):
         tree.clear()
         self._build_tree(tree)
     
-    def set_root_path(self, path: Path) -> None:
+    async def set_root_path(self, path: Path) -> None:
         """Set a new root path for the explorer."""
+        from ..utils.path_validation import validate_directory_path
+        
+        # Debug logging to track path types
+        await self.logger.debug(f"set_root_path called with path type: {type(path)}, value: {path}")
+        
+        # Validate directory path
+        is_valid, error_msg = validate_directory_path(str(path), allow_create=False)
+        if not is_valid:
+            # Log error but don't crash - fall back to current working directory
+            await self.logger.error(f"Invalid root path: {error_msg}. Using current directory.")
+            path = Path.cwd()
+        
+        # Debug logging before assignment
+        await self.logger.debug(f"About to set self.root_path to type: {type(path)}, value: {path}")
+        
         self.root_path = path
         self.current_path = path
+        
+        # Debug logging after assignment
+        await self.logger.debug(f"self.root_path is now type: {type(self.root_path)}, value: {self.root_path}")
+        
         self.refresh_explorer()

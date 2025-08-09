@@ -40,9 +40,7 @@ from .utils import (
 )
 from .utils.initialization import (
     create_agent_initializer,
-    create_file_initializer,
     AgentInitializer,
-    FileInitializer
 )
 
 
@@ -74,7 +72,7 @@ class K2EditApp(App):
         self.editor = CustomSyntaxEditor(self.logger)
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
-        self.file_explorer = FileExplorer(id="file-explorer")
+        self.file_explorer = FileExplorer(id="file-explorer", logger=self.logger)
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
         self.file_path_display = FilePathDisplay(id="file-path-display")
@@ -87,7 +85,6 @@ class K2EditApp(App):
         
         # Initialize utility classes
         self.agent_initializer = create_agent_initializer(self.logger, self.error_handler)
-        self.file_initializer = create_file_initializer(self.logger, self.error_handler)
         
         # Set error handler output panel
         self.error_handler.output_panel = self.output_panel
@@ -132,18 +129,7 @@ class K2EditApp(App):
 
         # Load initial file if provided, otherwise start with an empty editor
         if self.initial_file:
-            success = await self.file_initializer.initialize_file(
-                self.initial_file,
-                self.editor,
-                self.output_panel,
-                self._on_file_open_with_agent
-            )
-            if success:
-                self.editor.focus()
-                # Update status bar with file information
-                await self._update_status_bar()
-                # Update file path display
-                self.file_path_display.set_file(self.initial_file)
+            await self.open_path(self.initial_file)
         else:
             await self.logger.info("No initial file provided, starting with an empty editor.")
             self.file_path_display.set_file(None)
@@ -187,6 +173,119 @@ class K2EditApp(App):
                 await self.logger.debug("No LSP client connections available, updating status to Disconnected")
                 self.status_bar.update_language_server_status("Disconnected")
                 await self.logger.debug("LSP status updated to Disconnected")
+    
+    async def open_path(self, file_path: str) -> bool:
+        """Open a file or directory path, handling both scenarios appropriately.
+        
+        Args:
+            file_path: Path to the file or directory to open
+            
+        Returns:
+            bool: True if path was successfully opened, False otherwise
+        """
+        try:
+            from .utils.path_validation import validate_file_path, validate_directory_path
+            
+            # Check if path exists first
+            path = Path(file_path)
+            if not path.exists():
+                # For non-existent paths, try file validation with allow_create
+                is_valid, error_msg = validate_file_path(file_path, allow_create=True)
+                if not is_valid:
+                    self.output_panel.add_error(error_msg)
+                    await self.logger.error(error_msg)
+                    return False
+                return await self._open_file_internal(file_path)
+            
+            # Handle directory case
+            if path.is_dir():
+                return await self.open_directory(file_path)
+            
+            # Handle file case - validate as file
+            is_valid, error_msg = validate_file_path(file_path, allow_create=True)
+            if not is_valid:
+                self.output_panel.add_error(error_msg)
+                await self.logger.error(error_msg)
+                return False
+                
+            return await self._open_file_internal(file_path)
+            
+        except Exception as e:
+            await self.error_handler.handle_error(
+                e,
+                context={"file_path": file_path},
+                user_message=f"Failed to open: {file_path}"
+            )
+            return False
+    
+    async def open_directory(self, directory_path: str) -> bool:
+        """Handle directory opening by setting it as file explorer root.
+        
+        Args:
+            directory_path: Path to the directory to open
+            
+        Returns:
+            bool: True if directory was successfully set as root, False otherwise
+        """
+        try:
+            from .utils.path_validation import validate_directory_path
+            
+            # Validate directory path
+            is_valid, error_msg = validate_directory_path(directory_path)
+            if not is_valid:
+                self.output_panel.add_error(error_msg)
+                await self.logger.error(error_msg)
+                return False
+            
+            # Set as file explorer root
+            await self.logger.info(f"Setting directory as file explorer root: {directory_path}")
+            await self.file_explorer.set_root_path(Path(directory_path))
+            
+            # Update file path display to show directory
+            self.file_path_display.set_project_root(directory_path)
+            
+            return True
+            
+        except Exception as e:
+            await self.error_handler.handle_error(
+                e,
+                context={"directory_path": directory_path},
+                user_message=f"Failed to open directory: {directory_path}"
+            )
+            return False
+    
+    async def _open_file_internal(self, file_path: str) -> bool:
+        """Internal method to handle actual file opening.
+        
+        Args:
+            file_path: Path to the file to open
+            
+        Returns:
+            bool: True if file was successfully opened, False otherwise
+        """
+        # Load the file into the editor
+        success = await self.editor.load_file(file_path)
+        if not success:
+            error_msg = f"Failed to load file: {file_path}"
+            self.output_panel.add_error(error_msg)
+            await self.logger.error(error_msg)
+            return False
+        
+        # Update UI components
+        self.output_panel.add_info(f"Loaded file: {file_path}")
+        await self.logger.info(f"Successfully loaded file: {file_path}")
+        self.editor.focus()
+        
+        # Update file path display
+        self.file_path_display.set_file(file_path)
+        
+        # Update status bar
+        await self._update_status_bar()
+        
+        # Notify agentic system about file open
+        await self._on_file_open_with_agent(file_path)
+        
+        return True
     
     async def _on_file_open_with_agent(self, file_path: str):
         """Handle file open with agentic system integration"""
@@ -496,20 +595,7 @@ class K2EditApp(App):
         await self.logger.info(f"File selected from explorer: {file_path}")
         
         if Path(file_path).is_file():
-            if await self.editor.load_file(file_path):
-                self.output_panel.add_info(f"Loaded file: {file_path}")
-                await self.logger.info(f"Successfully loaded file from explorer: {file_path}")
-                self.editor.focus()
-                
-                # Update file path display
-                self.file_path_display.set_file(file_path)
-                
-                # Notify agentic system about file open
-                await self._on_file_open_with_agent(file_path)
-            else:
-                error_msg = f"Failed to load file: {file_path}"
-                self.output_panel.add_error(error_msg)
-                await self.logger.error(error_msg)
+            await self.open_path(file_path)
         else:
             # It's a directory, keep the tree view
             await self.logger.debug(f"Directory selected: {file_path}")
@@ -763,6 +849,14 @@ def main():
     
     if len(sys.argv) > 1:
         initial_file = sys.argv[1]
+        # Validate initial file path
+        if initial_file:
+            path = Path(initial_file)
+            if not path.exists():
+                print(f"Error: File or directory '{initial_file}' does not exist")
+                sys.exit(1)
+            # If it's a directory, we'll let the application handle it
+            # The FileInitializer will handle directory vs file logic
 
     # Create and run the application
     app = K2EditApp(initial_file=initial_file, logger=logger)

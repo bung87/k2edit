@@ -10,7 +10,7 @@ class UIConfig:
     """UI-related configuration."""
     hover_delay_ms: int = 500
     status_update_interval_s: float = 1.0
-    agent_init_delay_s: float = 2.0
+    agent_init_delay_s: float = 0.5
     output_panel_scroll_delay_ms: int = 100
 
 
