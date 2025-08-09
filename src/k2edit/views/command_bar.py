@@ -121,6 +121,29 @@ class CommandBar(Input):
                 await self._handle_run_agent(args)
             elif cmd == "help":
                 await self._handle_help()
+            # Search & Replace commands
+            elif cmd == "find":
+                await self._handle_find(args)
+            elif cmd == "replace":
+                await self._handle_replace(args)
+            elif cmd == "find_in_files":
+                await self._handle_find_in_files(args)
+            # View & Layout commands
+            elif cmd == "toggle_sidebar":
+                await self._handle_toggle_sidebar()
+            elif cmd == "toggle_terminal":
+                await self._handle_toggle_terminal()
+            elif cmd == "toggle_fullscreen":
+                await self._handle_toggle_fullscreen()
+            elif cmd == "zoom_in":
+                await self._handle_zoom_in()
+            elif cmd == "zoom_out":
+                await self._handle_zoom_out()
+            # Advanced commands
+            elif cmd == "run_file":
+                await self._handle_run_file()
+            elif cmd == "format":
+                await self._handle_format_code()
             else:
                 await self.logger.warning(f"Unknown command: {cmd}")
         
@@ -407,7 +430,12 @@ class CommandBar(Input):
         help_text = """
 K2Edit - AI-Enhanced Code Editor
 
-Commands:
+File Commands:
+- /open <file> - Open a file
+- /save [file] - Save current file
+- /saveas <file> - Save file with new name
+
+AI Commands:
 - /kimi <query> - Ask Kimi AI a question about your code
 - /run_agent <goal> - Use the agentic system for complex tasks
 - /explain - Explain the selected code or current file
@@ -415,9 +443,36 @@ Commands:
 - /refactor - Refactor the selected code or current file
 - /test - Generate tests for the selected code or current file
 - /doc - Generate documentation for the selected code or current file
+
+Search & Replace:
+- /find [query] - Open find dialog
+- /replace [query] - Open replace dialog
+- /find_in_files [query] - Search in project files
+
+View & Layout:
+- /toggle_sidebar - Toggle file explorer sidebar
+- /toggle_terminal - Toggle terminal panel
+- /toggle_fullscreen - Toggle fullscreen mode
+- /zoom_in - Increase zoom level
+- /zoom_out - Decrease zoom level
+
+Advanced:
+- /run_file - Run current file
+- /format - Format current code
 - /help - Show this help message
 
-Shortcuts:
+Keyboard Shortcuts:
+- Ctrl+F - Find
+- F3/Shift+F3 - Find Next/Previous
+- Ctrl+H - Replace
+- Ctrl+Shift+H - Replace All
+- Ctrl+Shift+F - Find in Files
+- Ctrl+B - Toggle Sidebar
+- Ctrl+` - Toggle Terminal
+- F11 - Toggle Fullscreen
+- Ctrl++/Ctrl+- - Zoom In/Out
+- F5/Ctrl+F5 - Run File
+- Ctrl+Shift+F - Format Code
 - Ctrl+K - Focus command bar
 - Ctrl+O - Open file
 - Ctrl+S - Save file
@@ -435,6 +490,49 @@ Tips:
             self.output_panel.add_ai_response("/help", help_text.strip())
         
         self.post_message(self.CommandExecuted("/help", help_text.strip()))
+    
+    # Search & Replace command handlers
+    async def _handle_find(self, query: str = "") -> None:
+        """Handle find command."""
+        await self.app.action_find()
+    
+    async def _handle_replace(self, query: str = "") -> None:
+        """Handle replace command."""
+        await self.app.action_replace()
+    
+    async def _handle_find_in_files(self, query: str = "") -> None:
+        """Handle find in files command."""
+        await self.app.action_find_in_files()
+    
+    # View & Layout command handlers
+    async def _handle_toggle_sidebar(self) -> None:
+        """Handle toggle sidebar command."""
+        await self.app.action_toggle_sidebar()
+    
+    async def _handle_toggle_terminal(self) -> None:
+        """Handle toggle terminal command."""
+        await self.app.action_toggle_terminal()
+    
+    async def _handle_toggle_fullscreen(self) -> None:
+        """Handle toggle fullscreen command."""
+        await self.app.action_toggle_fullscreen()
+    
+    async def _handle_zoom_in(self) -> None:
+        """Handle zoom in command."""
+        await self.app.action_zoom_in()
+    
+    async def _handle_zoom_out(self) -> None:
+        """Handle zoom out command."""
+        await self.app.action_zoom_out()
+    
+    # Advanced command handlers
+    async def _handle_run_file(self) -> None:
+        """Handle run file command."""
+        await self.app.action_run_current_file()
+    
+    async def _handle_format_code(self) -> None:
+        """Handle format code command."""
+        await self.app.action_format_code()
     
     def _get_editor_context(self) -> dict:
         """Get current editor context for AI queries."""

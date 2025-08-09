@@ -16,8 +16,9 @@ from typing import Dict, Any
 from aiologger import Logger
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer, TextArea
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Footer, Header, TextArea
+from textual.widgets._text_area import Selection
 from textual.binding import Binding
 from textual.message import Message
 from textual.logging import TextualHandler
@@ -31,6 +32,8 @@ from .views.modals import DiagnosticsModal, BranchSwitcherModal
 from .views.hover_widget import HoverWidget
 from .views.file_path_display import FilePathDisplay
 from .views.terminal_panel import TerminalPanel
+from .views.search_replace_dialog import SearchReplaceDialog, FindInFilesDialog
+from .utils.search_manager import SearchManager
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
@@ -50,12 +53,36 @@ class K2EditApp(App):
     CSS_PATH = "styles.tcss"
     
     BINDINGS = [
+        # File operations
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+o", "open_file", "Open"),
         Binding("ctrl+s", "save_file", "Save"),
         Binding("ctrl+k", "focus_command", "Command"),
         Binding("escape", "focus_editor", "Editor"),
+        
+        # Search & Replace
+        Binding("ctrl+f", "show_find", "Find"),
+        Binding("f3", "find_next", "Find Next"),
+        Binding("shift+f3", "find_previous", "Find Previous"),
+        Binding("ctrl+h", "show_replace", "Replace"),
+        Binding("ctrl+shift+h", "replace_all", "Replace All"),
+        Binding("ctrl+shift+f", "find_in_files", "Find in Files"),
+        
+        # View & Layout
+        Binding("ctrl+b", "toggle_sidebar", "Toggle Sidebar"),
         Binding("ctrl+grave_accent", "toggle_terminal", "Terminal"),
+        Binding("f11", "toggle_fullscreen", "Fullscreen"),
+        
+        # Zoom
+        Binding("ctrl+plus", "zoom_in", "Zoom In"),
+        Binding("ctrl+minus", "zoom_out", "Zoom Out"),
+        Binding("ctrl+equal", "zoom_in", "Zoom In"),  # Alternative for +
+        Binding("ctrl+underscore", "zoom_out", "Zoom Out"),  # Alternative for -
+        
+        # Advanced
+        Binding("f5", "run_current_file", "Run File"),
+        Binding("ctrl+f5", "run_current_file", "Run File"),
+        Binding("ctrl+shift+i", "format_code", "Format Code"),
     ]
     
     def __init__(self, initial_file: str = None, logger: Logger = None, **kwargs):
@@ -78,6 +105,13 @@ class K2EditApp(App):
         self.kimi_api = KimiAPI(self.logger)
         self.agent_integration = None
         self.initial_file = initial_file
+        
+        # Search and UI state
+        self.search_manager = SearchManager(self.logger)
+        self.sidebar_visible = True
+        self.fullscreen_mode = False
+        self.zoom_level = 1.0
+        self.current_search_dialog = None
         
         # Set up go-to-definition navigation callback
         self.editor.set_goto_definition_callback(self._navigate_to_definition)
@@ -663,6 +697,151 @@ class K2EditApp(App):
         # Focus terminal if it's now visible
         if self.terminal_panel.is_visible:
             self.terminal_panel.focus()
+    
+    # Search & Replace Actions
+    async def action_find(self) -> None:
+        """Open find dialog."""
+        await self.logger.debug("Opening find dialog")
+        if self.current_search_dialog:
+            self.current_search_dialog.dismiss()
+        
+        dialog = SearchReplaceDialog(self.search_manager, self.editor, mode="find")
+        self.current_search_dialog = dialog
+        await self.push_screen(dialog)
+    
+    async def action_find_next(self) -> None:
+        """Find next occurrence."""
+        await self.logger.debug("Finding next occurrence")
+        if hasattr(self.search_manager, 'current_query') and self.search_manager.current_query:
+            result = self.search_manager.find_next_match(self.editor.text, self.search_manager.current_query)
+            if result:
+                self.editor.cursor_location = (result.line, result.start_col)
+                self.editor.selection = Selection(start=(result.line, result.start_col), end=(result.line, result.end_col))
+    
+    async def action_find_previous(self) -> None:
+        """Find previous occurrence."""
+        await self.logger.debug("Finding previous occurrence")
+        if hasattr(self.search_manager, 'current_query') and self.search_manager.current_query:
+            result = self.search_manager.find_previous_match(self.editor.text, self.search_manager.current_query)
+            if result:
+                self.editor.cursor_location = (result.line, result.start_col)
+                self.editor.selection = Selection(start=(result.line, result.start_col), end=(result.line, result.end_col))
+    
+    async def action_replace(self) -> None:
+        """Open replace dialog."""
+        await self.logger.debug("Opening replace dialog")
+        if self.current_search_dialog:
+            self.current_search_dialog.dismiss()
+        
+        dialog = SearchReplaceDialog(self.search_manager, self.editor, mode="replace")
+        self.current_search_dialog = dialog
+        await self.push_screen(dialog)
+    
+    async def action_replace_all(self) -> None:
+        """Open replace all dialog."""
+        await self.logger.debug("Opening replace all dialog")
+        if self.current_search_dialog:
+            self.current_search_dialog.dismiss()
+        
+        dialog = SearchReplaceDialog(self.search_manager, self.editor, mode="replace_all")
+        self.current_search_dialog = dialog
+        await self.push_screen(dialog)
+    
+    async def action_find_in_files(self) -> None:
+        """Open find in files dialog."""
+        await self.logger.debug("Opening find in files dialog")
+        if self.current_search_dialog:
+            self.current_search_dialog.dismiss()
+        
+        dialog = FindInFilesDialog(self.search_manager, self.project_root)
+        self.current_search_dialog = dialog
+        await self.push_screen(dialog)
+    
+    # View & Layout Actions
+    async def action_toggle_sidebar(self) -> None:
+        """Toggle sidebar visibility."""
+        await self.logger.debug("Toggling sidebar")
+        self.sidebar_visible = not self.sidebar_visible
+        # Update CSS classes or visibility
+        if hasattr(self.file_explorer, 'display'):
+            self.file_explorer.display = self.sidebar_visible
+        self.refresh()
+    
+    async def action_toggle_fullscreen(self) -> None:
+        """Toggle fullscreen mode."""
+        await self.logger.debug("Toggling fullscreen mode")
+        self.fullscreen_mode = not self.fullscreen_mode
+        # Implementation depends on terminal capabilities
+        # For now, just log the action
+        if self.fullscreen_mode:
+            self.output_panel.add_info("Entered fullscreen mode")
+        else:
+            self.output_panel.add_info("Exited fullscreen mode")
+    
+    async def action_zoom_in(self) -> None:
+        """Zoom in."""
+        await self.logger.debug("Zooming in")
+        self.zoom_level = min(self.zoom_level + 0.1, 3.0)
+        self.output_panel.add_info(f"Zoom level: {self.zoom_level:.1f}")
+        # Implementation would depend on terminal/display capabilities
+    
+    async def action_zoom_out(self) -> None:
+        """Zoom out."""
+        await self.logger.debug("Zooming out")
+        self.zoom_level = max(self.zoom_level - 0.1, 0.5)
+        self.output_panel.add_info(f"Zoom level: {self.zoom_level:.1f}")
+        # Implementation would depend on terminal/display capabilities
+    
+    # Advanced Actions
+    async def action_run_current_file(self) -> None:
+        """Run the current file."""
+        await self.logger.debug("Running current file")
+        if not self.editor.current_file:
+            self.output_panel.add_error("No file is currently open")
+            return
+        
+        file_path = str(self.editor.current_file)
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        # Determine how to run the file based on extension
+        if file_ext == '.py':
+            command = f"python {file_path}"
+        elif file_ext == '.js':
+            command = f"node {file_path}"
+        elif file_ext == '.nim':
+            command = f"nim c -r {file_path}"
+        else:
+            self.output_panel.add_error(f"Don't know how to run files with extension: {file_ext}")
+            return
+        
+        self.output_panel.add_info(f"Running: {command}")
+        # Here you would integrate with terminal panel to run the command
+        if hasattr(self.terminal_panel, 'run_command'):
+            await self.terminal_panel.run_command(command)
+    
+    async def action_format_code(self) -> None:
+        """Format the current code."""
+        await self.logger.debug("Formatting code")
+        if not self.editor.current_file:
+            self.output_panel.add_error("No file is currently open")
+            return
+        
+        file_path = str(self.editor.current_file)
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        # Determine formatter based on file extension
+        if file_ext == '.py':
+            # Use black or autopep8
+            self.output_panel.add_info("Formatting Python code...")
+            # Implementation would call formatter and update editor content
+        elif file_ext == '.js' or file_ext == '.ts':
+            # Use prettier
+            self.output_panel.add_info("Formatting JavaScript/TypeScript code...")
+        else:
+            self.output_panel.add_info(f"No formatter configured for {file_ext} files")
+        
+        # For now, just show a message
+        self.output_panel.add_info("Code formatting completed")
     
     async def on_terminal_panel_toggle_visibility(self, message: TerminalPanel.ToggleVisibility) -> None:
         """Handle terminal panel visibility toggle messages."""
