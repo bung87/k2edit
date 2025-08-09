@@ -23,7 +23,6 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.logging import TextualHandler
 from textual.command import Provider, Hit, Hits
-from functools import partial
 
 from .custom_syntax_editor import CustomSyntaxEditor
 from .views.command_bar import CommandBar
@@ -57,55 +56,43 @@ class K2EditCommands(Provider):
         
         commands = [
             # File operations
-            ("open", "Open file", "action_open_file"),
-            ("save", "Save current file", "action_save_file"),
-            ("quit", "Quit application", "action_quit"),
+            ("open", "Open file", lambda: self.app.action_open_file()),
+            ("save", "Save current file", lambda: self.app.action_save_file()),
+            ("quit", "Quit application", lambda: self.app.action_quit()),
             
             # Search & Replace
-            ("find", "Find text", "action_find"),
-            ("replace", "Replace text", "action_replace"),
-            ("find in files", "Find in files", "action_find_in_files"),
-            ("find next", "Find next occurrence", "action_find_next"),
-            ("find previous", "Find previous occurrence", "action_find_previous"),
-            ("replace all", "Replace all occurrences", "action_replace_all"),
+            ("find", "Find text", lambda: self.app.action_show_find()),
+            ("replace", "Replace text", lambda: self.app.action_show_replace()),
+            ("find in files", "Find in files", lambda: self.app.action_find_in_files()),
+            ("find next", "Find next occurrence", lambda: self.app.action_find_next()),
+            ("find previous", "Find previous occurrence", lambda: self.app.action_find_previous()),
+            ("replace all", "Replace all occurrences", lambda: self.app.action_replace_all()),
             
             # View & Layout
-            ("toggle sidebar", "Toggle sidebar visibility", "action_toggle_sidebar"),
-            ("toggle terminal", "Toggle terminal panel", "action_toggle_terminal"),
-            ("toggle fullscreen", "Toggle fullscreen mode", "action_toggle_fullscreen"),
-            ("zoom in", "Zoom in", "action_zoom_in"),
-            ("zoom out", "Zoom out", "action_zoom_out"),
+            ("toggle sidebar", "Toggle sidebar visibility", lambda: self.app.action_toggle_sidebar()),
+            ("toggle terminal", "Toggle terminal panel", lambda: self.app.action_toggle_terminal()),
+            ("toggle fullscreen", "Toggle fullscreen mode", lambda: self.app.action_toggle_fullscreen()),
+            ("zoom in", "Zoom in", lambda: self.app.action_zoom_in()),
+            ("zoom out", "Zoom out", lambda: self.app.action_zoom_out()),
             
             # Advanced features
-            ("run file", "Run current file", "action_run_current_file"),
-            ("format code", "Format current code", "action_format_code"),
+            ("run file", "Run current file", lambda: self.app.action_run_current_file()),
+            ("format code", "Format current code", lambda: self.app.action_format_code()),
             
             # Focus
-            ("focus command", "Focus command bar", "action_focus_command"),
-            ("focus editor", "Focus editor", "action_focus_editor"),
+            ("focus command", "Focus command bar", lambda: self.app.action_focus_command()),
+            ("focus editor", "Focus editor", lambda: self.app.action_focus_editor()),
         ]
         
-        for name, description, action in commands:
+        for name, description, callback in commands:
             score = matcher.match(name)
             if score > 0:
                 yield Hit(
                     score,
                     matcher.highlight(name),
-                    partial(self._run_action, action),
+                    callback,
                     help=description
                 )
-    
-    def _run_action(self, action_name: str) -> None:
-        """Execute an action by name."""
-        if hasattr(self.app, action_name):
-            action_method = getattr(self.app, action_name)
-            if callable(action_method):
-                # Handle both sync and async methods
-                import asyncio
-                if asyncio.iscoroutinefunction(action_method):
-                    asyncio.create_task(action_method())
-                else:
-                    action_method()
 
 
 class K2EditApp(App):
