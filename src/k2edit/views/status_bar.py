@@ -15,7 +15,9 @@ from textual.screen import Screen
 from textual import work
 from aiologger import Logger
 import asyncio
+import chardet
 from ..utils.language_utils import detect_language_from_file_path
+from ..utils.file_utils import detect_encoding
 
 class GitBranchSwitch(Message):
     """Message to request git branch switching."""
@@ -62,51 +64,41 @@ class StatusBar(Widget):
 
     def watch_git_branch(self, git_branch: str) -> None:
         """Watch for git branch changes."""
-        if hasattr(self, 'git_branch_widget'):
+        if hasattr(self, 'git_branch_widget') and self.git_branch_widget:
             self.git_branch_widget.label = git_branch or "main"
 
-    async def watch_cursor_line(self, cursor_line: int) -> None:
+    def watch_cursor_line(self, cursor_line: int) -> None:
         """Watch for cursor line changes."""
-        await self.logger.debug(f"watch_cursor_line: {cursor_line}")
         if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
-            self._update_cursor_position_display(cursor_line, self.cursor_column)
+            self.cursor_pos_widget.update(f"Ln {cursor_line}, Col {self.cursor_column}")
 
-    async def watch_cursor_column(self, cursor_column: int) -> None:
+    def watch_cursor_column(self, cursor_column: int) -> None:
         """Watch for cursor column changes."""
-        await self.logger.debug(f"watch_cursor_column: {cursor_column}")
         if hasattr(self, 'cursor_pos_widget') and self.cursor_pos_widget:
-            self._update_cursor_position_display(self.cursor_line, cursor_column)
+            self.cursor_pos_widget.update(f"Ln {self.cursor_line}, Col {cursor_column}")
 
     def watch_diagnostics_warnings(self, warnings: int) -> None:
         """Watch for diagnostics warnings changes."""
         if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
-            self._update_diagnostics_display()
+            self.diagnostics_widget.label = self._format_diagnostics()
 
     def watch_diagnostics_errors(self, errors: int) -> None:
         """Watch for diagnostics errors changes."""
         if hasattr(self, 'diagnostics_widget') and self.diagnostics_widget:
-            self._update_diagnostics_display()
+            self.diagnostics_widget.label = self._format_diagnostics()
 
     def watch_language_server_status(self, status: str) -> None:
         """Watch for language server status changes."""
+        self.logger.debug(f"watch_language_server_status: {status}")
         if hasattr(self, 'lsp_status_widget') and self.lsp_status_widget:
-            self.lsp_status_widget.update(f"LSP: {status}")
+            new_text = f"LSP: {status}"
+            self.lsp_status_widget.update(new_text)
+            self.logger.debug(f"Updated LSP status widget to: {new_text}")
 
-    async def watch_language(self, language: str) -> None:
+    def watch_language(self, language: str) -> None:
         """Watch for language changes."""
-        await self.logger.debug(f"watch_language: {language}")
-        await self.logger.debug(f"hasattr(self, 'lang_widget'): {hasattr(self, 'lang_widget')}")
-        await self.logger.debug(f"lang_widget type: {type(getattr(self, 'lang_widget', None))}")
         if hasattr(self, 'lang_widget') and self.lang_widget:
-            display_text = language or "Text"
-            await self.logger.debug(f"Setting lang_widget.label to: {display_text}")
-            self.lang_widget.update(display_text)
-            await self.logger.debug(f"lang_widget.label after update: {self.lang_widget}")
-
-    def watch_language_server_status(self, status: str) -> None:
-        """Watch for language server status changes."""
-        if hasattr(self, 'lsp_status_widget') and self.lsp_status_widget:
-            self.lsp_status_widget.update(f"LSP: {status}")
+            self.lang_widget.update(language or "Text")
 
     def watch_indentation(self, indentation: str) -> None:
         """Watch for indentation changes."""
@@ -123,18 +115,9 @@ class StatusBar(Widget):
         if hasattr(self, 'line_ending_widget') and self.line_ending_widget:
             self.line_ending_widget.update(line_ending)
 
-    def _update_cursor_position_display(self, cursor_line: int, cursor_column: int) -> None:
-        """Update cursor position display."""
-        self.cursor_pos_widget.update(f"Ln {cursor_line}, Col {cursor_column}")
-
-    def _update_diagnostics_display(self) -> None:
-        """Update diagnostics display."""
-        self.diagnostics_widget.label = self._format_diagnostics()
-
-
     def __init__(self, logger: Logger = None, **kwargs):
         super().__init__(**kwargs)
-        self.logger = logger
+        self.logger = logger or Logger.with_default_handlers(name='StatusBar')
 
         # Construct widgets first (before reactive initialization)
         self.git_branch_widget = Button("main", id="git-branch", classes="status-button")
@@ -378,7 +361,7 @@ class StatusBar(Widget):
         self.diagnostics_warnings = warnings
         self.diagnostics_errors = errors
         # Explicitly update the display
-        self._update_diagnostics_display()
+        self.diagnostics_widget.label = self._format_diagnostics()
 
     async def update_diagnostics_from_lsp(self, diagnostics_data: Optional[Dict[str, Any]] = None):
         """Update diagnostics from LSP server response."""
@@ -387,7 +370,7 @@ class StatusBar(Widget):
             self.diagnostics_errors = 0
             self.diagnostics_data = []
             # Explicitly update the display when clearing diagnostics
-            self._update_diagnostics_display()
+            self.diagnostics_widget.label = self._format_diagnostics()
             return
         
         warnings = 0
@@ -426,7 +409,7 @@ class StatusBar(Widget):
         self.diagnostics_data = all_diagnostics
         
         # Explicitly update the display
-        self._update_diagnostics_display()
+        self.diagnostics_widget.label = self._format_diagnostics()
 
     def update_cursor_position(self, line: int, column: int):
         """Update cursor position."""
@@ -435,17 +418,13 @@ class StatusBar(Widget):
 
     def update_language_server_status(self, status: str):
         """Update language server status in status bar."""
-        # Add a new reactive property for LSP status
+        self.logger.debug(f"update_language_server_status called with: {status}")
+        # Update the reactive property to trigger watcher
         self.language_server_status = status
-        # Update the display (assuming we have a widget for this)
-        # For now, we'll use the language widget or add a new one
-        if hasattr(self, 'lsp_status_widget'):
-            self.lsp_status_widget.update(f"LSP: {status}")
+        self.logger.debug(f"Set language_server_status reactive property to: {status}")
 
 
-    def _update_diagnostics_display(self):
-        """Update the diagnostics display widget."""
-        self.diagnostics_widget.label = self._format_diagnostics()
+
 
 
     
@@ -495,6 +474,10 @@ class StatusBar(Widget):
         else:
             return "LF"
     
+    def _detect_encoding(self, content: str) -> str:
+        """Detect encoding from file content."""
+        return detect_encoding(content)
+    
     def _format_diagnostics(self) -> str:
         """Format diagnostics information for display."""
         if self.diagnostics_errors > 0 and self.diagnostics_warnings > 0:
@@ -526,8 +509,9 @@ class StatusBar(Widget):
             self.indentation = indentation
             self.line_ending = line_ending
             
-            # Update encoding (could be detected from content, for now default to UTF-8)
-            self.encoding = "UTF-8"
+            # Detect encoding from content
+            detected_encoding = self._detect_encoding(editor_content)
+            self.encoding = detected_encoding
     
     async def on_mount(self):
         """Called when the widget is mounted."""

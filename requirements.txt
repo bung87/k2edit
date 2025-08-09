@@ -10,6 +10,7 @@ rich>=13.3.3
 # Core dependencies
 aiofiles>=23.2.1
 aiologger>=0.7.0
+chardet>=5.0.0
 
 # AI and API integration
 openai>=1.0.0

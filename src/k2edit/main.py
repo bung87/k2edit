@@ -178,11 +178,15 @@ class K2EditApp(App):
             self.file_path_display.set_project_root(str(self.agent_integration.project_root))
             
             # Set up LSP client for go-to-definition
-            if self.agent_integration.lsp_client:
+            if self.agent_integration.lsp_client and self.agent_integration.lsp_client.connections:
+                await self.logger.debug(f"LSP client has {len(self.agent_integration.lsp_client.connections)} active connections, setting up editor and updating status to Connected")
                 self.editor.set_lsp_client(self.agent_integration.lsp_client)
                 self.status_bar.update_language_server_status("Connected")
+                await self.logger.debug("LSP status updated to Connected")
             else:
+                await self.logger.debug("No LSP client connections available, updating status to Disconnected")
                 self.status_bar.update_language_server_status("Disconnected")
+                await self.logger.debug("LSP status updated to Disconnected")
     
     async def _on_file_open_with_agent(self, file_path: str):
         """Handle file open with agentic system integration"""
@@ -203,14 +207,39 @@ class K2EditApp(App):
                         await self.agent_integration.lsp_client.start_server(language, config["command"], str(self.agent_integration.project_root))
                         await self.agent_integration.lsp_client.initialize_connection(language, str(self.agent_integration.project_root))
                         await self.logger.info(f"Started {language} language server successfully")
+                        # Update LSP status after starting server
+                        await self._update_lsp_status()
                     except Exception as e:
                         await self.logger.error(f"Failed to start {language} language server: {e}")
+                        # Update LSP status after failed start
+                        await self._update_lsp_status()
             
             # Notify LSP server about the opened file
             if self.agent_integration.lsp_client:
                 await self.agent_integration.lsp_client.notify_file_opened(file_path)
             
         # Diagnostics will be updated automatically via _on_diagnostics_received callback
+    
+    async def _update_lsp_status(self):
+        """Update LSP status bar based on current connection state"""
+        if not self.agent_integration or not self.agent_integration.lsp_client:
+            await self.logger.debug("Updating LSP status to Disconnected - no agent integration or LSP client")
+            self.status_bar.update_language_server_status("Disconnected")
+            return
+            
+        # Check if there are any active connections
+        active_connections = [
+            lang for lang, conn in self.agent_integration.lsp_client.connections.items()
+            if conn.is_healthy()
+        ]
+        
+        if active_connections:
+            status = f"Connected ({', '.join(active_connections)})"
+            await self.logger.debug(f"Updating LSP status to {status}")
+            self.status_bar.update_language_server_status("Connected")
+        else:
+            await self.logger.debug("Updating LSP status to Disconnected - no active connections")
+            self.status_bar.update_language_server_status("Disconnected")
     
     async def _on_file_change_with_agent(self, file_path: str, old_content: str, new_content: str):
         """Handle file change with agentic system integration"""

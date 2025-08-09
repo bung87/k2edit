@@ -512,7 +512,7 @@ class AgenticContextManager:
             if os.path.exists(model_path):
                 await self.logger.info("Successfully loaded local SentenceTransformer model")
             else:
-                await self.logger.info("Successfully downloaded and loaded SentenceTransformer model from Hugging Face")
+                await self.logger.info("Successfully downloaded SentenceTransformer model from Hugging Face")
         except Exception as e:
             await self.logger.error(f"Error loading SentenceTransformer model: {e}")
             self.embedding_model = None

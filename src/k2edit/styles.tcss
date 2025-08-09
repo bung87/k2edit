@@ -72,7 +72,7 @@ StatusBar {
     background: #3b82f6;
     color: #ffffff;
 }
-#lsp-status {width: 8;}
+#lsp-status {width: 18;}
 #line-ending { width: 2; }
 #git-branch { min-width: 15; max-width: 20; }
 #cursor-pos { width: 15; }

@@ -49,7 +49,6 @@ class LSPIndexer:
         await self.logger.info(f"Detected language: {self.language}")
         
         if progress_callback:
-            await progress_callback(f"Detected language: {self.language}")
             await asyncio.sleep(0.1)
         
         # Check if LSP server is already running (passed from integration)
