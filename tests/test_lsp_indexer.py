@@ -70,15 +70,6 @@ class TestLSPIndexer:
         assert any("math_utils" in str(d.get("name", "")) or "calculator" in str(d.get("name", "")) for d in dependencies)
     
     
-
-    
-    
-
-    
-    
-
-    
-    
     @pytest.mark.asyncio
     async def test_symbol_details(self, temp_project_dir, sample_python_file, logger):
         """Test detailed symbol information."""

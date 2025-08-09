@@ -8,22 +8,18 @@ import asyncio
 import sys
 import os
 from pathlib import Path
-from aiologger import Logger
 
 # Add the parent directory to the path so we can import the agent modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.k2edit.agent.kimi_api import KimiAPI
 
-# Using aiologger for async logging
-
 @pytest.mark.asyncio
-async def test_context_logging():
+async def test_context_logging(logger):
     """Test context logging and validation."""
-    logger = Logger(name="test_context_logging")
     
     # Initialize Kimi API
-    kimi_api = KimiAPI()
+    kimi_api = KimiAPI(logger)
     
     # Test 1: Simple context
     await logger.info("=== Test 1: Simple Context ===")
@@ -34,11 +30,11 @@ async def test_context_logging():
     }
     
     # Test the context logging without actually calling the API
-    kimi_api._log_context_details(simple_context, logger)
+    await kimi_api._log_context_details(simple_context, logger)
     
     # Test the message building and validation
     messages = kimi_api._build_messages("Review this code", simple_context)
-    validated_messages = kimi_api._validate_context_length(messages, logger)
+    validated_messages = await kimi_api._validate_context_length(messages, logger)
     
     await logger.info(f"Original messages: {len(messages)}")
     await logger.info(f"Validated messages: {len(validated_messages)}")
@@ -59,20 +55,20 @@ async def test_context_logging():
         "relevant_history": {"key1": "value1", "key2": "value2"}
     }
     
-    kimi_api._log_context_details(large_context, logger)
+    await kimi_api._log_context_details(large_context, logger)
     
     large_messages = kimi_api._build_messages("Analyze this large file", large_context)
-    validated_large_messages = kimi_api._validate_context_length(large_messages, logger)
+    validated_large_messages = await kimi_api._validate_context_length(large_messages, logger)
     
     await logger.info(f"Large messages: {len(large_messages)}")
     await logger.info(f"Validated large messages: {len(validated_large_messages)}")
     
     # Test 3: No context
     await logger.info("\n=== Test 3: No Context ===")
-    kimi_api._log_context_details(None, logger)
+    await kimi_api._log_context_details(None, logger)
     
     no_context_messages = kimi_api._build_messages("Simple question", None)
-    validated_no_context = kimi_api._validate_context_length(no_context_messages, logger)
+    validated_no_context = await kimi_api._validate_context_length(no_context_messages, logger)
     
     await logger.info(f"No context messages: {len(no_context_messages)}")
     await logger.info(f"Validated no context: {len(validated_no_context)}")

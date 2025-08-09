@@ -19,9 +19,17 @@ class LanguageConfigs:
                 "settings": {
                     "pylsp": {
                         "plugins": {
+                            # Linting plugins (keep enabled)
                             "pycodestyle": {"enabled": True},
                             "pyflakes": {"enabled": True},
-                            "mccabe": {"enabled": True}
+                            "mccabe": {"enabled": True},
+                            # Formatting plugins (disable to prevent auto-formatting)
+                            "autopep8": {"enabled": False},
+                            "yapf": {"enabled": False},
+                            "black": {"enabled": False},
+                            # Other plugins that might cause auto-formatting
+                            "rope_autoimport": {"enabled": False},
+                            "rope_completion": {"enabled": False}
                         }
                     }
                 },

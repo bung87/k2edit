@@ -10,6 +10,7 @@ import os
 import asyncio
 import logging
 from pathlib import Path
+from aiologger import Logger
 
 # Set environment variable to use ChromaDB
 
@@ -22,21 +23,24 @@ async def main():
     """Demonstrate ChromaDB usage"""
     # Setup logging
     logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    std_logger = logging.getLogger(__name__)
+    
+    # Create aiologger for AgenticContextManager
+    logger = Logger.with_default_handlers(name="chromadb_example")
     
     # Create context manager (will automatically use ChromaDB based on env var)
-    context_manager = AgenticContextManager(logger)
+    context_manager = AgenticContextManager(logger=logger)
     
     # Initialize with current directory
     project_root = str(Path.cwd())
     await context_manager.initialize(project_root)
     
-    logger.info(f"Memory store type: {type(context_manager.memory_store).__name__}")
+    std_logger.info(f"Memory store type: {type(context_manager.memory_store).__name__}")
     
     # Test storing and retrieving data
-    await test_memory_operations(context_manager, logger)
+    await test_memory_operations(context_manager, std_logger)
     
-    logger.info("ChromaDB example completed successfully!")
+    std_logger.info("ChromaDB example completed successfully!")
 
 
 async def test_memory_operations(context_manager, logger):

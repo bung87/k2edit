@@ -144,4 +144,37 @@ class Calculator:
 @pytest.fixture
 def logger():
     """Create a test logger using aiologger.Logger."""
-    return Logger(name="test")
+    # Create a simple logger for testing that doesn't use pipe transport
+    import logging
+    import sys
+    
+    # Create a simple aiologger that works in test environment
+    test_logger = Logger(name="test")
+    # Add a simple handler that doesn't use pipes
+    import asyncio
+    from aiologger.handlers.streams import AsyncStreamHandler
+    
+    # Use a simple mock logger for tests to avoid pipe transport issues
+    class MockLogger:
+        def __init__(self, name):
+            self.name = name
+            self._std_logger = logging.getLogger(name)
+            self._std_logger.setLevel(logging.INFO)
+            if not self._std_logger.handlers:
+                handler = logging.StreamHandler(sys.stdout)
+                handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+                self._std_logger.addHandler(handler)
+        
+        async def info(self, msg, *args, **kwargs):
+            self._std_logger.info(msg, *args, **kwargs)
+        
+        async def error(self, msg, *args, **kwargs):
+            self._std_logger.error(msg, *args, **kwargs)
+        
+        async def debug(self, msg, *args, **kwargs):
+            self._std_logger.debug(msg, *args, **kwargs)
+        
+        async def warning(self, msg, *args, **kwargs):
+            self._std_logger.warning(msg, *args, **kwargs)
+    
+    return MockLogger("test")

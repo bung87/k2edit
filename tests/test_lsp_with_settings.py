@@ -4,6 +4,7 @@
 import asyncio
 import sys
 from pathlib import Path
+import pytest
 
 # Add the src directory to the path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -12,6 +13,7 @@ from src.k2edit.agent.lsp_client import LSPClient
 from src.k2edit.agent.language_configs import LanguageConfigs
 from aiologger import Logger
 
+@pytest.mark.asyncio
 async def test_lsp_with_settings():
     """Test LSP client with proper settings"""
     logger = Logger(name="test-lsp")

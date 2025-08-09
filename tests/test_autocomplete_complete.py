@@ -8,9 +8,10 @@ import asyncio
 import sys
 import os
 from pathlib import Path
+import pytest
 
 # Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from k2edit.custom_syntax_editor import CustomSyntaxEditor
 from k2edit.agent.lsp_client import LSPClient
@@ -18,6 +19,7 @@ from k2edit.agent.language_configs import LanguageConfigs
 from aiologger import Logger
 from k2edit.logger import get_logger
 
+@pytest.mark.asyncio
 async def test_autocomplete_complete():
     """Test the autocomplete functionality with proper LSP initialization."""
     print("Testing autocomplete functionality with LSP...")

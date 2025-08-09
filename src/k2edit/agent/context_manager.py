@@ -54,11 +54,8 @@ class AgentContext:
 class AgenticContextManager:
     """Manages AI agent context, memory, and LSP integration"""
     
-    def __init__(self, lsp_client=None, logger: Logger = None):
-        if logger is None:
-            self.logger = Logger.with_default_handlers(name="k2edit")
-        else:
-            self.logger = logger
+    def __init__(self, logger: Logger, lsp_client=None):
+        self.logger = logger
         self.memory_store = create_memory_store(self, self.logger)
         self.lsp_indexer = LSPIndexer(lsp_client=lsp_client, logger=self.logger)
         self.current_context: Optional[AgentContext] = None
@@ -72,8 +69,8 @@ class AgenticContextManager:
         if progress_callback:
             await progress_callback("Initializing memory store...")
         
-        # Initialize memory store in the background (non-blocking)
-        asyncio.create_task(self.memory_store.initialize(project_root))
+        # Initialize memory store
+        await self.memory_store.initialize(project_root)
         
         # Start embedding model loading in background (non-blocking)
         asyncio.create_task(self._initialize_embedding_model_background(progress_callback))
@@ -100,6 +97,11 @@ class AgenticContextManager:
         
         if progress_callback:
             await progress_callback("Agentic system ready")
+    
+    @property
+    def project_root(self):
+        """Get the project root from current context"""
+        return Path(self.current_context.project_root) if self.current_context else None
         
     async def update_context(self, file_path: str, selected_code: str = None, 
                            cursor_position: Dict[str, int] = None):
@@ -289,6 +291,20 @@ class AgenticContextManager:
                 self.current_context.selected_code
             )
             context["similar_patterns"] = similar_patterns
+        
+        # Add file_context and project_context for test compatibility
+        context["file_context"] = {
+            "file_path": context.get("current_file"),
+            "language": context.get("language"),
+            "symbols": context.get("symbols", []),
+            "dependencies": context.get("dependencies", [])
+        }
+        
+        context["project_context"] = {
+            "project_root": str(self.lsp_indexer.project_root) if self.lsp_indexer.project_root else None,
+            "project_overview": context.get("project_overview", {}),
+            "project_symbols": context.get("project_symbols", [])
+        }
             
         return context
         
@@ -366,9 +382,12 @@ class AgenticContextManager:
             suggestions.append("Verify all imports are available")
             
         # Refactoring suggestions
-        if "refactor" in query.lower() or "improve" in query.lower():
+        if "refactor" in query.lower() or "improve" in query.lower() or "optimize" in query.lower():
             suggestions.append("Consider extracting repeated code into functions")
             suggestions.append("Add type annotations for better code clarity")
+            if "optimize" in query.lower():
+                suggestions.append("Look for performance bottlenecks in loops and data structures")
+                suggestions.append("Consider caching frequently computed values")
             
         return suggestions
 
@@ -528,9 +547,6 @@ class AgenticContextManager:
 _context_manager = None
 
 
-async def get_context_manager(logger: Logger = None) -> AgenticContextManager:
-    """Get or create the global context manager instance"""
-    global _context_manager
-    if _context_manager is None:
-        _context_manager = AgenticContextManager(logger)
-    return _context_manager
+def get_context_manager(logger: Logger, lsp_client=None) -> AgenticContextManager:
+    """Factory function to create context manager with proper dependencies"""
+    return AgenticContextManager(logger=logger, lsp_client=lsp_client)

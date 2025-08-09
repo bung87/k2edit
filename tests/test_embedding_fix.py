@@ -17,17 +17,43 @@ async def test_embedding_generation():
     print()
     
     # Set up logging to capture any errors
-    logger = Logger(name=__name__)
+    import logging
+    import sys
+    
+    # Use a simple mock logger for tests to avoid pipe transport issues
+    class MockLogger:
+        def __init__(self, name):
+            self.name = name
+            self._std_logger = logging.getLogger(name)
+            self._std_logger.setLevel(logging.INFO)
+            if not self._std_logger.handlers:
+                handler = logging.StreamHandler(sys.stdout)
+                handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+                self._std_logger.addHandler(handler)
+        
+        async def info(self, msg, *args, **kwargs):
+            self._std_logger.info(msg, *args, **kwargs)
+        
+        async def error(self, msg, *args, **kwargs):
+            self._std_logger.error(msg, *args, **kwargs)
+        
+        async def debug(self, msg, *args, **kwargs):
+            self._std_logger.debug(msg, *args, **kwargs)
+        
+        async def warning(self, msg, *args, **kwargs):
+            self._std_logger.warning(msg, *args, **kwargs)
+    
+    logger = MockLogger(__name__)
     
     try:
         # Create context manager
-        context_manager = AgenticContextManager(logger)
+        context_manager = AgenticContextManager(logger=logger)
         
         # Test embedding generation
         test_content = "This is a test string for embedding generation"
         print(f"Testing embedding generation for: '{test_content}'")
         
-        embedding = context_manager._generate_embedding(test_content)
+        embedding = await context_manager._generate_embedding(test_content)
         
         if embedding and len(embedding) == 384:
             print(f"✓ Embedding generated successfully: {len(embedding)} dimensions")

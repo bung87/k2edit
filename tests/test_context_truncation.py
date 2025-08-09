@@ -8,22 +8,18 @@ import asyncio
 import sys
 import os
 from pathlib import Path
-from aiologger import Logger
 
 # Add the parent directory to the path so we can import the agent modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.k2edit.agent.kimi_api import KimiAPI
 
-# Using aiologger for async logging
-
 @pytest.mark.asyncio
-async def test_context_truncation():
+async def test_context_truncation(logger):
     """Test context truncation when exceeding token limits."""
-    logger = Logger(name="test_context_truncation")
     
     # Initialize Kimi API
-    kimi_api = KimiAPI()
+    kimi_api = KimiAPI(logger)
     
     # Create extremely large context that will definitely exceed the 150K token limit
     await logger.info("=== Test: Extremely Large Context (Should Trigger Truncation) ===")
@@ -77,7 +73,7 @@ async def test_context_truncation():
     await logger.info(f"Estimated total tokens before processing: {estimated_tokens}")
     
     # Log the context details
-    kimi_api._log_context_details(huge_context, logger)
+    await kimi_api._log_context_details(huge_context, logger)
     
     # Build messages and validate
     huge_messages = kimi_api._build_messages("Please analyze this extremely large codebase and provide comprehensive insights about the architecture, patterns, and potential improvements", huge_context)
@@ -89,7 +85,7 @@ async def test_context_truncation():
     await logger.info(f"Pre-validation estimated token count: {pre_validation_tokens}")
     
     # This should trigger truncation
-    validated_huge_messages = kimi_api._validate_context_length(huge_messages, logger)
+    validated_huge_messages = await kimi_api._validate_context_length(huge_messages, logger)
     
     await logger.info(f"After validation: {len(validated_huge_messages)} messages")
     

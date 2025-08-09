@@ -17,10 +17,10 @@ from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore
 class MockContextManager:
     """Mock context manager for testing"""
     
-    def __init__(self):
-        self.logger = None
+    def __init__(self, logger):
+        self.logger = logger
     
-    def _generate_embedding(self, text: str):
+    async def _generate_embedding(self, text: str):
         """Generate a simple mock embedding"""
         # Return a simple vector based on text length for testing
         import hashlib
@@ -34,13 +34,13 @@ class MockContextManager:
 
 
 @pytest.mark.asyncio
-async def test_distance_filtering():
+async def test_distance_filtering(logger):
     """Test distance-based filtering functionality"""
     print("Testing distance-based filtering...")
     
     # Setup
-    mock_cm = MockContextManager()
-    store = ChromaMemoryStore(mock_cm)
+    mock_cm = MockContextManager(logger)
+    store = ChromaMemoryStore(mock_cm, logger)
     await store.initialize("test_project")
     
     # Store some test memories with different content quality

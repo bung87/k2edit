@@ -88,9 +88,11 @@ import os
 os.environ["K2EDIT_MEMORY_STORE"] = "chromadb"
 
 from agent.context_manager import AgenticContextManager
+from aiologger import Logger
 
-# Initialize context manager
-context_manager = AgenticContextManager()
+# Initialize context manager with required logger
+logger = Logger.with_default_handlers(name="k2edit")
+context_manager = AgenticContextManager(logger=logger)
 await context_manager.initialize("/path/to/project")
 
 # The memory store will automatically be ChromaDB

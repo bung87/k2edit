@@ -6,16 +6,15 @@ from typing import Optional, Callable, Any
 from aiologger import Logger
 
 from ..agent.integration import K2EditAgentIntegration
-from .error_handler import ErrorHandler, AgentSystemError
+# Removed error_handler import - using basic exception handling
 from .config import get_config
 
 
 class AgentInitializer:
     """Handles agent system initialization with proper error handling and progress reporting."""
     
-    def __init__(self, logger: Logger, error_handler: ErrorHandler):
+    def __init__(self, logger: Logger):
         self.logger = logger
-        self.error_handler = error_handler
         self.config = get_config()
     
     async def initialize_agent_system(
@@ -59,14 +58,7 @@ class AgentInitializer:
             return agent_integration
             
         except Exception as e:
-            error = AgentSystemError(
-                f"Failed to initialize agentic system: {e}",
-                context={"project_root": project_root, "current_file": current_file}
-            )
-            await self.error_handler.handle_error(
-                error, 
-                user_message="Agentic system initialization failed"
-            )
+            await self.logger.error(f"Failed to initialize agentic system: {e}", exc_info=True)
             return None
     
     async def _handle_current_file(
@@ -79,11 +71,7 @@ class AgentInitializer:
             await self.logger.info(f"Notifying LSP server about current file: {current_file}")
             await self._notify_file_opened(agent_integration, current_file)
         except Exception as e:
-            await self.error_handler.handle_error(
-                e,
-                context={"current_file": current_file},
-                user_message=f"Failed to notify agent about current file: {current_file}"
-            )
+            await self.logger.warning(f"Failed to notify agent about current file {current_file}: {e}", exc_info=True)
     
     async def _notify_file_opened(
         self, 
@@ -144,6 +132,6 @@ class AgentInitializer:
 
 
 
-def create_agent_initializer(logger: Logger, error_handler: ErrorHandler) -> AgentInitializer:
+def create_agent_initializer(logger: Logger) -> AgentInitializer:
     """Factory function to create an agent initializer."""
-    return AgentInitializer(logger, error_handler)
+    return AgentInitializer(logger)

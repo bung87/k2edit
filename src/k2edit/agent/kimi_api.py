@@ -25,7 +25,8 @@ load_dotenv()
 class KimiAPI:
     """Kimi API client with agent and tool calling support."""
     
-    def __init__(self):
+    def __init__(self, logger):
+        self.logger = logger
         self.api_key = os.getenv("KIMI_API_KEY")
         self.base_url = os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1")
         self.model = "kimi-k2-0711-preview"
@@ -54,8 +55,7 @@ class KimiAPI:
         
         import uuid
         request_id = str(uuid.uuid4())[:8]
-        logger = Logger(name="k2edit")
-        await logger.info(f"Kimi API chat request [{request_id}]: {message[:50]}...")
+        await self.logger.info(f"Kimi API chat request [{request_id}]: {message[:50]}...")
         
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
@@ -67,7 +67,7 @@ class KimiAPI:
             await asyncio.sleep(self.min_request_interval - time_since_last)
         
         # Log detailed context information
-        await self._log_context_details(context, logger)
+        await self._log_context_details(context, self.logger)
         
         messages = self._build_messages(message, context)
         
@@ -85,19 +85,19 @@ class KimiAPI:
         try:
             if stream:
                 result = await self._stream_chat(payload)
-                await logger.info(f"Kimi API chat completed [{request_id}]")
+                await self.logger.info(f"Kimi API chat completed [{request_id}]")
                 return result
             else:
                 result = await self._single_chat(payload)
-                await logger.info(f"Kimi API chat completed [{request_id}]")
+                await self.logger.info(f"Kimi API chat completed [{request_id}]")
                 return result
         except RateLimitError as e:
-            await logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
+            await self.logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
             raise Exception("Rate limit exceeded. Please wait a moment and try again.")
         except (OpenAIError, Exception) as e:
             # Handle other OpenAI errors and unexpected errors
             error_msg = str(e)
-            await logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
+            await self.logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
             if isinstance(e, OpenAIError):
                 raise Exception(f"API request failed: {error_msg}")
             else:
@@ -124,7 +124,6 @@ class KimiAPI:
         """
         import uuid
         request_id = str(uuid.uuid4())[:8]
-        logger = Logger(name="k2edit")
         
         # Use configurable max_iterations, default to 10
         if max_iterations is None:
@@ -133,10 +132,10 @@ class KimiAPI:
         if not self.api_key:
             return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
         
-        await logger.info(f"Starting Kimi agent analysis [{request_id}] - Max iterations: {max_iterations}")
+        await self.logger.info(f"Starting Kimi agent analysis [{request_id}] - Max iterations: {max_iterations}")
         
         # Log detailed context information
-        await self._log_context_details(context, logger)
+        await self._log_context_details(context, self.logger)
         
         agent_prompt = f"""
 You are an AI coding assistant with access to tools. Your goal is: {goal}
@@ -155,8 +154,8 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         
         messages = [{"role": "user", "content": agent_prompt}]
         # Validate and truncate context if necessary
-        messages = await self._validate_context_length(messages, logger)
-        await logger.info(f"Kimi agent started [{request_id}]: {goal[:50]}...")
+        messages = await self._validate_context_length(messages, self.logger)
+        await self.logger.info(f"Kimi agent started [{request_id}]: {goal[:50]}...")
         
         consecutive_no_tools = 0  # Track iterations without tool calls
         
@@ -177,7 +176,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             
             try:
                 iteration_info = f"Iteration {iteration + 1}/{max_iterations} ({((iteration + 1)/max_iterations)*100:.0f}% complete)"
-                await logger.info(f"Kimi agent {iteration_info} [{request_id}]")
+                await self.logger.info(f"Kimi agent {iteration_info} [{request_id}]")
                 if progress_callback:
                     progress_callback(request_id, iteration + 1, max_iterations, iteration_info)
                 response = await self._single_chat(payload)
@@ -221,7 +220,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     if content and not content.lower().startswith(("i need to", "let me", "i'll", "i will", "first", "next", "now i")):
                         # This appears to be a final answer
                         completion_msg = f"Analysis completed after {iteration + 1}/{max_iterations} iterations (final response detected)"
-                        await logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
+                        await self.logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
                         response["iterations"] = iteration + 1
                         response["completion_status"] = "completed"
                         response["summary"] = completion_msg
@@ -230,7 +229,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     # If we've had 2 consecutive iterations without tools, likely done
                     if consecutive_no_tools >= 2:
                         completion_msg = f"Analysis completed after {iteration + 1}/{max_iterations} iterations (no additional tools needed)"
-                        await logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
+                        await self.logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
                         response["iterations"] = iteration + 1
                         response["completion_status"] = "completed"
                         response["summary"] = completion_msg
@@ -240,21 +239,21 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     continue
             
             except RateLimitError as e:
-                await logger.error(f"Kimi agent rate limit hit [{request_id}]: {str(e)}")
+                await self.logger.error(f"Kimi agent rate limit hit [{request_id}]: {str(e)}")
                 return {
                     "content": "Rate limit exceeded. Please wait a moment and try again.",
                     "error": "Rate limit exceeded"
                 }
             except (OpenAIError, Exception) as e:
                 error_msg = str(e)
-                await logger.error(f"Kimi agent execution failed [{request_id}]: {error_msg}")
+                await self.logger.error(f"Kimi agent execution failed [{request_id}]: {error_msg}")
                 return {
                     "content": f"Agent execution failed: {error_msg}",
                     "error": error_msg
                 }
         
         completion_msg = f"Analysis reached maximum iteration limit ({max_iterations}/{max_iterations})"
-        await logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
+        await self.logger.info(f"Kimi agent completed [{request_id}] - {completion_msg}")
         if progress_callback:
             progress_callback(request_id, max_iterations, max_iterations, completion_msg)
         return {
@@ -266,7 +265,6 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
     
     async def _single_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a single chat request without retry logic to prevent duplicate requests."""
-        logger = Logger(name="k2edit")
         
         # Rate limiting: ensure minimum interval between requests
         current_time = time.time()
@@ -276,10 +274,10 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         
         # Validate and truncate context if necessary
         if "messages" in payload:
-            payload["messages"] = await self._validate_context_length(payload["messages"], logger)
+            payload["messages"] = await self._validate_context_length(payload["messages"], self.logger)
         
         try:
-            await logger.info(f"Making API request with {len(payload.get('messages', []))} messages")
+            await self.logger.info(f"Making API request with {len(payload.get('messages', []))} messages")
             response = await self.client.chat.completions.create(**payload)
             self.last_request_time = time.time()
             
@@ -311,12 +309,12 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens
                 }
-                await logger.info(f"API usage: {response.usage.total_tokens} total tokens")
+                await self.logger.info(f"API usage: {response.usage.total_tokens} total tokens")
             
             return result
             
         except RateLimitError as e:
-            await logger.error(f"Rate limit exceeded - details: {str(e)}")
+            await self.logger.error(f"Rate limit exceeded - details: {str(e)}")
             raise Exception(f"Rate limit exceeded. Please wait a moment and try again. Details: {str(e)}")
         except OpenAIError as e:
             raise Exception(f"API request failed: {str(e)}")
@@ -335,7 +333,6 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
     
     async def _stream_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a streaming chat request without retry logic to prevent duplicate requests."""
-        logger = Logger(name="k2edit")
         payload["stream"] = True
         
         # Rate limiting: ensure minimum interval between requests
@@ -346,10 +343,10 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         
         # Validate and truncate context if necessary
         if "messages" in payload:
-            payload["messages"] = self._validate_context_length(payload["messages"], logger)
+            payload["messages"] = await self._validate_context_length(payload["messages"], self.logger)
         
         try:
-            await logger.info(f"Making streaming API request with {len(payload.get('messages', []))} messages")
+            await self.logger.info(f"Making streaming API request with {len(payload.get('messages', []))} messages")
             content_parts = []
             tool_calls = []
             usage_info = None
@@ -407,12 +404,12 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             
             if usage_info:
                 result["usage"] = usage_info
-                await logger.info(f"Streaming API usage: {usage_info['total_tokens']} total tokens")
+                await self.logger.info(f"Streaming API usage: {usage_info['total_tokens']} total tokens")
             
             return result
             
         except RateLimitError as e:
-            await logger.error(f"Rate limit exceeded in streaming - details: {str(e)}")
+            await self.logger.error(f"Rate limit exceeded in streaming - details: {str(e)}")
             raise Exception(f"Rate limit exceeded. Please wait a moment and try again. Details: {str(e)}")
         except OpenAIError as e:
             raise Exception(f"API request failed: {str(e)}")

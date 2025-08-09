@@ -20,7 +20,7 @@ from . import (
 from .lsp_client import LSPClient
 from .language_configs import LanguageConfigs
 from .file_filter import FileFilter
-from ..utils.error_handler import ErrorHandler, ErrorSeverity, AgentSystemError, LSPError
+# Error handler removed - using basic exception handling
 
 class K2EditAgentIntegration:
     """Simple integration class for K2Edit agentic system"""
@@ -32,13 +32,11 @@ class K2EditAgentIntegration:
         self._lsp_indexer = None
         self.diagnostics_callback = diagnostics_callback
         self.lsp_client = LSPClient(logger=self.logger, diagnostics_callback=diagnostics_callback)
-        self.error_handler = ErrorHandler(logger)
         self.output_panel = None
-    
-    def set_output_panel(self, output_panel):
-        """Set the output panel for error handling."""
+        
+    def set_output_panel(self, output_panel) -> None:
+        """Set the output panel reference."""
         self.output_panel = output_panel
-        self.error_handler.set_output_panel(output_panel)
         
     async def initialize(self, progress_callback=None):
         """Initialize the agentic system with progress updates"""
@@ -94,14 +92,11 @@ class K2EditAgentIntegration:
                     await progress_callback("No language server configured")
                     
         except Exception as e:
-            await self.error_handler.handle_error(
-                LSPError(f"Failed to initialize LSP client: {e}"),
-                context={"project_root": str(self.project_root), "language": language if 'language' in locals() else "unknown"},
-                user_message="Language server initialization failed",
-                severity=ErrorSeverity.WARNING
-            )
+            await self.logger.warning(f"Failed to initialize LSP client: {e}", exc_info=True)
             if progress_callback:
                 await progress_callback(f"LSP initialization error: {e}")
+            if self.output_panel:
+                self.output_panel.add_error("Language server initialization failed")
             
     @property
     def lsp_indexer(self):
@@ -121,12 +116,9 @@ class K2EditAgentIntegration:
                 await agent.update_context(file_path)
                 await self.logger.info(f"Context updated for file: {file_path}")
         except Exception as e:
-            await self.error_handler.handle_error(
-                AgentSystemError(f"Failed to update context for file: {e}"),
-                context={"file_path": file_path},
-                user_message="Failed to update file context",
-                severity=ErrorSeverity.WARNING
-            )
+            await self.logger.warning(f"Failed to update context for file {file_path}: {e}", exc_info=True)
+            if self.output_panel:
+                self.output_panel.add_error("Failed to update file context")
     
     async def on_file_change(self, file_path: str, old_content: str, new_content: str):
         """Called when file content changes"""
@@ -142,12 +134,9 @@ class K2EditAgentIntegration:
             )
             await self.logger.info(f"Change recorded for file: {file_path}")
         except Exception as e:
-            await self.error_handler.handle_error(
-                AgentSystemError(f"Failed to record code change: {e}"),
-                context={"file_path": file_path, "change_type": "modify"},
-                user_message="Failed to record code changes",
-                severity=ErrorSeverity.WARNING
-            )
+            await self.logger.warning(f"Failed to record code change for {file_path}: {e}", exc_info=True)
+            if self.output_panel:
+                self.output_panel.add_error("Failed to record code changes")
     
     async def on_ai_query(self, query: str, file_path: str = None, 
                          selected_text: str = None, cursor_position: Dict[str, int] = None) -> Dict[str, Any]:
@@ -168,12 +157,9 @@ class K2EditAgentIntegration:
             )
             return result
         except Exception as e:
-            await self.error_handler.handle_error(
-                AgentSystemError(f"Failed to process AI query: {e}"),
-                context={"query": query, "file_path": file_path},
-                user_message="AI query processing failed",
-                severity=ErrorSeverity.ERROR
-            )
+            await self.logger.error(f"Failed to process AI query: {e}", exc_info=True)
+            if self.output_panel:
+                self.output_panel.add_error("AI query processing failed")
             return {
                 "error": str(e),
                 "suggestions": [],
@@ -188,12 +174,9 @@ class K2EditAgentIntegration:
         try:
             return await get_code_intelligence(file_path)
         except Exception as e:
-            await self.error_handler.handle_error(
-                AgentSystemError(f"Failed to get code intelligence: {e}"),
-                context={"file_path": file_path},
-                user_message="Code intelligence retrieval failed",
-                severity=ErrorSeverity.WARNING
-            )
+            await self.logger.warning(f"Failed to get code intelligence for {file_path}: {e}", exc_info=True)
+            if self.output_panel:
+                self.output_panel.add_error("Code intelligence retrieval failed")
             return {}
     
     async def add_context_file(self, file_path: str, file_content: str = None) -> bool:
@@ -208,12 +191,9 @@ class K2EditAgentIntegration:
                 return await agent.add_context_file(file_path, file_content)
             return False
         except Exception as e:
-            await self.error_handler.handle_error(
-                AgentSystemError(f"Failed to add file to context: {e}"),
-                context={"file_path": file_path},
-                user_message="Failed to add file to AI context",
-                severity=ErrorSeverity.WARNING
-            )
+            await self.logger.warning(f"Failed to add file to context {file_path}: {e}", exc_info=True)
+            if self.output_panel:
+                self.output_panel.add_error("Failed to add file to AI context")
             return False
     
     async def shutdown(self):
@@ -227,12 +207,9 @@ class K2EditAgentIntegration:
                         await self.lsp_client.stop_server(language)
                     await self.logger.info("LSP client shutdown")
                 except Exception as e:
-                    await self.error_handler.handle_error(
-                        LSPError(f"Failed to shutdown LSP client: {e}"),
-                        context={"project_root": str(self.project_root)},
-                        user_message="LSP client shutdown failed",
-                        severity=ErrorSeverity.WARNING
-                    )
+                    await self.logger.warning(f"Failed to shutdown LSP client: {e}", exc_info=True)
+                    if self.output_panel:
+                        self.output_panel.add_error("LSP client shutdown failed")
             
             await shutdown_agentic_system()
             self.agent_initialized = False

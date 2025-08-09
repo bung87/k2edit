@@ -4,9 +4,9 @@ import pytest
 import asyncio
 import json
 import tempfile
+import logging
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
-from aiologger import Logger
 
 # Configure pytest-asyncio for async tests only
 pytestmark = []
@@ -24,9 +24,8 @@ except ImportError:
 class TestImprovedLSPClient:
     """Test suite for LSPClient"""
     
-    def create_client(self):
+    def create_client(self, logger):
         """Create a test LSP client"""
-        logger = Logger(name="test-lsp")
         return LSPClient(logger=logger)
     
     def create_mock_process(self):
@@ -43,9 +42,9 @@ class TestImprovedLSPClient:
         return process
     
     @pytest.mark.asyncio
-    async def test_client_initialization(self):
+    async def test_client_initialization(self, logger):
         """Test client initialization"""
-        client = self.create_client()
+        client = self.create_client(logger)
         try:
             assert client.connections == {}
             assert client.diagnostics == {}
@@ -54,9 +53,9 @@ class TestImprovedLSPClient:
     
     @pytest.mark.asyncio
     @patch('asyncio.create_subprocess_exec')
-    async def test_start_server_success(self, mock_subprocess):
+    async def test_start_server_success(self, mock_subprocess, logger):
         """Test successful server startup"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         mock_subprocess.return_value = mock_process
         
@@ -78,9 +77,9 @@ class TestImprovedLSPClient:
     
     @pytest.mark.asyncio
     @patch('asyncio.create_subprocess_exec')
-    async def test_start_server_failure(self, mock_subprocess):
+    async def test_start_server_failure(self, mock_subprocess, logger):
         """Test server startup failure"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_subprocess.side_effect = Exception("Failed to start")
         
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -97,9 +96,9 @@ class TestImprovedLSPClient:
                 await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_stop_server(self):
+    async def test_stop_server(self, logger):
         """Test server shutdown"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         
         try:
@@ -121,9 +120,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_send_request_no_connection(self):
+    async def test_send_request_no_connection(self, logger):
         """Test sending request when no connection exists"""
-        client = self.create_client()
+        client = self.create_client(logger)
         try:
             result = await client.send_request("python", {"method": "test"})
             assert result is None
@@ -131,9 +130,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_send_notification(self):
+    async def test_send_notification(self, logger):
         """Test sending notification"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         
         try:
@@ -158,9 +157,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_diagnostics_handling(self):
+    async def test_diagnostics_handling(self, logger):
         """Test diagnostics notification handling"""
-        client = self.create_client()
+        client = self.create_client(logger)
         diagnostics_received = []
         
         async def diagnostics_callback(file_path, diagnostics):
@@ -191,9 +190,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_server_health_check(self):
+    async def test_server_health_check(self, logger):
         """Test server health checking"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         
         try:
@@ -217,9 +216,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_is_server_running(self):
+    async def test_is_server_running(self, logger):
         """Test server running check"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         
         try:
@@ -245,9 +244,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_get_diagnostics(self):
+    async def test_get_diagnostics(self, logger):
         """Test diagnostics retrieval"""
-        client = self.create_client()
+        client = self.create_client(logger)
         
         try:
             # Add some diagnostics
@@ -271,9 +270,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_get_server_stats(self):
+    async def test_get_server_stats(self, logger):
         """Test server statistics"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         
         try:
@@ -301,9 +300,9 @@ class TestImprovedLSPClient:
             await client.shutdown()
     
     @pytest.mark.asyncio
-    async def test_shutdown(self):
+    async def test_shutdown(self, logger):
         """Test client shutdown"""
-        client = self.create_client()
+        client = self.create_client(logger)
         mock_process = self.create_mock_process()
         
         # Add connections
@@ -411,9 +410,8 @@ class TestPerformance:
     """Performance tests for the improved LSP client"""
     
     @pytest.mark.asyncio
-    async def test_memory_usage(self):
+    async def test_memory_usage(self, logger):
         """Test that connections are properly cleaned up"""
-        logger = logging.getLogger("test-lsp")
         client = LSPClient(logger=logger)
         
         try:

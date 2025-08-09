@@ -245,12 +245,26 @@ class LSPClient:
             await self.logger.warning(f"No connection for language: {language}")
             return None
         
+        # Validate file_path to prevent empty path errors
+        if not file_path or not file_path.strip():
+            await self.logger.error(f"Invalid file_path provided for definition request: '{file_path}'")
+            return None
+        
+        # Ensure file_path is absolute and properly formatted
+        from pathlib import Path
+        try:
+            file_path_obj = Path(file_path).resolve()
+            file_uri = f"file://{file_path_obj}"
+        except Exception as e:
+            await self.logger.error(f"Error resolving file path '{file_path}': {e}")
+            return None
+        
         definition_request = {
             "jsonrpc": "2.0",
             "method": "textDocument/definition",
             "params": {
                 "textDocument": {
-                    "uri": f"file://{file_path}"
+                    "uri": file_uri
                 },
                 "position": {
                     "line": line,
@@ -260,20 +274,28 @@ class LSPClient:
         }
         
         try:
+            await self.logger.debug(f"Sending definition request for {file_path} at line {line}, char {character}")
             response = await self.send_request(language, definition_request)
+            
             if response and "result" in response:
                 result = response["result"]
                 if result is None:
+                    await self.logger.debug("No definitions found")
                     return None
                 elif isinstance(result, list):
+                    await self.logger.debug(f"Found {len(result)} definitions")
                     return result
                 elif isinstance(result, dict):
+                    await self.logger.debug("Found 1 definition")
                     return [result]
                 else:
+                    await self.logger.warning(f"Unexpected result type: {type(result)}")
                     return None
-            return None
+            else:
+                await self.logger.warning(f"Invalid response format: {response}")
+                return None
         except Exception as e:
-            await self.logger.error(f"Error getting definition: {e}")
+            await self.logger.error(f"Error getting definition for {file_path}: {e}")
             return None
     
     async def send_notification(self, language: str, notification: Dict[str, Any]) -> None:

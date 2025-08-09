@@ -11,10 +11,10 @@ class TestKimiAPI:
     """Test suite for KimiAPI class."""
     
     @pytest.fixture
-    def kimi_api(self):
+    def kimi_api(self, logger):
         """Create a KimiAPI instance with mocked client and API key."""
         with patch.dict(os.environ, {'KIMI_API_KEY': 'test-key'}):
-            api = KimiAPI()
+            api = KimiAPI(logger)
             api.api_key = 'test-key'
             
             # Create mock client
@@ -34,7 +34,7 @@ class TestKimiAPI:
         assert kimi_api.model == 'kimi-k2-0711-preview'
     
     @pytest.mark.asyncio
-    async def test_single_chat(self, kimi_api):
+    async def test_single_chat(self, kimi_api, logger):
         """Test basic chat functionality."""
         # Setup mock response
         mock_message = MagicMock()
@@ -69,7 +69,7 @@ class TestKimiAPI:
         assert result["usage"]["total_tokens"] == 15
     
     @pytest.mark.asyncio
-    async def test_chat_with_tools(self, kimi_api):
+    async def test_chat_with_tools(self, kimi_api, logger):
         """Test chat with tool calls."""
         # Setup mock response with tool calls
         mock_tool_call = MagicMock()
@@ -147,7 +147,7 @@ class TestKimiAPI:
         assert result["new_code"] == "def new_function():\n    pass\n"
     
     @pytest.mark.asyncio
-    async def test_api_error_handling(self, kimi_api):
+    async def test_api_error_handling(self, kimi_api, logger):
         """Test API error handling."""
         try:
             from openai import OpenAIError
@@ -164,7 +164,7 @@ class TestKimiAPI:
             await kimi_api._single_chat({"model": "test", "messages": []})
     
     @pytest.mark.asyncio
-    async def test_usage_info_in_single_chat(self, kimi_api):
+    async def test_usage_info_in_single_chat(self, kimi_api, logger):
         """Test usage information is included in single chat response."""
         mock_message = MagicMock()
         mock_message.content = "Test response"
@@ -217,9 +217,10 @@ class TestKimiAPI:
         """Test message building with context."""
         # Test basic message
         messages = kimi_api._build_messages("Hello")
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Hello"
+        assert len(messages) == 2  # system (default), user message
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "Hello"
         
         # Test with context
         context = {
@@ -234,3 +235,5 @@ class TestKimiAPI:
         assert "python" in messages[0]["content"]
         assert messages[1]["role"] == "user"
         assert "print('hello')" in messages[1]["content"]
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "Hello"

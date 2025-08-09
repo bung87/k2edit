@@ -1,14 +1,6 @@
 """Utility modules for K2Edit."""
 
-from .error_handler import (
-    ErrorHandler,
-    K2EditError,
-    FileOperationError,
-    AgentSystemError,
-    LSPError,
-    ErrorSeverity,
-    create_error_handler
-)
+# Error handler removed - using basic exception handling
 
 from .config import (
     K2EditConfig,
@@ -38,15 +30,6 @@ from .language_utils import (
 )
 
 __all__ = [
-    # Error handling
-    "ErrorHandler",
-    "K2EditError",
-    "FileOperationError",
-    "AgentSystemError",
-    "LSPError",
-    "ErrorSeverity",
-    "create_error_handler",
-    
     # Configuration
     "K2EditConfig",
     "UIConfig",

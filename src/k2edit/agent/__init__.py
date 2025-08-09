@@ -41,7 +41,7 @@ async def initialize_agentic_system(project_root: str, logger: Logger = None, pr
         await progress_callback("Initializing agentic system...")
     
     # Initialize context manager with optional lsp_client
-    _agentic_system = AgenticContextManager(lsp_client=lsp_client, logger=logger)
+    _agentic_system = AgenticContextManager(logger=logger, lsp_client=lsp_client)
     await _agentic_system.initialize(project_root, progress_callback)
     
     if progress_callback:
@@ -102,8 +102,7 @@ async def record_code_change(file_path: str, change_type: str,
 
 
 async def get_code_intelligence(file_path: str) -> Dict[str, Any]:
-    """
-    Get comprehensive code intelligence for a file
+    """Get comprehensive code intelligence for a file
     
     Args:
         file_path: Path to the file
@@ -113,6 +112,9 @@ async def get_code_intelligence(file_path: str) -> Dict[str, Any]:
     """
     if _agentic_system is None:
         return {}
+    
+    # Wait for indexing to complete before getting intelligence
+    await _agentic_system.lsp_indexer.wait_for_indexing_complete()
         
     context = await _agentic_system.get_enhanced_context("code_intelligence")
     

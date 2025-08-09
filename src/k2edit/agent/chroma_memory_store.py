@@ -63,8 +63,8 @@ class ChromaMemoryStore:
             )
         )
         
-        # Initialize collections in background
-        asyncio.create_task(self._init_collections())
+        # Initialize collections
+        await self._init_collections()
         
         if self.logger:
             await self.logger.info(f"ChromaDB memory store initialized at {chroma_path}")
@@ -243,7 +243,7 @@ class ChromaMemoryStore:
             results = self.collections["memories"].query(
                 query_embeddings=[query_embedding],
                 n_results=limit * 2,  # Get more results to allow filtering
-                where={"type": {"$in": ["conversation", "context", "pattern"]}}
+                where={"type": {"$in": ["conversation", "context", "pattern", "change"]}}
             )
             
             relevant = []

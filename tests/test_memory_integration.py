@@ -9,6 +9,7 @@ import asyncio
 import tempfile
 import shutil
 from pathlib import Path
+import pytest
 
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,10 +19,11 @@ from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore
 
 class MockContextManager:
     """Mock context manager for testing"""
-    def _generate_embedding(self, content: str):
+    async def _generate_embedding(self, content: str):
         # Return a simple mock embedding
         return [0.1] * 384
 
+@pytest.mark.asyncio
 async def test_chromadb_memory_store():
     """Test ChromaDB memory store functionality"""
     print("=== ChromaDB Memory Store Integration Test ===")

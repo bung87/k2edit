@@ -34,9 +34,7 @@ from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
 from .logger import setup_logging
 from .utils import (
-    create_error_handler,
-    get_config,
-    ErrorHandler
+    get_config
 )
 from .utils.initialization import (
     create_agent_initializer,
@@ -65,8 +63,7 @@ class K2EditApp(App):
         self.logger = logger or Logger(name="k2edit")
         self.config = get_config()
         
-        # Initialize error handling
-        self.error_handler = create_error_handler(self.logger)
+        # Removed error_handler - using basic exception handling
         
         # Initialize components
         self.editor = CustomSyntaxEditor(self.logger)
@@ -76,7 +73,7 @@ class K2EditApp(App):
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
         self.file_path_display = FilePathDisplay(id="file-path-display")
-        self.kimi_api = KimiAPI()
+        self.kimi_api = KimiAPI(self.logger)
         self.agent_integration = None
         self.initial_file = initial_file
         
@@ -84,10 +81,7 @@ class K2EditApp(App):
         self.editor.set_goto_definition_callback(self._navigate_to_definition)
         
         # Initialize utility classes
-        self.agent_initializer = create_agent_initializer(self.logger, self.error_handler)
-        
-        # Set error handler output panel
-        self.error_handler.output_panel = self.output_panel
+        self.agent_initializer = create_agent_initializer(self.logger)
         
         # Hover state
         self._last_cursor_position = (1, 1)  # (line, column)
@@ -211,11 +205,8 @@ class K2EditApp(App):
             return await self._open_file_internal(file_path)
             
         except Exception as e:
-            await self.error_handler.handle_error(
-                e,
-                context={"file_path": file_path},
-                user_message=f"Failed to open: {file_path}"
-            )
+            await self.logger.error(f"Failed to open {file_path}: {e}", exc_info=True)
+            self.output_panel.add_error(f"Failed to open: {file_path}")
             return False
     
     async def open_directory(self, directory_path: str) -> bool:
@@ -247,11 +238,8 @@ class K2EditApp(App):
             return True
             
         except Exception as e:
-            await self.error_handler.handle_error(
-                e,
-                context={"directory_path": directory_path},
-                user_message=f"Failed to open directory: {directory_path}"
-            )
+            await self.logger.error(f"Failed to open directory {directory_path}: {e}", exc_info=True)
+            self.output_panel.add_error(f"Failed to open directory: {directory_path}")
             return False
     
     async def _open_file_internal(self, file_path: str) -> bool:
@@ -368,11 +356,8 @@ class K2EditApp(App):
             else:
                 await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
         except Exception as e:
-            await self.error_handler.handle_error(
-                e,
-                context={"file_path": file_path, "diagnostics_count": len(diagnostics)},
-                user_message="Failed to process diagnostics"
-            )
+            await self.logger.error(f"Failed to process diagnostics for {file_path}: {e}", exc_info=True)
+            self.output_panel.add_error("Failed to process diagnostics")
 
     async def _trigger_hover_request(self, line: int, column: int):
         """Trigger LSP hover request after cursor idle."""

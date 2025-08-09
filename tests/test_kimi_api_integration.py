@@ -15,9 +15,9 @@ class TestKimiAPIIntegration:
             pytest.skip("KIMI_API_KEY environment variable not set or invalid")
     
     @pytest.mark.asyncio
-    async def test_real_single_chat(self):
+    async def test_real_single_chat(self, logger):
         """Test a real single chat request."""
-        api = KimiAPI()
+        api = KimiAPI(logger)
         try:
             response = await api.chat("Hello, this is a test message. Please respond briefly.")
             
@@ -33,9 +33,9 @@ class TestKimiAPIIntegration:
             await api.close()
     
     @pytest.mark.asyncio
-    async def test_real_chat_with_context(self):
+    async def test_real_chat_with_context(self, logger):
         """Test real chat with context/history."""
-        api = KimiAPI()
+        api = KimiAPI(logger)
         try:
             # Test with context by providing a message that includes history
             context = {
@@ -59,9 +59,9 @@ class TestKimiAPIIntegration:
             await api.close()
     
     @pytest.mark.asyncio
-    async def test_real_usage_info(self):
+    async def test_real_usage_info(self, logger):
         """Test that usage info is available after real chat."""
-        api = KimiAPI()
+        api = KimiAPI(logger)
         try:
             response = await api.chat("Count to 3")
             
@@ -80,9 +80,9 @@ class TestKimiAPIIntegration:
             await api.close()
     
     @pytest.mark.asyncio
-    async def test_real_tool_usage(self):
+    async def test_real_tool_usage(self, logger):
         """Test real chat with tool usage."""
-        api = KimiAPI()
+        api = KimiAPI(logger)
         try:
             # Create a temporary test file
             test_file = Path("/tmp/test_kimi_integration.txt")
@@ -108,9 +108,9 @@ class TestKimiAPIIntegration:
                 test_file.unlink()
     
     @pytest.mark.asyncio
-    async def test_model_info(self):
+    async def test_model_info(self, logger):
         """Test that we're using the correct model."""
-        api = KimiAPI()
+        api = KimiAPI(logger)
         try:
             assert api.model == "kimi-k2-0711-preview"
             print(f"Using model: {api.model}")
@@ -119,9 +119,9 @@ class TestKimiAPIIntegration:
             await api.close()
     
     @pytest.mark.asyncio
-    async def test_api_key_loaded(self):
+    async def test_api_key_loaded(self, logger):
         """Test that API key is properly loaded from environment."""
-        api = KimiAPI()
+        api = KimiAPI(logger)
         try:
             assert api.api_key is not None
             assert api.api_key != "your_actual_api_key_here"

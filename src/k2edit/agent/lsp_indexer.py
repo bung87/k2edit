@@ -75,7 +75,7 @@ class LSPIndexer:
                 await progress_callback(f"No language server configuration for {self.language}")
         
         # Build initial index in background (non-blocking)
-        asyncio.create_task(self._build_initial_index_background(progress_callback))
+        self._indexing_task = asyncio.create_task(self._build_initial_index_background(progress_callback))
         
         await self.logger.info(f"LSP indexer initialized for {self.language}")
         if progress_callback:
@@ -267,6 +267,58 @@ class LSPIndexer:
         except Exception as e:
             await self.logger.error(f"Error getting dependencies for {file_path}: {e}")
             return []
+    
+    def get_file_info(self, file_path: str) -> Dict[str, Any]:
+        """Get file information from the file index"""
+        try:
+            # Ensure file_path is absolute
+            abs_path = Path(file_path)
+            if not abs_path.is_absolute():
+                abs_path = self.project_root / file_path
+            relative_path = str(abs_path.relative_to(self.project_root))
+            return self.file_index.get(relative_path, {})
+        except ValueError:
+            # If file is not within project root, return empty dict
+            return {}
+    
+    async def find_symbol_references(self, symbol_name: str) -> List[Dict[str, Any]]:
+        """Find references to a symbol across the project"""
+        references = []
+        
+        # Search through all indexed files for the symbol
+        for file_path, symbols in self.symbol_index.items():
+            for symbol in symbols:
+                if symbol.get("name") == symbol_name:
+                    references.append({
+                        "file_path": file_path,
+                        "line": symbol.get("line", 0),
+                        "column": symbol.get("column", 0),
+                        "kind": symbol.get("kind", "unknown")
+                    })
+        
+        return references
+    
+    async def wait_for_indexing_complete(self, timeout: float = 30.0) -> bool:
+        """Wait for background indexing to complete
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if indexing completed successfully, False if timeout or error
+        """
+        if not hasattr(self, '_indexing_task') or self._indexing_task is None:
+            return True  # No indexing task, consider it complete
+        
+        try:
+            await asyncio.wait_for(self._indexing_task, timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            await self.logger.warning(f"Indexing did not complete within {timeout} seconds")
+            return False
+        except Exception as e:
+            await self.logger.error(f"Error waiting for indexing completion: {e}")
+            return False
     
     async def get_project_dependencies(self, file_paths: List[str] = None) -> Dict[str, List[str]]:
         """Get dependencies for multiple files concurrently"""

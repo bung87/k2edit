@@ -10,7 +10,6 @@ import tempfile
 import re
 from pathlib import Path
 import sys
-from aiologger import Logger
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,10 +18,10 @@ from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore, MemoryEntry
 
 
 class MockContextManager:
-    def __init__(self):
-        self.logger = Logger(name="test")
+    def __init__(self, logger):
+        self.logger = logger
         
-    def _generate_embedding(self, text: str):
+    async def _generate_embedding(self, text: str):
         # Simple mock embedding
         import hashlib
         hash_val = int(hashlib.md5(text.encode()).hexdigest()[:8], 16)
@@ -90,12 +89,12 @@ def calculate_relevance_score(content: dict, query: str, distance: float) -> flo
 
 
 @pytest.mark.asyncio
-async def test_improved_filtering():
+async def test_improved_filtering(logger):
     """Test improved context filtering"""
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        mock_context = MockContextManager()
-        memory_store = ChromaMemoryStore(mock_context, Logger(name="test"))
+        mock_context = MockContextManager(logger)
+        memory_store = ChromaMemoryStore(mock_context, logger)
         
         await memory_store.initialize(temp_dir)
         

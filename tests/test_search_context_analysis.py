@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 import sys
 from aiologger import Logger
+import pytest
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -25,7 +26,7 @@ class MockContextManager:
     def __init__(self):
         self.logger = Logger(name="test")
         
-    def _generate_embedding(self, text: str):
+    async def _generate_embedding(self, text: str):
         """Generate a simple mock embedding"""
         # Simple mock embedding - just hash the text and create a vector
         import hashlib
@@ -33,6 +34,7 @@ class MockContextManager:
         return [hash_val % 1000 / 1000.0] * 384  # Mock 384-dim vector
 
 
+@pytest.mark.asyncio
 async def test_search_relevant_context_behavior():
     """Test the search_relevant_context method to identify unnecessary context issues"""
     
