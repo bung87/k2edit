@@ -22,6 +22,8 @@ from textual.widgets._text_area import Selection
 from textual.binding import Binding
 from textual.message import Message
 from textual.logging import TextualHandler
+from textual.command import Provider, Hit, Hits
+from functools import partial
 
 from .custom_syntax_editor import CustomSyntaxEditor
 from .views.command_bar import CommandBar
@@ -46,11 +48,72 @@ from .utils.initialization import (
 )
 
 
+class K2EditCommands(Provider):
+    """Command provider for K2Edit editor features."""
+    
+    async def search(self, query: str) -> Hits:
+        """Search for available commands."""
+        matcher = self.matcher(query)
+        
+        commands = [
+            # File operations
+            ("open", "Open file", "action_open_file"),
+            ("save", "Save current file", "action_save_file"),
+            ("quit", "Quit application", "action_quit"),
+            
+            # Search & Replace
+            ("find", "Find text", "action_find"),
+            ("replace", "Replace text", "action_replace"),
+            ("find in files", "Find in files", "action_find_in_files"),
+            ("find next", "Find next occurrence", "action_find_next"),
+            ("find previous", "Find previous occurrence", "action_find_previous"),
+            ("replace all", "Replace all occurrences", "action_replace_all"),
+            
+            # View & Layout
+            ("toggle sidebar", "Toggle sidebar visibility", "action_toggle_sidebar"),
+            ("toggle terminal", "Toggle terminal panel", "action_toggle_terminal"),
+            ("toggle fullscreen", "Toggle fullscreen mode", "action_toggle_fullscreen"),
+            ("zoom in", "Zoom in", "action_zoom_in"),
+            ("zoom out", "Zoom out", "action_zoom_out"),
+            
+            # Advanced features
+            ("run file", "Run current file", "action_run_current_file"),
+            ("format code", "Format current code", "action_format_code"),
+            
+            # Focus
+            ("focus command", "Focus command bar", "action_focus_command"),
+            ("focus editor", "Focus editor", "action_focus_editor"),
+        ]
+        
+        for name, description, action in commands:
+            score = matcher.match(name)
+            if score > 0:
+                yield Hit(
+                    score,
+                    matcher.highlight(name),
+                    partial(self._run_action, action),
+                    help=description
+                )
+    
+    def _run_action(self, action_name: str) -> None:
+        """Execute an action by name."""
+        if hasattr(self.app, action_name):
+            action_method = getattr(self.app, action_name)
+            if callable(action_method):
+                # Handle both sync and async methods
+                import asyncio
+                if asyncio.iscoroutinefunction(action_method):
+                    asyncio.create_task(action_method())
+                else:
+                    action_method()
+
+
 class K2EditApp(App):
     """Main application class for the Kimi-K2 code editor."""
     
     TITLE = "K2Edit - Kimi-K2 Code Editor"
     CSS_PATH = "styles.tcss"
+    COMMANDS = App.COMMANDS | {K2EditCommands}
     
     BINDINGS = [
         # File operations
