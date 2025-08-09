@@ -182,8 +182,8 @@ class K2EditApp(App):
         await self.logger.info("K2Edit app mounted")
         
         # Set up project root for file path display
-        project_root = str(Path.cwd())
-        self.file_path_display.set_project_root(project_root)
+        self.project_root = str(Path.cwd())
+        self.file_path_display.set_project_root(self.project_root)
         
         # Initialize agentic system in background after a short delay
         self.set_timer(self.config.ui.agent_init_delay_s, lambda: asyncio.create_task(self._initialize_agent_system()))
