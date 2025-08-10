@@ -33,13 +33,7 @@ class LSPIndexer:
         self.symbol_index: Dict[str, List[Dict[str, Any]]] = {}
         self.file_index: Dict[str, Dict[str, Any]] = {}
     
-    async def _log_debug(self, message: str):
-        """Log debug message asynchronously"""
-        await self.logger.debug(message)
-    
-    async def _log_warning(self, message: str):
-        """Log warning message asynchronously"""
-        await self.logger.warning(message)
+
         
 
         
@@ -168,10 +162,10 @@ class LSPIndexer:
             async with semaphore:
                 try:
                     await self._index_file(file_path)
-                    await self._log_debug(f"Successfully indexed: {file_path}")
+                    await self.logger.debug(f"Successfully indexed: {file_path}")
                     return True
                 except Exception as e:
-                    await self._log_warning(f"Failed to index {file_path}: {e}")
+                    await self.logger.warning(f"Failed to index {file_path}: {e}")
                     return False
         
         # Execute all file indexing tasks concurrently with controlled concurrency
@@ -185,7 +179,7 @@ class LSPIndexer:
         try:
             relative_path = file_path.relative_to(self.project_root)
             
-            await self.logger.debug(f"Indexing symbols for file: {relative_path}")
+            await self.logger.adebug(f"Indexing symbols for file: {relative_path}")
             
             # Request document symbols
             symbols = await self._get_document_symbols(str(relative_path))
@@ -196,7 +190,7 @@ class LSPIndexer:
                 symbol_type = symbol.get("kind", "unknown")
                 symbol_types[symbol_type] = symbol_types.get(symbol_type, 0) + 1
             
-            await self.logger.debug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
+            await self.logger.adebug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
             
             # Store in index
             self.symbol_index[str(relative_path)] = symbols
@@ -243,7 +237,7 @@ class LSPIndexer:
                     await self.logger.debug(f"Unexpected LSP result format: {type(result)}")
                     return []
         except Exception as e:
-            await self.logger.error(f"LSP request failed for {file_path}: {e}")
+            await self.logger.aerror(f"LSP request failed for {file_path}: {e}")
         
         return []
     
