@@ -157,6 +157,7 @@ class CommandBar(Input):
         """Handle file open command."""
         if not filename:
             await self.logger.warning("Open command issued without filename")
+            self.app.notify("Open command requires a filename", severity="warning")
             return
         
         try:
@@ -195,6 +196,7 @@ class CommandBar(Input):
         """Handle save as command."""
         if not filename:
             await self.logger.warning("Save as command issued without filename")
+            self.app.notify("Save as command requires a filename", severity="warning")
             return
         
         try:
@@ -218,6 +220,7 @@ class CommandBar(Input):
         """Handle general Kimi query."""
         if not query:
             await self.logger.warning("Kimi query issued without query text")
+            self.app.notify("Kimi query requires query text", severity="warning")
             return
 
         if not self.kimi_api:
@@ -283,6 +286,7 @@ class CommandBar(Input):
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
             await self.logger.warning("Fix command issued without selected text")
+            self.app.notify("Fix command requires selected text", severity="warning")
             return
         
         query = f"Please analyze and fix any issues in this code:\n\n```\n{selected_text}\n```"
@@ -302,6 +306,7 @@ class CommandBar(Input):
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
             await self.logger.warning("Refactor command issued without selected text")
+            self.app.notify("Refactor command requires selected text", severity="warning")
             return
         
         refactor_prompt = f"Please refactor this code"
@@ -325,6 +330,7 @@ class CommandBar(Input):
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
             await self.logger.warning("Generate test command issued without selected text")
+            self.app.notify("Generate test command requires selected text", severity="warning")
             return
         
         query = f"Please generate unit tests for this code:\n\n```\n{selected_text}\n```\n\nInclude comprehensive test cases covering edge cases and typical usage."
@@ -344,6 +350,7 @@ class CommandBar(Input):
         selected_text = self.editor.get_selected_text()
         if not selected_text.strip():
             await self.logger.warning("Doc command issued without selected text")
+            self.app.notify("Doc command requires selected text", severity="warning")
             return
         
         query = f"Please add appropriate docstrings and comments to this code:\n\n```\n{selected_text}\n```"
@@ -361,6 +368,7 @@ class CommandBar(Input):
         
         if not goal:
             await self.logger.warning("Run agent command issued without goal")
+            self.app.notify("Run agent command requires a goal", severity="warning")
             return
 
         if not self.agent_integration:
