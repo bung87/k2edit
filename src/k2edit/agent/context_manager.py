@@ -194,26 +194,30 @@ class AgenticContextManager:
                 structure.append(f"{indent}├── {path.name}")
         return structure
 
-    async def _get_project_overview(self) -> Dict[str, Any]:
-        """Get a high-level overview of the project."""
+    async def _get_project_overview(self, max_files: int = 30) -> Dict[str, Any]:
+        """Get a high-level overview of the project with token limits."""
         if not self.current_context or not self.current_context.project_root:
             return {}
 
         project_root = Path(self.current_context.project_root)
         overview = {
-            "file_structure": await self._analyze_file_structure(self.current_context.project_root),
+            "file_structure": await self._analyze_file_structure(self.current_context.project_root, max_files),
             "readme_summary": None
         }
 
-        # Find and summarize README
+        # Find and summarize README (with character limits)
         readme_files = [p for p in project_root.glob('README*') if p.is_file()]
         if readme_files:
             readme_path = readme_files[0]
             try:
                 with open(readme_path, 'r', encoding='utf-8') as f:
                     readme_content = f.read()
-                    # Simple summary: first 15 lines
-                    overview["readme_summary"] = "\n".join(readme_content.splitlines()[:15])
+                    # Simple summary: first 10 lines or 500 characters, whichever is smaller
+                    lines = readme_content.splitlines()[:10]
+                    summary = "\n".join(lines)
+                    if len(summary) > 500:
+                        summary = summary[:500] + "..."
+                    overview["readme_summary"] = summary
             except FileNotFoundError as e:
                 await self.logger.warning(f"README file not found {readme_path.name}: {e}")
             except PermissionError as e:
@@ -270,11 +274,20 @@ class AgenticContextManager:
             except Exception as e:
                 await self.logger.error(f"Failed to get LSP context for file: {e}")
 
-        # Always include a project overview for broader context
-        context["project_overview"] = await self._get_project_overview()
+        # Determine if this is a general query (affects what context to include)
+        is_general_query = not self.current_context.file_path
+        
+        # Only include project overview for general queries to reduce token usage
+        if is_general_query or "project" in query.lower() or "overview" in query.lower():
+            context["project_overview"] = await self._get_project_overview()
+        else:
+            # For specific file queries, only include minimal project info
+            context["project_overview"] = {
+                "project_root": str(self.lsp_indexer.project_root) if self.lsp_indexer.project_root else None,
+                "readme_summary": None  # Skip README for specific queries
+            }
 
         # Only include project-wide symbols when there's no specific file context
-        is_general_query = not self.current_context.file_path
         if is_general_query:
             await self.logger.info("General query detected, initiating project-wide symbol collection...")
             await self.logger.info("Query context: {} file_path, {} selected code".format(
@@ -299,30 +312,51 @@ class AgenticContextManager:
             context["project_symbols"] = project_symbols
 
         # Get targeted semantic search results from memory with distance filtering
-        # Only include high-relevance historical context and conversations
-        semantic_results = await self.memory_store.semantic_search(query, limit=5, max_distance=max_semantic_distance)
+        # Drastically reduced limits to prevent token explosion
+        semantic_results = await self.memory_store.semantic_search(query, limit=2, max_distance=min(0.7, max_semantic_distance))
         
         # Only add semantic context if we have high-quality, relevant results
-        if semantic_results and len(semantic_results) > 0:
-            context["semantic_context"] = semantic_results
-        else:
-            context["semantic_context"] = []
+        # Filter out results that are too short or likely irrelevant
+        filtered_semantic = []
+        for result in semantic_results or []:
+            content = str(result.get('content', ''))
+            if len(content) > 20 and len(content) < 1000:  # Reasonable content length
+                filtered_semantic.append(result)
         
-        # Get relevant historical context from memory with stricter filtering
-        # Reduced limit from 10 to 3 and stricter distance filtering
+        context["semantic_context"] = filtered_semantic[:2]  # Maximum 2 results
+        
+        # Get relevant historical context from memory with very strict filtering
+        # Further reduced limit and stricter distance filtering
         relevant_history = await self.memory_store.search_relevant_context(
             query, 
-            limit=3,  # Reduced from default 10 to 3
-            max_distance=min(0.8, max_semantic_distance)  # Stricter distance filtering
+            limit=2,  # Reduced from 3 to 2
+            max_distance=min(0.6, max_semantic_distance)  # Even stricter distance filtering
         )
-        context["relevant_history"] = relevant_history
         
-        # Find similar code patterns if there is a selection
+        # Filter historical context for quality and size
+        filtered_history = []
+        for item in relevant_history or []:
+            content = str(item.get('content', ''))
+            if len(content) > 20 and len(content) < 800:  # Smaller max size for history
+                filtered_history.append(item)
+        
+        context["relevant_history"] = filtered_history[:2]  # Maximum 2 results
+        
+        # Find similar code patterns if there is a selection (with limits)
         if self.current_context.selected_code:
             similar_patterns = await self.memory_store.find_similar_code(
                 self.current_context.selected_code
             )
-            context["similar_patterns"] = similar_patterns
+            # Limit similar patterns to prevent token explosion
+            filtered_patterns = []
+            for pattern in similar_patterns or []:
+                content = str(pattern.get('content', ''))
+                if len(content) > 10 and len(content) < 500:  # Small code snippets only
+                    filtered_patterns.append(pattern)
+            
+            context["similar_patterns"] = filtered_patterns[:3]  # Maximum 3 patterns
+        else:
+            context["similar_patterns"] = []
         
         # Add file_context and project_context for test compatibility
         context["file_context"] = {
@@ -338,36 +372,80 @@ class AgenticContextManager:
             "project_symbols": context.get("project_symbols", [])
         }
             
-        return context
+        # Log context size for monitoring
+        await self._log_context_size(context)
         
-    async def _analyze_file_structure(self, project_root: str) -> Dict[str, Any]:
-        """Analyze project file structure"""
+        return context
+    
+    async def _log_context_size(self, context: Dict[str, Any]) -> None:
+        """Log the estimated size of context to monitor token usage"""
+        try:
+            import json
+            context_json = json.dumps(context, default=str)
+            estimated_tokens = len(context_json) // 4  # Rough estimate: 1 token ≈ 4 characters
+            
+            await self.logger.info(f"Context size estimate: {len(context_json)} chars, ~{estimated_tokens} tokens")
+            
+            # Log breakdown of major components
+            components = {
+                "project_overview": context.get("project_overview", {}),
+                "semantic_context": context.get("semantic_context", []),
+                "relevant_history": context.get("relevant_history", []),
+                "similar_patterns": context.get("similar_patterns", []),
+                "project_symbols": context.get("project_symbols", [])
+            }
+            
+            for name, component in components.items():
+                if component:
+                    component_json = json.dumps(component, default=str)
+                    component_tokens = len(component_json) // 4
+                    await self.logger.info(f"  {name}: {len(component_json)} chars, ~{component_tokens} tokens")
+                    
+        except Exception as e:
+            await self.logger.warning(f"Failed to log context size: {e}")
+        
+    async def _analyze_file_structure(self, project_root: str, max_files: int = 50) -> Dict[str, Any]:
+        """Analyze project file structure with limits to prevent token explosion"""
         import os
         structure = {
             "root": project_root,
             "files": [],
             "directories": [],
-            "language_stats": {}
+            "language_stats": {},
+            "total_files": 0,
+            "truncated": False
         }
         
+        file_count = 0
         for root, dirs, files in os.walk(project_root):
             # Skip hidden directories and common ignore patterns
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'dist', 'build', '.git']]
             
             for file in files:
                 if not file.startswith('.'):
-                    file_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(file_path, project_root)
+                    structure["total_files"] += 1
                     
-                    # Determine language
+                    # Only include first max_files to prevent token explosion
+                    if file_count < max_files:
+                        file_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(file_path, project_root)
+                        
+                        # Determine language
+                        lang = self._detect_language_from_filename(file)
+                        structure["files"].append({
+                            "path": rel_path,
+                            "language": lang,
+                            "size": os.path.getsize(file_path)
+                        })
+                        file_count += 1
+                    
+                    # Always count language stats
                     lang = self._detect_language_from_filename(file)
-                    structure["files"].append({
-                        "path": rel_path,
-                        "language": lang,
-                        "size": os.path.getsize(file_path)
-                    })
-                    
                     structure["language_stats"][lang] = structure["language_stats"].get(lang, 0) + 1
+        
+        if structure["total_files"] > max_files:
+            structure["truncated"] = True
+            await self.logger.info(f"File structure truncated: showing {max_files} of {structure['total_files']} files")
         
         return structure
 
