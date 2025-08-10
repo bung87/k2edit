@@ -422,11 +422,6 @@ class StatusBar(Widget):
         # Update the reactive property to trigger watcher
         self.language_server_status = status
         self.logger.debug(f"Set language_server_status reactive property to: {status}")
-
-
-
-
-
     
     def _detect_indentation(self, content: str) -> str:
         """Detect indentation type and size from content."""
@@ -522,8 +517,7 @@ class StatusBar(Widget):
         self.lang_widget.update(self.language or "Text")
         self.indent_widget.update(self.indentation)
         self.encoding_widget.update(self.encoding)
-        # self.set_interval(1, self.update_from_editor)
-        
+  
         # Initialize git branch once on mount
         self._update_git_branch()
         

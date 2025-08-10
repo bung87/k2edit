@@ -35,8 +35,8 @@ class MemoryEntry:
 class ChromaMemoryStore:
     """ChromaDB-based memory storage for agentic context and conversations"""
     
-    def __init__(self, context_manager, logger: Logger = None):
-        self.logger = logger or Logger.with_default_handlers(name="k2edit")
+    def __init__(self, context_manager, logger: Logger):
+        self.logger = logger
         self.client = None
         self.project_root = None
         self.context_manager = context_manager
@@ -66,8 +66,7 @@ class ChromaMemoryStore:
         # Initialize collections
         await self._init_collections()
         
-        if self.logger:
-            await self.logger.info(f"ChromaDB memory store initialized at {chroma_path}")
+        await self.logger.info(f"ChromaDB memory store initialized at {chroma_path}")
         
     async def _init_collections(self):
         """Initialize ChromaDB collections for different data types"""
@@ -86,11 +85,9 @@ class ChromaMemoryStore:
                     metadata={"description": description}
                 )
                 self.collections[name] = collection
-                if self.logger:
-                    await self.logger.debug(f"Initialized collection: {name}")
+                await self.logger.debug(f"Initialized collection: {name}")
             except Exception as e:
-                if self.logger:
-                    await self.logger.error(f"Failed to initialize collection {name}: {e}")
+                await self.logger.error(f"Failed to initialize collection {name}: {e}")
                 raise
                 
     async def store_conversation(self, conversation: Dict[str, Any]):
@@ -186,8 +183,7 @@ class ChromaMemoryStore:
                     "metadata": results["metadatas"][0]
                 }
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error finding existing pattern: {e}")
+            await self.logger.error(f"Error finding existing pattern: {e}")
             
         return None
         
@@ -225,74 +221,116 @@ class ChromaMemoryStore:
                 )
                 
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error updating pattern usage: {e}")
+            await self.logger.error(f"Error updating pattern usage: {e}")
             
     async def search_relevant_context(self, query: str, limit: int = 10, max_distance: float = 1.5) -> List[Dict[str, Any]]:
         """Search for relevant context based on query using semantic search with distance filtering"""
+        # Generate embedding for the query
+        if self.context_manager is None:
+            await self.logger.error("Context manager not available - cannot generate embeddings")
+            return []
+        
         try:
-            # Generate embedding for the query
-            if self.context_manager is None:
-                query_embedding = [0.0] * 384  # Default zero vector
-            else:
-                query_embedding = await self.context_manager._generate_embedding(query)
-                if query_embedding is None:
-                    query_embedding = [0.0] * 384  # Fallback zero vector
+            query_embedding = await self.context_manager._generate_embedding(query)
+        except Exception as e:
+            await self.logger.error(f"Failed to generate embedding for query: {e}")
+            return []
             
-            # Search in memories collection with higher limit for filtering
+        if query_embedding is None:
+            await self.logger.error("Failed to generate embedding for query - cannot perform semantic search")
+            return []
+        
+        # Search in memories collection with higher limit for filtering
+        try:
             results = self.collections["memories"].query(
                 query_embeddings=[query_embedding],
                 n_results=limit * 2,  # Get more results to allow filtering
                 where={"type": {"$in": ["conversation", "context", "pattern", "change"]}}
             )
-            
+        except Exception as e:
+            await self.logger.error(f"ChromaDB query failed: {e}")
+            return []
+        
+        # Early return if no distances available - distance filtering is essential
+        if "distances" not in results or not results["distances"] or not results["distances"][0]:
+            await self.logger.warning("No distances returned from ChromaDB query - cannot perform distance filtering")
+            return []
+        
+        # Process and filter results
+        try:
             relevant = []
             for i, doc_id in enumerate(results["ids"][0]):
-                distance = results["distances"][0][i] if "distances" in results else 0.0
+                distance = results["distances"][0][i]
                 
                 # Apply distance-based filtering
                 if distance <= max_distance:
-                    content = json.loads(results["documents"][0][i])
+                    try:
+                        content = json.loads(results["documents"][0][i])
+                    except json.JSONDecodeError as e:
+                        await self.logger.warning(f"Failed to parse document content for {doc_id}: {e}")
+                        continue
                     
                     # Additional quality filtering
                     if not self._is_low_quality_content(content):
-                        relevant.append({
-                            "id": doc_id,
-                            "content": content,
-                            "metadata": results["metadatas"][0][i],
-                            "distance": distance,
-                            "relevance_score": max(0, 1.0 - (distance / max_distance))
-                        })
+                        # Content size filtering - limit to 1000 characters
+                        content_size = len(json.dumps(content))
+                        if content_size <= 1000:
+                            relevant.append({
+                                "id": doc_id,
+                                "content": content,
+                                "metadata": results["metadatas"][0][i],
+                                "distance": distance,
+                                "relevance_score": max(0, 1.0 - (distance / max_distance)),
+                                "content_size": content_size
+                            })
+                        else:
+                            await self.logger.debug(f"Filtered out large content item: {content_size} chars, distance: {distance}")
             
             # Sort by distance (closest first) and limit results
             relevant.sort(key=lambda x: x["distance"])
             return relevant[:limit]
             
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error searching relevant context: {e}")
+            await self.logger.error(f"Error processing search results: {e}")
             return []
             
     async def find_similar_code(self, code: str, limit: int = 5, max_distance: float = 1.2) -> List[Dict[str, Any]]:
         """Find similar code patterns with distance filtering"""
+        # Generate embedding for the code
+        if self.context_manager is None:
+            await self.logger.error("Context manager not available - cannot generate embeddings")
+            return []
+        
         try:
-            # Generate embedding for the code
-            if self.context_manager is None:
-                code_embedding = [0.0] * 384  # Default zero vector
-            else:
-                code_embedding = await self.context_manager._generate_embedding(code)
-                if code_embedding is None:
-                    code_embedding = [0.0] * 384  # Fallback zero vector
+            code_embedding = await self.context_manager._generate_embedding(code)
+        except Exception as e:
+            await self.logger.error(f"Failed to generate embedding for code: {e}")
+            return []
             
-            # Search in code_patterns collection with more results for filtering
+        if code_embedding is None:
+            await self.logger.error("Failed to generate embedding for code - cannot perform semantic search")
+            return []
+        
+        # Search in code_patterns collection with more results for filtering
+        try:
             results = self.collections["code_patterns"].query(
                 query_embeddings=[code_embedding],
                 n_results=limit * 2  # Get more results to allow filtering
             )
-            
+        except Exception as e:
+            await self.logger.error(f"ChromaDB code patterns query failed: {e}")
+            return []
+        
+        # Early return if no distances available - distance filtering is essential
+        if "distances" not in results or not results["distances"] or not results["distances"][0]:
+            await self.logger.warning("No distances returned from ChromaDB query - cannot perform distance filtering")
+            return []
+        
+        # Process and filter results
+        try:
             similar = []
             for i, doc_id in enumerate(results["ids"][0]):
-                distance = results["distances"][0][i] if "distances" in results else 0.0
+                distance = results["distances"][0][i]
                 
                 # Apply distance-based filtering
                 if distance <= max_distance:
@@ -301,7 +339,8 @@ class ChromaMemoryStore:
                     if context_data:
                         try:
                             context = json.loads(context_data)
-                        except (json.JSONDecodeError, TypeError):
+                        except (json.JSONDecodeError, TypeError) as e:
+                            await self.logger.warning(f"Failed to parse context data for {doc_id}: {e}")
                             context = {}
                     else:
                         context = {}
@@ -322,25 +361,36 @@ class ChromaMemoryStore:
             return similar[:limit]
             
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error finding similar code: {e}")
+            await self.logger.error(f"Error processing code search results: {e}")
             return []
             
     async def get_recent_conversations(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent conversation history"""
+        # Query ChromaDB for conversation memories
         try:
             results = self.collections["memories"].get(
                 where={"type": "conversation"},
                 limit=limit,
                 include=["documents", "metadatas"]
             )
-            
+        except Exception as e:
+            await self.logger.error(f"ChromaDB query failed for recent conversations: {e}")
+            return []
+        
+        # Process conversation results
+        try:
             conversations = []
             for i, doc_id in enumerate(results["ids"]):
                 metadata = results["metadatas"][i]
+                try:
+                    content = json.loads(results["documents"][i])
+                except (json.JSONDecodeError, TypeError) as e:
+                    await self.logger.warning(f"Failed to parse conversation content for {doc_id}: {e}")
+                    continue
+                    
                 conversations.append({
                     "id": doc_id,
-                    "content": json.loads(results["documents"][i]),
+                    "content": content,
                     "timestamp": metadata.get("timestamp")
                 })
                 
@@ -349,12 +399,12 @@ class ChromaMemoryStore:
             return conversations[:limit]
             
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error getting recent conversations: {e}")
+            await self.logger.error(f"Error processing conversation results: {e}")
             return []
             
     async def get_file_context(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get stored context for a specific file"""
+        # Query ChromaDB for file context
         try:
             results = self.collections["memories"].get(
                 where={
@@ -366,18 +416,26 @@ class ChromaMemoryStore:
                 limit=1,
                 include=["documents", "metadatas"]
             )
-            
-            if results["ids"]:
+        except Exception as e:
+            await self.logger.error(f"ChromaDB query failed for file context {file_path}: {e}")
+            return None
+        
+        # Process file context results
+        if results["ids"]:
+            try:
                 metadata = results["metadatas"][0]
+                context_data = json.loads(results["documents"][0])
                 return {
-                    "context": json.loads(results["documents"][0]),
+                    "context": context_data,
                     "timestamp": metadata.get("timestamp")
                 }
+            except (json.JSONDecodeError, TypeError) as e:
+                await self.logger.error(f"Failed to parse file context data for {file_path}: {e}")
+                return None
+            except Exception as e:
+                await self.logger.error(f"Error processing file context for {file_path}: {e}")
+                return None
                 
-        except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error getting file context: {e}")
-            
         return None
         
     async def _store_memory(self, memory_entry: MemoryEntry):
@@ -386,11 +444,13 @@ class ChromaMemoryStore:
             # Generate embedding for the content
             content_str = json.dumps(memory_entry.content)
             if self.context_manager is None:
-                embedding = [0.0] * 384  # Default zero vector
-            else:
-                embedding = await self.context_manager._generate_embedding(content_str)
-                if embedding is None:
-                    embedding = [0.0] * 384  # Fallback zero vector
+                await self.logger.error("Context manager not available - cannot generate embeddings for memory storage")
+                raise RuntimeError("Cannot store memory without embedding generation capability")
+            
+            embedding = await self.context_manager._generate_embedding(content_str)
+            if embedding is None:
+                await self.logger.error("Failed to generate embedding for memory content - cannot store memory")
+                raise RuntimeError("Failed to generate embedding for memory storage")
             
             # Prepare metadata
             metadata = {
@@ -412,8 +472,7 @@ class ChromaMemoryStore:
             )
             
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error storing memory: {e}")
+            await self.logger.error(f"Error storing memory: {e}")
             raise
             
     def _generate_id(self, prefix: str = None) -> str:
@@ -477,29 +536,45 @@ class ChromaMemoryStore:
     
     async def semantic_search(self, query: str, limit: int = 5, max_distance: float = 1.5) -> List[Dict[str, Any]]:
         """Perform semantic search using ChromaDB's native vector search with distance filtering"""
+        # Generate embedding for the query
+        if self.context_manager is None:
+            await self.logger.error("Context manager not available - cannot generate embeddings for semantic search")
+            return []
+        
         try:
-            # Generate embedding for the query
-            if self.context_manager is None:
-                query_embedding = [0.0] * 384  # Default zero vector
-            else:
-                query_embedding = await self.context_manager._generate_embedding(query)
-                if query_embedding is None:
-                    query_embedding = [0.0] * 384  # Fallback zero vector
+            query_embedding = await self.context_manager._generate_embedding(query)
+        except Exception as e:
+            await self.logger.error(f"Failed to generate embedding for query: {e}")
+            return []
             
-            # Search across all memories with higher limit for filtering
+        if query_embedding is None:
+            await self.logger.error("Failed to generate embedding for query - cannot perform semantic search")
+            return []
+        
+        # Search across all memories with higher limit for filtering
+        try:
             results = self.collections["memories"].query(
                 query_embeddings=[query_embedding],
                 n_results=limit * 2,  # Get more results for filtering
                 include=["documents", "metadatas", "distances"]
             )
-            
+        except Exception as e:
+            await self.logger.error(f"ChromaDB semantic search query failed: {e}")
+            return []
+        
+        # Process search results
+        try:
             search_results = []
             for i, doc_id in enumerate(results["ids"][0]):
                 distance = results["distances"][0][i]
                 
                 # Apply distance-based filtering
                 if distance <= max_distance:
-                    content = json.loads(results["documents"][0][i])
+                    try:
+                        content = json.loads(results["documents"][0][i])
+                    except (json.JSONDecodeError, TypeError) as e:
+                        await self.logger.warning(f"Failed to parse search result content for {doc_id}: {e}")
+                        continue
                     
                     # Apply quality filtering
                     if not self._is_low_quality_content(content):
@@ -517,50 +592,67 @@ class ChromaMemoryStore:
             return search_results[:limit]
             
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error in semantic search: {e}")
+            await self.logger.error(f"Error processing semantic search results: {e}")
             return []
     
     async def update_memory_score(self, memory_id: str, score_change: float):
         """Update the semantic score of a memory based on usage"""
+        # Get current record
         try:
-            # Get current record
             results = self.collections["memories"].get(
                 ids=[memory_id],
                 include=["documents", "metadatas"]
             )
-            
-            if results["ids"]:
-                metadata = results["metadatas"][0]
-                document = results["documents"][0]
-                
-                # Update metadata
-                metadata["semantic_score"] = metadata.get("semantic_score", 1.0) + score_change
-                metadata["access_count"] = metadata.get("access_count", 0) + 1
-                metadata["last_accessed"] = datetime.now().isoformat()
-                
-                # Generate new embedding
-                if self.context_manager is None:
-                    embedding = [0.0] * 384  # Default zero vector
-                else:
-                    embedding = await self.context_manager._generate_embedding(document)
-                    if embedding is None:
-                        embedding = [0.0] * 384  # Fallback zero vector
-                
-                # Update the record
-                self.collections["memories"].upsert(
-                    ids=[memory_id],
-                    documents=[document],
-                    metadatas=[metadata],
-                    embeddings=[embedding]
-                )
-                
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error updating memory score: {e}")
+            await self.logger.error(f"ChromaDB query failed for memory {memory_id}: {e}")
+            return
+        
+        if not results["ids"]:
+            await self.logger.warning(f"Memory {memory_id} not found for score update")
+            return
+        
+        # Process memory record
+        try:
+            metadata = results["metadatas"][0]
+            document = results["documents"][0]
+            
+            # Update metadata
+            metadata["semantic_score"] = metadata.get("semantic_score", 1.0) + score_change
+            metadata["access_count"] = metadata.get("access_count", 0) + 1
+            metadata["last_accessed"] = datetime.now().isoformat()
+        except Exception as e:
+            await self.logger.error(f"Error processing memory metadata for {memory_id}: {e}")
+            return
+        
+        # Generate new embedding
+        if self.context_manager is None:
+            await self.logger.error("Context manager not available - cannot update memory embedding")
+            return
+        
+        try:
+            embedding = await self.context_manager._generate_embedding(document)
+        except Exception as e:
+            await self.logger.error(f"Failed to generate embedding for memory {memory_id}: {e}")
+            return
+            
+        if embedding is None:
+            await self.logger.error(f"Failed to generate embedding for memory {memory_id} - cannot update")
+            return
+        
+        # Update the record
+        try:
+            self.collections["memories"].upsert(
+                ids=[memory_id],
+                documents=[document],
+                metadatas=[metadata],
+                embeddings=[embedding]
+            )
+        except Exception as e:
+            await self.logger.error(f"ChromaDB upsert failed for memory {memory_id}: {e}")
     
     async def add_context_relationship(self, source_id: str, target_id: str, relationship_type: str, weight: float = 1.0, metadata: Dict[str, Any] = None):
         """Add a relationship between two context items"""
+        # Prepare relationship data
         try:
             relationship_id = self._generate_id()
             
@@ -575,25 +667,35 @@ class ChromaMemoryStore:
             
             # Create a document for the relationship
             relationship_doc = f"{relationship_type}: {source_id} -> {target_id}"
+        except Exception as e:
+            await self.logger.error(f"Error preparing relationship data: {e}")
+            return
+        
+        # Generate embedding for the relationship
+        if self.context_manager is None:
+            await self.logger.error("Context manager not available - cannot generate embeddings for relationship")
+            return
+        
+        try:
+            embedding = await self.context_manager._generate_embedding(relationship_doc)
+        except Exception as e:
+            await self.logger.error(f"Failed to generate embedding for relationship: {e}")
+            return
             
-            # Generate embedding for the relationship
-            if self.context_manager is None:
-                embedding = [0.0] * 384  # Default zero vector
-            else:
-                embedding = await self.context_manager._generate_embedding(relationship_doc)
-                if embedding is None:
-                    embedding = [0.0] * 384  # Fallback zero vector
-            
+        if embedding is None:
+            await self.logger.error("Failed to generate embedding for relationship - cannot store")
+            return
+        
+        # Store the relationship
+        try:
             self.collections["relationships"].upsert(
                 ids=[relationship_id],
                 documents=[relationship_doc],
                 metadatas=[relationship_data],
                 embeddings=[embedding]
             )
-            
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error adding context relationship: {e}")
+            await self.logger.error(f"ChromaDB upsert failed for relationship: {e}")
     
     async def get_related_context(self, memory_id: str, relationship_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """Get related context items based on relationships"""

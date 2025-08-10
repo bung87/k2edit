@@ -49,9 +49,18 @@ class ToolExecutor:
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
         
+        except TypeError as e:
+            error_msg = f"Invalid arguments for tool {tool_name}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except AttributeError as e:
+            error_msg = f"Tool function not available: {tool_name}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Tool execution failed: {str(e)}")
-            return {"error": f"Tool execution failed: {str(e)}"}
+            error_msg = f"Unexpected error executing tool {tool_name}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def list_files(self, directory: str = ".", pattern: str = "*") -> Dict[str, Any]:
         """List files in a directory with optional pattern filtering."""
@@ -106,9 +115,18 @@ class ToolExecutor:
                 "total_directories": len(directories)
             }
         
+        except PermissionError as e:
+            error_msg = f"Permission denied accessing directory {directory}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except OSError as e:
+            error_msg = f"OS error listing files in {directory}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Failed to list files: {str(e)}")
-            return {"error": f"Failed to list files: {str(e)}"}
+            error_msg = f"Unexpected error listing files: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def search_code(self, pattern: str, directory: str = ".", file_types: Optional[List[str]] = None) -> Dict[str, Any]:
         """Search for code patterns in files."""
@@ -156,9 +174,18 @@ class ToolExecutor:
                 "files_searched": len([f for f in dir_path.rglob("**/*") if f.is_file()])
             }
         
+        except PermissionError as e:
+            error_msg = f"Permission denied searching in {directory}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except re.error as e:
+            error_msg = f"Invalid regex pattern '{pattern}': {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Search failed: {str(e)}")
-            return {"error": f"Search failed: {str(e)}"}
+            error_msg = f"Unexpected error during search: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def run_command(self, command: str, working_directory: str = ".") -> Dict[str, Any]:
         """Execute a shell command safely."""
@@ -231,9 +258,18 @@ class ToolExecutor:
             else:
                 return {"error": f"Unknown analysis type: {analysis_type}"}
         
+        except AttributeError as e:
+            error_msg = f"Editor not properly initialized for analysis: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except ValueError as e:
+            error_msg = f"Invalid analysis parameters: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Analysis failed: {str(e)}")
-            return {"error": f"Analysis failed: {str(e)}"}
+            error_msg = f"Unexpected error during analysis: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def insert_code(self, line_number: int, code: str) -> Dict[str, Any]:
         """Insert code at a specific line in the editor."""
@@ -257,9 +293,18 @@ class ToolExecutor:
                 "inserted_code": code
             }
         
+        except AttributeError as e:
+            error_msg = f"Editor not available for code insertion: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except ValueError as e:
+            error_msg = f"Invalid line number for insertion: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Code insertion failed: {str(e)}")
-            return {"error": f"Code insertion failed: {str(e)}"}
+            error_msg = f"Unexpected error during code insertion: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict[str, Any]:
         """Replace code at specific lines in the editor."""
@@ -296,9 +341,18 @@ class ToolExecutor:
                 "new_lines": len(new_lines)
             }
         
+        except AttributeError as e:
+            error_msg = f"Editor not available for code replacement: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except ValueError as e:
+            error_msg = f"Invalid line range for replacement: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Code replacement failed: {str(e)}")
-            return {"error": f"Code replacement failed: {str(e)}"}
+            error_msg = f"Unexpected error during code replacement: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def read_file(self, path: str) -> Dict[str, Any]:
         """Read content from a file."""
@@ -335,9 +389,18 @@ class ToolExecutor:
             return {"error": f"File is not a text file: {path}"}
         except PermissionError:
             return {"error": f"Permission denied reading file: {path}"}
+        except FileNotFoundError as e:
+            error_msg = f"File not found: {path}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except IsADirectoryError as e:
+            error_msg = f"Path is a directory, not a file: {path}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Failed to read file: {str(e)}")
-            return {"error": f"Failed to read file: {str(e)}"}
+            error_msg = f"Unexpected error reading file: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     async def write_file(self, path: str, content: str) -> Dict[str, Any]:
         """Write content to a file."""
@@ -365,9 +428,18 @@ class ToolExecutor:
         
         except PermissionError:
             return {"error": f"Permission denied writing to file: {path}"}
+        except IsADirectoryError as e:
+            error_msg = f"Cannot write to directory: {path}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
+        except OSError as e:
+            error_msg = f"OS error writing file {path}: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
         except Exception as e:
-            await self.logger.error(f"Failed to write file: {str(e)}")
-            return {"error": f"Failed to write file: {str(e)}"}
+            error_msg = f"Unexpected error writing file: {e}"
+            await self.logger.error(error_msg)
+            return {"error": error_msg}
     
     def _analyze_structure(self, code: str) -> Dict[str, Any]:
         """Analyze code structure (functions, classes, etc.)."""

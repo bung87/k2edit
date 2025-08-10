@@ -10,6 +10,7 @@ from textual.message import Message
 from textual.widgets import Input
 
 from ..agent.tools import ToolExecutor
+from ..logger import get_logger
 
 class CommandBar(Input):
     """Command input widget with command processing."""
@@ -22,7 +23,7 @@ class CommandBar(Input):
         self.editor = None
         self.kimi_api = None
         self.agent_integration = None
-        self.logger = Logger(name="k2edit")
+        self.logger = get_logger()
         self.tool_executor = ToolExecutor(self.logger, editor_widget=self.editor)
         self.output_panel = None
     

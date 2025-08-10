@@ -11,7 +11,7 @@ from aiologger import Logger
 
 try:
     from openai import AsyncOpenAI
-    from openai import OpenAIError, RateLimitError
+    from openai import OpenAIError, RateLimitError, AuthenticationError, BadRequestError, APIConnectionError
 except ImportError:
     raise ImportError("OpenAI library not found. Please install with: pip install openai")
 from dotenv import load_dotenv
@@ -94,14 +94,19 @@ class KimiAPI:
         except RateLimitError as e:
             await self.logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
             raise Exception("Rate limit exceeded. Please wait a moment and try again.")
-        except (OpenAIError, Exception) as e:
-            # Handle other OpenAI errors and unexpected errors
+        except RateLimitError as e:
+            await self.logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
+            raise Exception("Rate limit exceeded. Please wait a moment and try again.")
+        except OpenAIError as e:
+            # Handle other OpenAI errors
             error_msg = str(e)
             await self.logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            if isinstance(e, OpenAIError):
-                raise Exception(f"API request failed: {error_msg}")
-            else:
-                raise Exception(f"API error: {error_msg}")
+            raise Exception(f"API request failed: {error_msg}")
+        except Exception as e:
+            # Handle unexpected errors
+            error_msg = str(e)
+            await self.logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
+            raise Exception(f"API error: {error_msg}")
     
     async def run_agent(
         self,
@@ -316,9 +321,20 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         except RateLimitError as e:
             await self.logger.error(f"Rate limit exceeded - details: {str(e)}")
             raise Exception(f"Rate limit exceeded. Please wait a moment and try again. Details: {str(e)}")
+        except AuthenticationError as e:
+            await self.logger.error(f"Authentication failed: {e}")
+            raise Exception("Authentication failed. Please check your API key.")
+        except BadRequestError as e:
+            await self.logger.error(f"Bad request: {e}")
+            raise Exception(f"Invalid request: {e}")
+        except APIConnectionError as e:
+            await self.logger.error(f"API connection error: {e}")
+            raise Exception(f"Connection error: {e}")
         except OpenAIError as e:
+            await self.logger.error(f"OpenAI API error: {e}")
             raise Exception(f"API request failed: {str(e)}")
         except Exception as e:
+            await self.logger.error(f"Unexpected error in single chat: {e}", exc_info=True)
             raise Exception(f"Unexpected error: {str(e)}")
     
     async def _single_chat_with_messages(self, messages: List[Dict]) -> Dict[str, Any]:
@@ -411,9 +427,20 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         except RateLimitError as e:
             await self.logger.error(f"Rate limit exceeded in streaming - details: {str(e)}")
             raise Exception(f"Rate limit exceeded. Please wait a moment and try again. Details: {str(e)}")
+        except AuthenticationError as e:
+            await self.logger.error(f"Authentication failed in streaming: {e}")
+            raise Exception("Authentication failed. Please check your API key.")
+        except BadRequestError as e:
+            await self.logger.error(f"Bad request in streaming: {e}")
+            raise Exception(f"Invalid request: {e}")
+        except APIConnectionError as e:
+            await self.logger.error(f"API connection error in streaming: {e}")
+            raise Exception(f"Connection error: {e}")
         except OpenAIError as e:
+            await self.logger.error(f"OpenAI API error in streaming: {e}")
             raise Exception(f"API request failed: {str(e)}")
         except Exception as e:
+            await self.logger.error(f"Unexpected error in streaming: {e}", exc_info=True)
             raise Exception(f"Unexpected error: {str(e)}")
     
     def _build_messages(self, message: str, context: Optional[Dict] = None) -> List[Dict]:
@@ -731,20 +758,3 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         """Close the OpenAI client."""
         await self.client.close()
     
-    def __del__(self):
-        """Cleanup on deletion."""
-        try:
-            # Note: We can't await in __del__, so we'll just let the object be cleaned up
-            # The async close method will be called by the garbage collector if needed
-            pass
-        except Exception as e:
-            # Log the error during cleanup, but don't prevent cleanup
-            try:
-                import asyncio
-                from k2edit.utils.logger import Logger
-                logger = Logger(name="k2edit")
-                # Note: Can't await in __del__, so we'll create a task
-                asyncio.create_task(logger.warning(f"Error during KimiAPI cleanup: {e}"))
-            except Exception:
-                # If logging fails, just silently ignore
-                pass

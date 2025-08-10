@@ -102,6 +102,15 @@ class LSPClient:
             
             return True
             
+        except FileNotFoundError as e:
+            await self.logger.error(f"Language server executable not found for {language}: {e}")
+            return False
+        except PermissionError as e:
+            await self.logger.error(f"Permission denied starting {language} server: {e}")
+            return False
+        except OSError as e:
+            await self.logger.error(f"OS error starting {language} server: {e}")
+            return False
         except Exception as e:
             await self.logger.error(f"Failed to start {language} server: {e}", exc_info=True)
             return False
@@ -135,6 +144,10 @@ class LSPClient:
             
             await self.logger.info(f"Stopped {language} language server")
             
+        except ProcessLookupError as e:
+            await self.logger.warning(f"Process already terminated for {language} server: {e}")
+        except OSError as e:
+            await self.logger.error(f"OS error stopping {language} server: {e}")
         except Exception as e:
             await self.logger.error(f"Error stopping {language} server: {e}")
         finally:
@@ -195,6 +208,12 @@ class LSPClient:
                 await self.logger.error(f"Failed to initialize {language} server")
                 return False
                 
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error initializing {language} server: {e}")
+            return False
+        except json.JSONDecodeError as e:
+            await self.logger.error(f"JSON decode error initializing {language} server: {e}")
+            return False
         except Exception as e:
             await self.logger.error(f"Error initializing {language} server: {e}")
             return False
@@ -235,6 +254,12 @@ class LSPClient:
                 # Clean up pending request
                 connection.pending_requests.pop(message_id, None)
                 
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error sending request to {language}: {e}")
+            return None
+        except json.JSONEncodeError as e:
+            await self.logger.error(f"JSON encode error sending request to {language}: {e}")
+            return None
         except Exception as e:
             await self.logger.error(f"Error sending request to {language}: {e}")
             return None
@@ -294,6 +319,12 @@ class LSPClient:
             else:
                 await self.logger.warning(f"Invalid response format: {response}")
                 return None
+        except ValueError as e:
+            await self.logger.error(f"Invalid position for definition request: {e}")
+            return None
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error getting definition for {file_path}: {e}")
+            return None
         except Exception as e:
             await self.logger.error(f"Error getting definition for {file_path}: {e}")
             return None
@@ -311,6 +342,10 @@ class LSPClient:
         try:
             await self._send_message(connection, notification)
             connection.last_activity = time.time()
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error sending notification to {language}: {e}")
+        except json.JSONEncodeError as e:
+            await self.logger.error(f"JSON encode error sending notification to {language}: {e}")
         except Exception as e:
             await self.logger.error(f"Error sending notification to {language}: {e}")
     
@@ -355,6 +390,12 @@ class LSPClient:
                 
         except asyncio.CancelledError:
             await self.logger.info(f"Message reader cancelled for {language}")
+        except ConnectionResetError as e:
+            await self.logger.warning(f"Connection reset in message reader for {language}: {e}")
+            connection.status = ServerStatus.ERROR
+        except json.JSONDecodeError as e:
+            await self.logger.error(f"JSON decode error in message reader for {language}: {e}")
+            connection.status = ServerStatus.ERROR
         except Exception as e:
             await self.logger.error(f"Error in message reader for {language}: {e}")
             connection.status = ServerStatus.ERROR
@@ -392,6 +433,12 @@ class LSPClient:
             
             return json.loads(content.decode('utf-8'))
             
+        except UnicodeDecodeError as e:
+            await self.logger.error(f"Unicode decode error reading from {connection.language} server: {e}")
+            return None
+        except ConnectionResetError as e:
+            await self.logger.warning(f"Connection reset reading from {connection.language} server: {e}")
+            return None
         except Exception as e:
             await self.logger.error(f"Error reading message: {e}")
             return None
@@ -422,6 +469,10 @@ class LSPClient:
             if self.diagnostics_callback:
                 try:
                     await self.diagnostics_callback(file_path, diagnostics)
+                except KeyError as e:
+                    await self.logger.warning(f"Missing key in diagnostics callback: {e}")
+                except ValueError as e:
+                    await self.logger.warning(f"Invalid diagnostics data format in callback: {e}")
                 except Exception as e:
                     await self.logger.error(f"Error in diagnostics callback: {e}")
     
@@ -454,8 +505,12 @@ class LSPClient:
                 if message:
                     await self.logger.warning(f"[{language}-stderr] {message}")
                     
+        except UnicodeDecodeError as e:
+            await self.logger.error(f"Unicode decode error in stderr logger for {language}: {e}")
+        except ConnectionError as e:
+            await self.logger.warning(f"Connection error in health monitor for {language}: {e}")
         except Exception as e:
-            await self.logger.error(f"Error reading stderr for {language}: {e}")
+            await self.logger.error(f"Error in health monitor for {language}: {e}")
     
     async def _health_monitor(self) -> None:
         """Monitor health of all language servers"""
@@ -518,6 +573,15 @@ class LSPClient:
             try:
                 async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
                     content = await f.read()
+            except FileNotFoundError as e:
+                await self.logger.warning(f"File not found when notifying LSP: {e}")
+                return
+            except PermissionError as e:
+                await self.logger.warning(f"Permission denied reading file for LSP: {e}")
+                return
+            except UnicodeDecodeError as e:
+                await self.logger.warning(f"Unicode decode error reading file for LSP: {e}")
+                return
             except Exception as e:
                 await self.logger.warning(f"Failed to read file content: {e}")
                 return
@@ -540,6 +604,8 @@ class LSPClient:
             await self.send_notification(language, notification)
             await self.logger.info(f"Notified LSP about opened file: {file_path}")
             
+        except ConnectionError as e:
+            await self.logger.warning(f"Connection error notifying LSP about opened file: {e}")
         except Exception as e:
             await self.logger.warning(f"Failed to notify LSP about opened file: {e}")
     
@@ -580,6 +646,8 @@ class LSPClient:
             await self.send_notification(language, notification)
             await self.logger.info(f"Notified LSP about file change: {file_path}")
             
+        except ConnectionError as e:
+            await self.logger.warning(f"Connection error notifying LSP about file change: {e}")
         except Exception as e:
             await self.logger.warning(f"Failed to notify LSP about file change: {e}")
     
@@ -614,6 +682,12 @@ class LSPClient:
                 return response["result"]
             return None
             
+        except ValueError as e:
+            await self.logger.error(f"Invalid position for hover request: {e}")
+            return None
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error getting hover info: {e}")
+            return None
         except Exception as e:
             await self.logger.error(f"Failed to get hover info: {e}")
             return None
@@ -658,6 +732,12 @@ class LSPClient:
                     return [result]
             return []
             
+        except ValueError as e:
+            await self.logger.error(f"Invalid position for completions request: {e}")
+            return None
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error getting completions: {e}")
+            return None
         except Exception as e:
             await self.logger.error(f"Failed to get completions: {e}")
             return None

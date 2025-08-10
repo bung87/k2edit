@@ -81,6 +81,14 @@ class AgenticContextManager:
         # Initialize LSP indexer
         try:
             await self.lsp_indexer.initialize(project_root, progress_callback)
+        except (ConnectionError, TimeoutError) as e:
+            await self.logger.error(f"LSP connection failed: {e}", exc_info=True)
+            if progress_callback:
+                await progress_callback(f"Error: LSP connection failed: {e}")
+        except (FileNotFoundError, PermissionError) as e:
+            await self.logger.error(f"LSP file access error: {e}", exc_info=True)
+            if progress_callback:
+                await progress_callback(f"Error: LSP file access error: {e}")
         except Exception as e:
             await self.logger.error(f"Failed to initialize LSP indexer: {e}", exc_info=True)
             if progress_callback:
@@ -130,6 +138,15 @@ class AgenticContextManager:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     file_content = f.read()
+            except FileNotFoundError as e:
+                await self.logger.error(f"File not found {file_path}: {e}")
+                return False
+            except PermissionError as e:
+                await self.logger.error(f"Permission denied reading {file_path}: {e}")
+                return False
+            except UnicodeDecodeError as e:
+                await self.logger.error(f"Encoding error reading {file_path}: {e}")
+                return False
             except Exception as e:
                 await self.logger.error(f"Error reading file {file_path}: {e}")
                 return False
@@ -197,6 +214,12 @@ class AgenticContextManager:
                     readme_content = f.read()
                     # Simple summary: first 15 lines
                     overview["readme_summary"] = "\n".join(readme_content.splitlines()[:15])
+            except FileNotFoundError as e:
+                await self.logger.warning(f"README file not found {readme_path.name}: {e}")
+            except PermissionError as e:
+                await self.logger.warning(f"Permission denied reading {readme_path.name}: {e}")
+            except UnicodeDecodeError as e:
+                await self.logger.warning(f"Encoding error reading {readme_path.name}: {e}")
             except Exception as e:
                 await self.logger.warning(f"Could not read {readme_path.name}: {e}")
         
@@ -240,6 +263,10 @@ class AgenticContextManager:
                     context["symbols"] = lsp_context["symbols"]
                     self.current_context.symbols = lsp_context["symbols"]
                     
+            except ConnectionError as e:
+                await self.logger.error(f"LSP connection error for file {self.current_context.file_path}: {e}")
+            except AttributeError as e:
+                await self.logger.error(f"LSP attribute error for file {self.current_context.file_path}: {e}")
             except Exception as e:
                 await self.logger.error(f"Failed to get LSP context for file: {e}")
 
@@ -281,8 +308,13 @@ class AgenticContextManager:
         else:
             context["semantic_context"] = []
         
-        # Get relevant historical context from memory with distance filtering
-        relevant_history = await self.memory_store.search_relevant_context(query, max_distance=max_semantic_distance)
+        # Get relevant historical context from memory with stricter filtering
+        # Reduced limit from 10 to 3 and stricter distance filtering
+        relevant_history = await self.memory_store.search_relevant_context(
+            query, 
+            limit=3,  # Reduced from default 10 to 3
+            max_distance=min(0.8, max_semantic_distance)  # Stricter distance filtering
+        )
         context["relevant_history"] = relevant_history
         
         # Find similar code patterns if there is a selection
@@ -476,6 +508,15 @@ class AgenticContextManager:
                     num_workers=0  # Explicitly disable multiprocessing
                 )
             return embedding.tolist()
+        except AttributeError as e:
+            await self.logger.error(f"Embedding model attribute error: {e}")
+            return [0.0] * 384
+        except ValueError as e:
+            await self.logger.error(f"Invalid input for embedding generation: {e}")
+            return [0.0] * 384
+        except RuntimeError as e:
+            await self.logger.error(f"Runtime error in embedding generation: {e}")
+            return [0.0] * 384
         except Exception as e:
             await self.logger.error(f"Error generating embedding: {e}")
             return [0.0] * 384
@@ -532,7 +573,19 @@ class AgenticContextManager:
             if os.path.exists(model_path):
                 await self.logger.info("Successfully loaded local SentenceTransformer model")
             else:
-                await self.logger.info("Successfully downloaded SentenceTransformer model from Hugging Face")
+                await self.logger.info("Error loading SentenceTransformer model from local path")
+        except ImportError as e:
+            await self.logger.error(f"SentenceTransformer import error: {e}")
+            self.embedding_model = None
+            self._embedding_lock = None
+        except OSError as e:
+            await self.logger.error(f"Model file access error: {e}")
+            self.embedding_model = None
+            self._embedding_lock = None
+        except RuntimeError as e:
+            await self.logger.error(f"Runtime error loading model: {e}")
+            self.embedding_model = None
+            self._embedding_lock = None
         except Exception as e:
             await self.logger.error(f"Error loading SentenceTransformer model: {e}")
             self.embedding_model = None

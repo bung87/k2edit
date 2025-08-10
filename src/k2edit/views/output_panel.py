@@ -152,9 +152,12 @@ class OutputPanel(Vertical):
             log = self.query_one("#output-log", RichLog)
             if log:
                 log.write(error_text)
-        except Exception:
-            # Silently fail if output panel is not ready
-            pass
+        except AttributeError as e:
+            # Output log widget not available
+            print(f"Output panel error method unavailable: {e}")
+        except Exception as e:
+            # Unexpected error writing to output panel
+            print(f"Unexpected error writing error to output panel: {e}")
     
     def add_info(self, info_message: str) -> None:
         """Add an info message to the output panel."""
@@ -169,9 +172,12 @@ class OutputPanel(Vertical):
             log = self.query_one("#output-log", RichLog)
             if log:
                 log.write(info_text)
-        except Exception:
-            # Silently fail if output panel is not ready
-            pass
+        except AttributeError as e:
+            # Output log widget not available
+            print(f"Output panel info method unavailable: {e}")
+        except Exception as e:
+            # Unexpected error writing to output panel
+            print(f"Unexpected error writing info to output panel: {e}")
     
     def add_tool_execution(self, tool_name: str, arguments: dict, result: str = None) -> None:
         """Add tool execution information."""

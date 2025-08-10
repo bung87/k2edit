@@ -284,9 +284,25 @@ class K2EditApp(App):
                 
             return await self._open_file_internal(file_path)
             
+        except FileNotFoundError:
+            error_msg = f"File not found: {file_path}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        except PermissionError:
+            error_msg = f"Permission denied accessing: {file_path}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        except OSError as e:
+            error_msg = f"OS error opening {file_path}: {e}"
+            await self.logger.error(error_msg, exc_info=True)
+            self.output_panel.add_error(error_msg)
+            return False
         except Exception as e:
-            await self.logger.error(f"Failed to open {file_path}: {e}", exc_info=True)
-            self.output_panel.add_error(f"Failed to open: {file_path}")
+            error_msg = f"Unexpected error opening {file_path}: {e}"
+            await self.logger.error(error_msg, exc_info=True)
+            self.output_panel.add_error(error_msg)
             return False
     
     async def open_directory(self, directory_path: str) -> bool:
@@ -317,9 +333,25 @@ class K2EditApp(App):
             
             return True
             
+        except FileNotFoundError:
+            error_msg = f"Directory not found: {directory_path}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        except PermissionError:
+            error_msg = f"Permission denied accessing directory: {directory_path}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        except OSError as e:
+            error_msg = f"OS error opening directory {directory_path}: {e}"
+            await self.logger.error(error_msg, exc_info=True)
+            self.output_panel.add_error(error_msg)
+            return False
         except Exception as e:
-            await self.logger.error(f"Failed to open directory {directory_path}: {e}", exc_info=True)
-            self.output_panel.add_error(f"Failed to open directory: {directory_path}")
+            error_msg = f"Unexpected error opening directory {directory_path}: {e}"
+            await self.logger.error(error_msg, exc_info=True)
+            self.output_panel.add_error(error_msg)
             return False
     
     async def _open_file_internal(self, file_path: str) -> bool:
@@ -376,9 +408,20 @@ class K2EditApp(App):
                         await self.logger.info(f"Started {language} language server successfully")
                         # Update LSP status after starting server
                         await self._update_lsp_status()
+                    except KeyError as e:
+                        await self.logger.error(f"Language server configuration not found for {language}: {e}")
+                        await self._update_lsp_status()
+                    except FileNotFoundError:
+                        await self.logger.error(f"Language server executable not found for {language}")
+                        await self._update_lsp_status()
+                    except ConnectionError as e:
+                        await self.logger.error(f"Failed to connect to {language} language server: {e}")
+                        await self._update_lsp_status()
+                    except TimeoutError:
+                        await self.logger.error(f"Timeout starting {language} language server")
+                        await self._update_lsp_status()
                     except Exception as e:
-                        await self.logger.error(f"Failed to start {language} language server: {e}")
-                        # Update LSP status after failed start
+                        await self.logger.error(f"Unexpected error starting {language} language server: {e}", exc_info=True)
                         await self._update_lsp_status()
             
             # Notify LSP server about the opened file
@@ -420,6 +463,10 @@ class K2EditApp(App):
     
     async def _on_diagnostics_received(self, file_path: str, diagnostics: list):
         """Callback for when new diagnostics are received from LSP server"""
+        if not diagnostics or not isinstance(diagnostics, list):
+            await self.logger.debug(f"Invalid or empty diagnostics for {file_path}")
+            return
+            
         try:
             await self.logger.debug(f"Diagnostics callback triggered for {file_path}: {len(diagnostics)} items")
             
@@ -434,8 +481,14 @@ class K2EditApp(App):
                 await self.status_bar.update_diagnostics_from_lsp(diagnostics_data)
             else:
                 await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
+        except AttributeError as e:
+            await self.logger.error(f"Status bar method not available: {e}")
+            self.output_panel.add_error("Failed to update diagnostics display")
+        except KeyError as e:
+            await self.logger.error(f"Missing required diagnostics data: {e}")
+            self.output_panel.add_error("Invalid diagnostics data format")
         except Exception as e:
-            await self.logger.error(f"Failed to process diagnostics for {file_path}: {e}", exc_info=True)
+            await self.logger.error(f"Unexpected error processing diagnostics for {file_path}: {e}", exc_info=True)
             self.output_panel.add_error("Failed to process diagnostics")
 
     async def _trigger_hover_request(self, line: int, column: int):
@@ -475,8 +528,16 @@ class K2EditApp(App):
             else:
                 await self.logger.debug("No hover result from LSP")
                     
+        except AttributeError as e:
+            await self.logger.error(f"LSP client method not available: {e}")
+        except ConnectionError as e:
+            await self.logger.error(f"LSP connection error during hover request: {e}")
+        except ValueError as e:
+            await self.logger.error(f"Invalid hover request parameters: {e}")
+        except KeyError as e:
+            await self.logger.error(f"Missing expected data in hover response: {e}")
         except Exception as e:
-            await self.logger.error(f"Error in hover request: {e}")
+            await self.logger.error(f"Unexpected error in hover request: {e}", exc_info=True)
 
     def _extract_hover_content(self, contents) -> str:
         """Extract markdown content from LSP hover response."""
@@ -582,8 +643,25 @@ class K2EditApp(App):
             self.editor.cursor_location = (line, character)
             self.status_bar.show_message(f"Navigated to definition at line {line + 1}, column {character + 1}", timeout=2)
             
+        except FileNotFoundError:
+            error_msg = f"Definition file not found: {file_path}"
+            self.output_panel.add_error(error_msg)
+            self.status_bar.show_message("Definition file not found", timeout=3)
+        except PermissionError:
+            error_msg = f"Permission denied accessing definition file: {file_path}"
+            self.output_panel.add_error(error_msg)
+            self.status_bar.show_message("Permission denied", timeout=3)
+        except ValueError as e:
+            error_msg = f"Invalid cursor position for navigation: {e}"
+            self.output_panel.add_error(error_msg)
+            self.status_bar.show_message("Invalid navigation position", timeout=3)
+        except AttributeError as e:
+            error_msg = f"Editor or file initializer method not available: {e}"
+            self.output_panel.add_error(error_msg)
+            self.status_bar.show_message("Navigation method unavailable", timeout=3)
         except Exception as e:
-            self.output_panel.add_error(f"Failed to navigate to definition: {str(e)}")
+            error_msg = f"Unexpected error navigating to definition: {str(e)}"
+            self.output_panel.add_error(error_msg)
             self.status_bar.show_message("Failed to navigate to definition", timeout=3)
 
     async def on_key(self, event) -> None:
@@ -925,23 +1003,7 @@ class K2EditApp(App):
             # Force refresh of status bar
             self.status_bar.refresh()
     
-    async def process_agent_query(self, query: str) -> dict[str, any]:
-        """Process an AI query using the agentic system"""
-        if not self.agent_integration:
-            return {"error": "Agentic system not initialized"}
-        
-        current_file = str(self.editor.current_file) if self.editor.current_file else None
-        selected_text = self.editor.get_selected_text() if hasattr(self.editor, 'get_selected_text') else None
-        cursor_pos = {"line": self.editor.cursor_line, "column": self.editor.cursor_column}
-        
-        result = await self.agent_integration.on_ai_query(
-            query=query,
-            file_path=current_file,
-            selected_text=selected_text,
-            cursor_position=cursor_pos
-        )
-        
-        return result
+
     
     async def on_unmount(self) -> None:
         """Called when the app is unmounted."""
