@@ -300,7 +300,7 @@ class OutputPanel(Vertical):
     
     def _is_on_left_edge(self, mouse_x: int) -> bool:
         """Check if mouse is on the left edge for resizing."""
-        return mouse_x <= self._edge_threshold
+        return mouse_x < self._edge_threshold
     
     def _update_edge_highlight(self, hovering: bool) -> None:
         """Update visual highlighting when hovering over resize edge."""
