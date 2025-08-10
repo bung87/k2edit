@@ -32,6 +32,14 @@ class LSPIndexer:
         # Indexes
         self.symbol_index: Dict[str, List[Dict[str, Any]]] = {}
         self.file_index: Dict[str, Dict[str, Any]] = {}
+    
+    async def _log_debug(self, message: str):
+        """Log debug message asynchronously"""
+        await self.logger.debug(message)
+    
+    async def _log_warning(self, message: str):
+        """Log warning message asynchronously"""
+        await self.logger.warning(message)
         
 
         

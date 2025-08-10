@@ -600,16 +600,31 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             total_history_chars = sum(len(str(msg)) for msg in context["conversation_history"])
             await logger.info(f"Conversation history: {history_len} messages, {total_history_chars} characters")
         
-        # Log enhanced context from agent system
-        enhanced_keys = ["semantic_context", "relevant_history", "similar_patterns", "project_symbols"]
+        # Log enhanced context from agent system - show ALL available context components
+        enhanced_keys = [
+            "semantic_context", "relevant_history", "similar_patterns", "project_symbols",
+            "project_overview", "file_context", "project_context", "lsp_symbols", 
+            "lsp_dependencies", "lsp_metadata", "symbols", "dependencies", "recent_changes"
+        ]
+        
+        available_keys = []
         for key in enhanced_keys:
             if context.get(key):
+                available_keys.append(key)
                 if isinstance(context[key], list):
                     await logger.info(f"{key}: {len(context[key])} items")
                 elif isinstance(context[key], dict):
                     await logger.info(f"{key}: {len(context[key])} keys")
                 else:
                     await logger.info(f"{key}: {type(context[key]).__name__}")
+        
+        # Log summary of available context components
+        await logger.info(f"Available context components: {', '.join(available_keys)}")
+        
+        # Log any other keys not in our expected list
+        other_keys = [k for k in context.keys() if k not in enhanced_keys and k not in ['current_file', 'language', 'selected_text', 'file_content', 'conversation_history']]
+        if other_keys:
+            await logger.info(f"Other context keys: {', '.join(other_keys)}")
         
         await logger.info("=== End Context Details ===")
     
