@@ -196,6 +196,36 @@ The editor supports these tools for AI agent mode:
    - Check file permissions for read/write operations
    - Ensure the editor has access to the target directories
 
+## Releases and Binary Distribution
+
+### GitHub Releases
+Binary releases are automatically built and published when tags are pushed to the repository. The GitHub workflow creates cross-platform binaries for:
+- Linux (x64)
+- macOS (Intel and Apple Silicon)
+- Windows (x64)
+
+### Creating a Release
+1. Tag your commit: `git tag v1.0.0`
+2. Push the tag: `git push origin v1.0.0`
+3. The GitHub workflow will automatically build and create a release
+
+### Manual Binary Build
+To build a binary locally using PyInstaller:
+```bash
+# Install PyInstaller
+pip install pyinstaller
+
+# Build using the spec file
+pyinstaller k2edit.spec
+
+# The binary will be in the dist/ directory
+```
+
+### Logging
+Logs are stored in a cross-platform location:
+- **Linux/macOS**: `~/k2edit/logs/k2edit.log`
+- **Windows**: `%USERPROFILE%\k2edit\logs\k2edit.log`
+
 ### Debug Mode
 
 For debugging, you can:

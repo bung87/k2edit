@@ -30,9 +30,9 @@ def setup_logging(log_level: str = "DEBUG") -> Logger:
     if _global_logger is not None:
         return _global_logger
     
-    # Create logs directory if it doesn't exist
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    # Create logs directory in user home if it doesn't exist
+    log_dir = Path.home() / "k2edit" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     
     # Create log filename with timestamp
     log_file = log_dir / "k2edit.log"

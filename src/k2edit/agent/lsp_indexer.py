@@ -32,10 +32,6 @@ class LSPIndexer:
         # Indexes
         self.symbol_index: Dict[str, List[Dict[str, Any]]] = {}
         self.file_index: Dict[str, Dict[str, Any]] = {}
-    
-
-        
-
         
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize LSP indexer for project with optional progress callback"""
@@ -179,7 +175,7 @@ class LSPIndexer:
         try:
             relative_path = file_path.relative_to(self.project_root)
             
-            await self.logger.adebug(f"Indexing symbols for file: {relative_path}")
+            await self.logger.debug(f"Indexing symbols for file: {relative_path}")
             
             # Request document symbols
             symbols = await self._get_document_symbols(str(relative_path))
@@ -190,7 +186,7 @@ class LSPIndexer:
                 symbol_type = symbol.get("kind", "unknown")
                 symbol_types[symbol_type] = symbol_types.get(symbol_type, 0) + 1
             
-            await self.logger.adebug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
+            await self.logger.debug(f"Found {len(symbols)} symbols in {relative_path}: {symbol_types}")
             
             # Store in index
             self.symbol_index[str(relative_path)] = symbols
@@ -435,8 +431,6 @@ class LSPIndexer:
         outline = await self.symbol_parser.get_document_outline(symbols, file_path, language)
         
         return outline
-    
-
     
     async def shutdown(self):
         """Shutdown the LSP indexer and all language servers"""

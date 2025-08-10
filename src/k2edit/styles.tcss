@@ -89,7 +89,6 @@ StatusBar {
 
 /* Cursor position styling */
 #cursor-pos {
-
     color: #ffffff;
     width: 15;
     text-align: center;
@@ -111,7 +110,6 @@ StatusBar {
 
 /* Indentation styling */
 #indent {
- 
     color: #ffffff;
     width: 12;
     text-align: center;
@@ -119,7 +117,6 @@ StatusBar {
 
 /* Encoding styling */
 #encoding {
- 
     color: #ffffff;
     width: 8;
     text-align: center;
@@ -168,31 +165,6 @@ CommandBar {
 
 CommandBar:focus {
     border: solid #10b981;
-}
-
-Vertical {
-    /* height: 100%; */
-    box-sizing: border-box;
-}
-
-#output-title {
-    dock: top;
-    height: 1;
-    background: #3b82f6;
-    color: #f1f5f9;
-    text-align: center;
-    padding: 0 1;
-}
-
-OutputPanel {
-    background: #1e293b;
-    border: solid #3b82f6;
-    box-sizing: border-box;
-}
-
-OutputPanel.resize-hover {
-    border-left: thick #60a5fa;
-    background: #1e40af20;
 }
 
 RichLog {
@@ -832,3 +804,47 @@ TerminalPanel:focus {
     color: #3b82f6;
     text-style: bold;
 }
+
+/* Main content area styles */
+#main-content {
+    height: 1fr;
+    overflow: hidden;
+}
+
+/* AI Panel Styles */
+#ai-panel {
+   
+    
+    height: 6;
+ box-sizing: border-box;
+    background: #1e293b;
+    border: solid #3b82f6;
+
+}
+
+/* AI Mode Selector Styles */
+#ai-mode-selector {
+    width: 20;
+   box-sizing: border-box;
+}
+
+
+
+/* Command Bar Styles */
+CommandBar {
+    height: 4;
+
+   border: solid #3b82f6;
+    background: #1e293b;
+    color: #f1f5f9;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+CommandBar:focus {
+    border: solid #10b981;
+    background: #1e293b;
+
+}
+

@@ -34,6 +34,7 @@ from .views.hover_widget import HoverWidget
 from .views.file_path_display import FilePathDisplay
 from .views.terminal_panel import TerminalPanel
 from .views.search_replace_dialog import SearchReplaceDialog, FindInFilesDialog
+from .views.ai_mode_selector import AIModeSelector
 from .utils.search_manager import SearchManager
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
@@ -147,6 +148,7 @@ class K2EditApp(App):
         self.editor = CustomSyntaxEditor(self.logger)
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
+        self.ai_mode_selector = AIModeSelector(id="ai-mode-selector")
         self.file_explorer = FileExplorer(id="file-explorer", logger=self.logger)
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
@@ -162,6 +164,7 @@ class K2EditApp(App):
         self.fullscreen_mode = False
         self.zoom_level = 1.0
         self.current_search_dialog = None
+        self.current_ai_mode = "ask"  # Default AI mode
         
         # Set up go-to-definition navigation callback
         self.editor.set_goto_definition_callback(self._navigate_to_definition)
@@ -679,7 +682,9 @@ class K2EditApp(App):
         """Create the UI layout with resizable panels."""
         with Vertical():
             yield Header()
-            with Horizontal():
+            
+            # Main content area with editor and file explorer
+            with Horizontal(id="main-content"):
                 # File explorer with initial width (resizable)
                 self.file_explorer.styles.width = 25
                 self.file_explorer.styles.min_width = 20
@@ -690,12 +695,15 @@ class K2EditApp(App):
                     self.editor.styles.overflow_x = "hidden"
                     self.editor.styles.overflow_y = "auto"
                     yield self.editor
-                    
-                    yield self.command_bar
-                
-                # Output panel with initial width (resizable)
-                self.output_panel.styles.width = 25
-                self.output_panel.styles.min_width = 15
+                    with Horizontal(id="ai-panel") as ai_panel:
+                        
+                        # AI mode selector on the left
+                        self.ai_mode_selector.styles.width = 8
+                        self.ai_mode_selector.styles.min_width = 6
+                        yield self.ai_mode_selector
+                        yield self.command_bar
+
+                    # Output panel on the right
                 yield self.output_panel
             
             # Terminal panel (initially hidden)
@@ -1007,17 +1015,33 @@ class K2EditApp(App):
     
     async def on_unmount(self) -> None:
         """Called when the app is unmounted."""
-        await self.logger.info("Shutting down K2EditApp")
-        
-        # Clean up terminal panel
-        if hasattr(self, 'terminal_panel'):
-            await self.terminal_panel.cleanup()
-        
-        # Shutdown agentic system
-        if self.agent_integration:
-            await self.agent_integration.shutdown()
-        
-        await self.logger.shutdown()
+        try:
+            await self.logger.info("Shutting down K2EditApp")
+            
+            # Clean up terminal panel first (has subprocess)
+            if hasattr(self, 'terminal_panel'):
+                try:
+                    await self.terminal_panel.cleanup()
+                except Exception as e:
+                    await self.logger.error(f"Error cleaning up terminal panel: {e}")
+            
+            # Shutdown agentic system
+            if self.agent_integration:
+                try:
+                    await self.agent_integration.shutdown()
+                except Exception as e:
+                    await self.logger.error(f"Error shutting down agent integration: {e}")
+            
+            # Shutdown logger last, with error handling
+            try:
+                await self.logger.shutdown()
+            except Exception as e:
+                # If logger shutdown fails, print to stderr as fallback
+                print(f"Warning: Logger shutdown failed: {e}", file=sys.stderr)
+                
+        except Exception as e:
+            # Final fallback error handling
+            print(f"Error during application shutdown: {e}", file=sys.stderr)
 
     async def on_status_bar_show_diagnostics_details(self, message: ShowDiagnosticsDetails) -> None:
         """Handle show diagnostics details message from status bar."""
@@ -1120,6 +1144,15 @@ class K2EditApp(App):
             error_msg = f"Error navigating to diagnostic: {e}"
             self.output_panel.add_error(error_msg)
             await self.logger.error(error_msg)
+    
+    async def on_ai_mode_selector_mode_selected(self, message: AIModeSelector.ModeSelected) -> None:
+        """Handle AI mode selection."""
+        self.current_ai_mode = message.mode
+        await self.logger.info(f"AI mode changed to: {message.mode}")
+        
+        # Update command bar with the new mode
+        if hasattr(self.command_bar, 'set_ai_mode'):
+            self.command_bar.set_ai_mode(message.mode)
 
 
 def main():

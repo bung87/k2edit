@@ -17,7 +17,7 @@ class CommandBar(Input):
     
     def __init__(self, **kwargs):
         super().__init__(
-            placeholder="Type a command (e.g., /kimi, /open, /save)...",
+            placeholder="Type your AI query...",
             **kwargs
         )
         self.editor = None
@@ -26,6 +26,7 @@ class CommandBar(Input):
         self.logger = get_logger()
         self.tool_executor = ToolExecutor(self.logger, editor_widget=self.editor)
         self.output_panel = None
+        self.ai_mode = "ask"  # Default AI mode
     
     class CommandExecuted(Message):
         """Message sent when a command is executed."""
@@ -82,139 +83,25 @@ class CommandBar(Input):
         await self._process_command(command)
     
     async def _process_command(self, command: str) -> None:
-        """Process and execute a command."""
+        """Process and execute AI command based on current mode."""
         import uuid
         request_id = str(uuid.uuid4())[:8]
-        await self.logger.info(f"Processing command [{request_id}]: {command}")
+        await self.logger.info(f"Processing AI command [{request_id}]: {command}")
         
-        if not command.startswith('/'):
-            # Treat as a Kimi query, but use agentic system for project-wide queries
-            if any(keyword in command.lower() for keyword in ['review', 'project', 'release', 'analyze', 'what']):
-                await self._handle_run_agent(command)
-            else:
-                await self._handle_kimi_query(command)
-            return
-        
-        parts = command[1:].split(' ', 1)
-        cmd = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else ""
-        
-        try:
-            if cmd == "open":
-                await self._handle_open(args)
-            elif cmd == "save":
-                await self._handle_save(args)
-            elif cmd == "saveas":
-                await self._handle_save_as(args)
-            elif cmd == "kimi":
-                await self._handle_kimi_query(args)
-            elif cmd == "explain":
-                await self._handle_explain()
-            elif cmd == "fix":
-                await self._handle_fix()
-            elif cmd == "refactor":
-                await self._handle_refactor(args)
-            elif cmd == "generate_test":
-                await self._handle_generate_test()
-            elif cmd == "doc":
-                await self._handle_doc()
-            elif cmd == "run_agent":
-                await self._handle_run_agent(args)
-            elif cmd == "help":
-                await self._handle_help()
-            # Search & Replace commands
-            elif cmd == "find":
-                await self._handle_find(args)
-            elif cmd == "replace":
-                await self._handle_replace(args)
-            elif cmd == "find_in_files":
-                await self._handle_find_in_files(args)
-            # View & Layout commands
-            elif cmd == "toggle_sidebar":
-                await self._handle_toggle_sidebar()
-            elif cmd == "toggle_terminal":
-                await self._handle_toggle_terminal()
-            elif cmd == "toggle_fullscreen":
-                await self._handle_toggle_fullscreen()
-            elif cmd == "zoom_in":
-                await self._handle_zoom_in()
-            elif cmd == "zoom_out":
-                await self._handle_zoom_out()
-            # Advanced commands
-            elif cmd == "run_file":
-                await self._handle_run_file()
-            elif cmd == "format":
-                await self._handle_format_code()
-            else:
-                await self.logger.warning(f"Unknown command: {cmd}")
-        
-        except Exception as e:
-            await self.logger.error(f"Failed to execute command '{cmd}': {e}", exc_info=True)
-            if self.output_panel:
-                self.output_panel.add_error(f"Failed to execute command: {cmd}")
+        # Route to appropriate AI handler based on current mode
+        if self.ai_mode == "ask":
+            await self._handle_kimi_query(command)
+        elif self.ai_mode == "agent":
+            await self._handle_run_agent(command)
+        else:
+            await self.logger.warning(f"Unknown AI mode: {self.ai_mode}")
+            await self._handle_kimi_query(command)  # Fallback to ask mode
     
-    async def _handle_open(self, filename: str) -> None:
-        """Handle file open command."""
-        if not filename:
-            await self.logger.warning("Open command issued without filename")
-            self.app.notify("Open command requires a filename", severity="warning")
-            return
-        
-        try:
-            # Use the main app's centralized open_file method
-            success = await self.app.open_path(filename)
-            if success:
-                # Notify main app about file opening
-                self.post_message(self.FileOpened(filename))
-        except Exception as e:
-            await self.logger.error(f"Error opening file {filename}: {e}", exc_info=True)
+    def set_ai_mode(self, mode: str) -> None:
+        """Set the AI mode for command processing."""
+        self.ai_mode = mode
     
-    async def _handle_save(self, filename: str = "") -> None:
-        """Handle file save command."""
-        try:
-            from ..utils.path_validation import validate_path_for_save
-            
-            if filename:
-                # Validate save path using centralized utility
-                is_valid, error_msg = validate_path_for_save(filename)
-                if not is_valid:
-                    if self.output_panel:
-                        self.output_panel.add_error(error_msg)
-                    await self.logger.error(error_msg)
-                    return
-            
-            if self.editor:
-                success = await self.editor.save_file(filename if filename else None)
-                if success:
-                    await self.logger.info(f"Successfully saved file: {filename or self.editor.current_file}")
-                elif not success and not filename:
-                    await self.logger.warning("Save command failed - use /saveas <filename> for new files")
-        except Exception as e:
-            await self.logger.error(f"Error saving file: {e}", exc_info=True)
-    
-    async def _handle_save_as(self, filename: str) -> None:
-        """Handle save as command."""
-        if not filename:
-            await self.logger.warning("Save as command issued without filename")
-            self.app.notify("Save as command requires a filename", severity="warning")
-            return
-        
-        try:
-            from ..utils.path_validation import validate_path_for_save
-            
-            # Validate save path using centralized utility
-            is_valid, error_msg = validate_path_for_save(filename)
-            if not is_valid:
-                if self.output_panel:
-                    self.output_panel.add_error(error_msg)
-                await self.logger.error(error_msg)
-                return
-            
-            if self.editor:
-                await self.editor.save_file(filename)
-                await self.logger.info(f"Successfully saved file as: {filename}")
-        except Exception as e:
-            await self.logger.error(f"Error saving file as {filename}: {e}", exc_info=True)
+
     
     async def _handle_kimi_query(self, query: str) -> None:
         """Handle general Kimi query."""
@@ -259,108 +146,7 @@ class CommandBar(Input):
             if self.output_panel:
                 self.output_panel.add_error("Kimi API request failed - please wait and try again")
     
-    async def _handle_explain(self) -> None:
-        """Handle code explanation request."""
-        if not self.editor:
-            return
-        
-        selected_text = self.editor.get_selected_text()
-        if not selected_text.strip():
-            self.app.notify("No code selected", severity="warning")
-            return
-        
-        query = f"Please explain this code:\n\n```\n{selected_text}\n```"
-        
-        # Display explain command in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response("/explain", "")
-            self.app.query_one("#output-panel").scroll_visible()
-        
-        await self._handle_kimi_query(query)
-    
-    async def _handle_fix(self) -> None:
-        """Handle code fix request."""
-        if not self.editor:
-            return
-        
-        selected_text = self.editor.get_selected_text()
-        if not selected_text.strip():
-            await self.logger.warning("Fix command issued without selected text")
-            self.app.notify("Fix command requires selected text", severity="warning")
-            return
-        
-        query = f"Please analyze and fix any issues in this code:\n\n```\n{selected_text}\n```"
-        
-        # Display fix command in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response("/fix", "")
-            self.app.query_one("#output-panel").scroll_visible()
-        
-        await self._handle_kimi_query(query)
-    
-    async def _handle_refactor(self, instructions: str) -> None:
-        """Handle code refactoring request."""
-        if not self.editor:
-            return
-        
-        selected_text = self.editor.get_selected_text()
-        if not selected_text.strip():
-            await self.logger.warning("Refactor command issued without selected text")
-            self.app.notify("Refactor command requires selected text", severity="warning")
-            return
-        
-        refactor_prompt = f"Please refactor this code"
-        if instructions:
-            refactor_prompt += f" with the following requirements: {instructions}"
-        
-        query = f"Please refactor this code:\n\n```\n{selected_text}\n```\n\n{instructions}"
-        
-        # Display refactor command in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response("/refactor", "")
-            self.app.query_one("#output-panel").scroll_visible()
-        
-        await self._handle_kimi_query(query)
-    
-    async def _handle_generate_test(self) -> None:
-        """Handle test generation request."""
-        if not self.editor:
-            return
-        
-        selected_text = self.editor.get_selected_text()
-        if not selected_text.strip():
-            await self.logger.warning("Generate test command issued without selected text")
-            self.app.notify("Generate test command requires selected text", severity="warning")
-            return
-        
-        query = f"Please generate unit tests for this code:\n\n```\n{selected_text}\n```\n\nInclude comprehensive test cases covering edge cases and typical usage."
-        
-        # Display generate test command in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response("/generate_test", "")
-            self.app.query_one("#output-panel").scroll_visible()
-        
-        await self._handle_kimi_query(query)
-    
-    async def _handle_doc(self) -> None:
-        """Handle documentation generation request."""
-        if not self.editor:
-            return
-        
-        selected_text = self.editor.get_selected_text()
-        if not selected_text.strip():
-            await self.logger.warning("Doc command issued without selected text")
-            self.app.notify("Doc command requires selected text", severity="warning")
-            return
-        
-        query = f"Please add appropriate docstrings and comments to this code:\n\n```\n{selected_text}\n```"
-        
-        # Display doc command in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response("/doc", "")
-            self.app.query_one("#output-panel").scroll_visible()
-        
-        await self._handle_kimi_query(query)
+
     
     async def _handle_run_agent(self, goal: str) -> None:
         """Handle agent mode execution using the integrated agentic system."""
@@ -434,114 +220,7 @@ class CommandBar(Input):
                 self.output_panel.add_error("Agentic system request failed")
                 self.output_panel.add_agent_progress(request_id, 0, 10, "error")
     
-    async def _handle_help(self) -> None:
-        """Display help information."""
-        help_text = """
-K2Edit - AI-Enhanced Code Editor
 
-File Commands:
-- /open <file> - Open a file
-- /save [file] - Save current file
-- /saveas <file> - Save file with new name
-
-AI Commands:
-- /kimi <query> - Ask Kimi AI a question about your code
-- /run_agent <goal> - Use the agentic system for complex tasks
-- /explain - Explain the selected code or current file
-- /fix - Fix issues in the selected code or current file
-- /refactor - Refactor the selected code or current file
-- /test - Generate tests for the selected code or current file
-- /doc - Generate documentation for the selected code or current file
-
-Search & Replace:
-- /find [query] - Open find dialog
-- /replace [query] - Open replace dialog
-- /find_in_files [query] - Search in project files
-
-View & Layout:
-- /toggle_sidebar - Toggle file explorer sidebar
-- /toggle_terminal - Toggle terminal panel
-- /toggle_fullscreen - Toggle fullscreen mode
-- /zoom_in - Increase zoom level
-- /zoom_out - Decrease zoom level
-
-Advanced:
-- /run_file - Run current file
-- /format - Format current code
-- /help - Show this help message
-
-Keyboard Shortcuts:
-- Ctrl+F - Find
-- F3/Shift+F3 - Find Next/Previous
-- Ctrl+H - Replace
-- Ctrl+Shift+H - Replace All
-- Ctrl+Shift+F - Find in Files
-- Ctrl+B - Toggle Sidebar
-- Ctrl+` - Toggle Terminal
-- F11 - Toggle Fullscreen
-- Ctrl++/Ctrl+- - Zoom In/Out
-- F5/Ctrl+F5 - Run File
-- Ctrl+Shift+F - Format Code
-- Ctrl+K - Focus command bar
-- Ctrl+O - Open file
-- Ctrl+S - Save file
-- Ctrl+Q - Quit
-- Escape - Focus editor
-
-Tips:
-- Select code before using commands for better context
-- Use /run_agent for complex tasks like project analysis
-- The AI can help with debugging, optimization, and more
-        """
-        
-        # Display help command in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response("/help", help_text.strip())
-        
-        self.post_message(self.CommandExecuted("/help", help_text.strip()))
-    
-    # Search & Replace command handlers
-    async def _handle_find(self, query: str = "") -> None:
-        """Handle find command."""
-        await self.app.action_find()
-    
-    async def _handle_replace(self, query: str = "") -> None:
-        """Handle replace command."""
-        await self.app.action_replace()
-    
-    async def _handle_find_in_files(self, query: str = "") -> None:
-        """Handle find in files command."""
-        await self.app.action_find_in_files()
-    
-    # View & Layout command handlers
-    async def _handle_toggle_sidebar(self) -> None:
-        """Handle toggle sidebar command."""
-        await self.app.action_toggle_sidebar()
-    
-    async def _handle_toggle_terminal(self) -> None:
-        """Handle toggle terminal command."""
-        await self.app.action_toggle_terminal()
-    
-    async def _handle_toggle_fullscreen(self) -> None:
-        """Handle toggle fullscreen command."""
-        await self.app.action_toggle_fullscreen()
-    
-    async def _handle_zoom_in(self) -> None:
-        """Handle zoom in command."""
-        await self.app.action_zoom_in()
-    
-    async def _handle_zoom_out(self) -> None:
-        """Handle zoom out command."""
-        await self.app.action_zoom_out()
-    
-    # Advanced command handlers
-    async def _handle_run_file(self) -> None:
-        """Handle run file command."""
-        await self.app.action_run_current_file()
-    
-    async def _handle_format_code(self) -> None:
-        """Handle format code command."""
-        await self.app.action_format_code()
     
     def _get_editor_context(self) -> dict:
         """Get current editor context for AI queries."""

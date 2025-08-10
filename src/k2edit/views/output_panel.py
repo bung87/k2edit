@@ -26,7 +26,7 @@ class OutputPanel(Vertical):
     }
     
     OutputPanel.resize-hover {
-        border-left: thick #60a5fa;
+        border-left: solid #60a5fa;
         background: #1e40af20;
     }
     
@@ -35,6 +35,7 @@ class OutputPanel(Vertical):
         color: #f1f5f9;
         text-align: center;
         padding: 0 1;
+        margin-top: 0;
         margin-bottom: 1;
         text-style: bold;
     }

@@ -344,12 +344,21 @@ class TerminalPanel(Widget):
                 
                 # Wait for process to terminate
                 try:
-                    await asyncio.wait_for(
-                        asyncio.create_task(self._wait_for_process()),
-                        timeout=5.0
-                    )
-                except asyncio.TimeoutError:
-                    # Force kill if it doesn't terminate gracefully
+                    # Check if event loop is still running
+                    loop = asyncio.get_running_loop()
+                    if loop.is_closed():
+                        # Event loop is closed, force terminate immediately
+                        if platform.system().lower() == "windows":
+                            self._process.kill()
+                        else:
+                            os.killpg(os.getpgid(self._process.pid), 9)
+                    else:
+                        await asyncio.wait_for(
+                            self._wait_for_process_sync(),
+                            timeout=5.0
+                        )
+                except (asyncio.TimeoutError, RuntimeError):
+                    # Force kill if it doesn't terminate gracefully or event loop is closed
                     if platform.system().lower() == "windows":
                         self._process.kill()
                     else:
@@ -375,11 +384,23 @@ class TerminalPanel(Widget):
         
         self._process = None
     
-    async def _wait_for_process(self) -> None:
-        """Wait for process to terminate."""
+    async def _wait_for_process_sync(self) -> None:
+        """Wait for process to terminate synchronously."""
         if self._process:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self._process.wait)
+            try:
+                loop = asyncio.get_running_loop()
+                if not loop.is_closed():
+                    await loop.run_in_executor(None, self._process.wait)
+                else:
+                    # Fallback to synchronous wait if loop is closed
+                    self._process.wait()
+            except RuntimeError:
+                # Event loop is closed, use synchronous wait
+                self._process.wait()
+    
+    async def _wait_for_process(self) -> None:
+        """Wait for process to terminate (legacy method)."""
+        await self._wait_for_process_sync()
     
     async def on_unmount(self) -> None:
         """Clean up when widget is unmounted."""
