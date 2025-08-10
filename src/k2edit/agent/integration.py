@@ -37,6 +37,28 @@ class K2EditAgentIntegration:
     def set_output_panel(self, output_panel) -> None:
         """Set the output panel reference."""
         self.output_panel = output_panel
+    
+    async def set_current_model(self, model_id: str) -> None:
+        """Set the current AI model for the agent system.
+        
+        Args:
+            model_id: The model identifier (e.g., 'openai', 'claude', etc.)
+        """
+        try:
+            await self.logger.info(f"Setting agent model to: {model_id}")
+            # Store the current model for future use
+            self.current_model = model_id
+            
+            # If we have an initialized agent, update its model configuration
+            from . import get_agent_context
+            agent = await get_agent_context()
+            if agent and hasattr(agent, 'set_model'):
+                await agent.set_model(model_id)
+                
+        except Exception as e:
+            await self.logger.error(f"Failed to set agent model: {e}")
+            if self.output_panel:
+                self.output_panel.add_error(f"Failed to set AI model: {e}")
         
     async def initialize(self, progress_callback=None):
         """Initialize the agentic system with progress updates"""

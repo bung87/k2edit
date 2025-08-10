@@ -43,6 +43,46 @@ class KimiAPI:
         self.last_request_time = 0
         self.min_request_interval = float(os.getenv("KIMI_REQUEST_INTERVAL", "1.0"))  # Minimum interval between requests in seconds
     
+    async def update_config(self, api_address: str, api_key: str, model_id: str) -> None:
+        """Update API configuration with new settings.
+        
+        Args:
+            api_address: The new API endpoint URL
+            api_key: The new API key
+            model_id: The model identifier
+        """
+        try:
+            self.api_key = api_key
+            self.base_url = api_address
+            
+            # Map model_id to actual model names
+            model_mapping = {
+                "openai": "gpt-4",
+                "claude": "claude-3-sonnet-20240229",
+                "gemini": "gemini-pro",
+                "mistral": "mistral-large-latest",
+                "openrouter": "openai/gpt-4",
+                "moonshot_china": "moonshot-v1-8k",
+                "moonshot_international": "moonshot-v1-8k",
+                "local": "llama2",  # Default local model
+                "kimi": "kimi-k2-0711-preview"  # Keep original kimi model
+            }
+            
+            self.model = model_mapping.get(model_id, "gpt-4")
+            
+            # Recreate the client with new configuration
+            self.client = AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=60.0
+            )
+            
+            await self.logger.info(f"Updated KimiAPI config - URL: {api_address}, Model: {self.model}")
+            
+        except Exception as e:
+            await self.logger.error(f"Failed to update KimiAPI config: {e}")
+            raise
+    
     async def chat(
         self,
         message: str,

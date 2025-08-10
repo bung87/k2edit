@@ -30,11 +30,13 @@ from .views.output_panel import OutputPanel
 from .views.file_explorer import FileExplorer
 from .views.status_bar import StatusBar, GitBranchSwitch, NavigateToDiagnostic, ShowDiagnosticsDetails
 from .views.modals import DiagnosticsModal, BranchSwitcherModal
+from .views.settings_modal import SettingsModal
 from .views.hover_widget import HoverWidget
 from .views.file_path_display import FilePathDisplay
 from .views.terminal_panel import TerminalPanel
 from .views.search_replace_dialog import SearchReplaceDialog, FindInFilesDialog
 from .views.ai_mode_selector import AIModeSelector
+from .views.ai_model_selector import AIModelSelector
 from .utils.search_manager import SearchManager
 from .agent.kimi_api import KimiAPI
 from .agent.integration import K2EditAgentIntegration
@@ -83,6 +85,9 @@ class K2EditCommands(Provider):
             # Focus
             ("focus command", "Focus command bar", lambda: self.app.action_focus_command()),
             ("focus editor", "Focus editor", lambda: self.app.action_focus_editor()),
+            
+            # Settings
+            ("settings", "Open AI model settings", lambda: self.app.action_show_settings()),
         ]
         
         for name, description, callback in commands:
@@ -134,6 +139,9 @@ class K2EditApp(App):
         Binding("f5", "run_current_file", "Run File"),
         Binding("ctrl+f5", "run_current_file", "Run File"),
         Binding("ctrl+shift+i", "format_code", "Format Code"),
+        
+        # Settings
+        Binding("ctrl+comma", "show_settings", "Settings"),
     ]
     
     def __init__(self, initial_file: str = None, logger: Logger = None, **kwargs):
@@ -149,6 +157,7 @@ class K2EditApp(App):
         self.command_bar = CommandBar()
         self.output_panel = OutputPanel(id="output-panel")
         self.ai_mode_selector = AIModeSelector(id="ai-mode-selector")
+        self.ai_model_selector = AIModelSelector(logger=self.logger, id="ai-model-selector")
         self.file_explorer = FileExplorer(id="file-explorer", logger=self.logger)
         self.status_bar = StatusBar(id="status-bar", logger=self.logger)
         self.hover_widget = HoverWidget(id="hover-widget", logger=self.logger)
@@ -700,7 +709,9 @@ class K2EditApp(App):
                         # AI mode selector on the left
                         self.ai_mode_selector.styles.width = 8
                         self.ai_mode_selector.styles.min_width = 6
-                        yield self.ai_mode_selector
+                        with Vertical():
+                          yield self.ai_mode_selector
+                          yield self.ai_model_selector
                         yield self.command_bar
 
                     # Output panel on the right
@@ -979,6 +990,17 @@ class K2EditApp(App):
         # For now, just show a message
         self.output_panel.add_info("Code formatting completed")
     
+    async def action_show_settings(self) -> None:
+        """Show the AI model settings modal."""
+        await self.logger.debug("Opening settings modal")
+        try:
+            modal = SettingsModal(logger=self.logger)
+            await self.push_screen(modal)
+            await self.logger.debug("Settings modal opened successfully")
+        except Exception as e:
+            await self.logger.error(f"Failed to open settings modal: {e}")
+            self.output_panel.add_error(f"Failed to open settings: {e}")
+    
     async def on_terminal_panel_toggle_visibility(self, message: TerminalPanel.ToggleVisibility) -> None:
         """Handle terminal panel visibility toggle messages."""
         await self.logger.info(f"Terminal panel visibility changed: {message.visible}")
@@ -1153,6 +1175,41 @@ class K2EditApp(App):
         # Update command bar with the new mode
         if hasattr(self.command_bar, 'set_ai_mode'):
             self.command_bar.set_ai_mode(message.mode)
+    
+    async def on_ai_model_selector_model_selected(self, message: AIModelSelector.ModelSelected) -> None:
+        """Handle AI model selection."""
+        await self.logger.info(f"AI model changed to: {message.model_name} ({message.model_id})")
+        
+        # Update the agent integration with the new model
+        if self.agent_integration:
+            await self.agent_integration.set_current_model(message.model_id)
+        
+        # Update the KimiAPI with the new model settings
+        if self.kimi_api:
+            await self._update_api_with_model(message.model_id)
+        
+        # Update command bar with the new model if it supports it
+        if hasattr(self.command_bar, 'set_ai_model'):
+            self.command_bar.set_ai_model(message.model_id, message.model_name)
+    
+    async def _update_api_with_model(self, model_id: str) -> None:
+        """Update API configuration with the selected model."""
+        try:
+            from .utils.settings_manager import SettingsManager
+            settings_manager = SettingsManager()
+            api_address, api_key = settings_manager.get_api_settings(model_id)
+            
+            if api_address and api_key:
+                # Update KimiAPI configuration
+                if hasattr(self.kimi_api, 'update_config'):
+                    await self.kimi_api.update_config(api_address, api_key, model_id)
+                await self.logger.info(f"Updated API configuration for model: {model_id}")
+            else:
+                await self.logger.warning(f"No API configuration found for model: {model_id}")
+                self.output_panel.add_warning(f"No API configuration found for {model_id}. Please configure in Settings.")
+        except Exception as e:
+            await self.logger.error(f"Failed to update API configuration: {e}")
+            self.output_panel.add_error(f"Failed to update API configuration: {e}")
 
 
 def main():
