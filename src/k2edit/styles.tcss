@@ -190,6 +190,11 @@ OutputPanel {
     box-sizing: border-box;
 }
 
+OutputPanel.resize-hover {
+    border-left: thick #60a5fa;
+    background: #1e40af20;
+}
+
 RichLog {
     border: solid #3b82f6;
     background: #1e293b;
@@ -334,6 +339,10 @@ FileExplorer .file {
 
 FileExplorer .hidden {
     color: #64748b;
+}
+
+FileExplorer.resize-cursor {
+    border-right: solid #60a5fa;
 }
 
 /* Syntax Highlighting Styles for TextArea */
