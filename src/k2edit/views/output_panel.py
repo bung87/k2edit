@@ -55,7 +55,7 @@ class OutputPanel(Vertical):
         self._resize_start_x = 0
         self._resize_start_width = 0
         self._min_width = 15
-        self._edge_threshold = 3
+        self._edge_threshold = 2
     
     def compose(self):
         """Compose the output panel layout."""
@@ -302,12 +302,14 @@ class OutputPanel(Vertical):
         """Check if mouse is on the left edge for resizing."""
         return mouse_x <= self._edge_threshold
     
-    def _update_edge_highlight(self) -> None:
+    def _update_edge_highlight(self, hovering: bool) -> None:
         """Update visual highlighting when hovering over resize edge."""
-        if self._is_hovering_edge:
-            self.add_class("resize-hover")
-        else:
-            self.remove_class("resize-hover")
+        if hovering != self._is_hovering_edge:
+            self._is_hovering_edge = hovering
+            if hovering:
+                self.add_class("resize-hover")
+            else:
+                self.remove_class("resize-hover")
     
     def on_mouse_move(self, event: events.MouseMove) -> None:
         """Handle mouse move events for resizing from left edge."""
@@ -322,9 +324,7 @@ class OutputPanel(Vertical):
         else:
             # Check if hovering over left edge
             is_on_edge = self._is_on_left_edge(event.x)
-            if is_on_edge != self._is_hovering_edge:
-                self._is_hovering_edge = is_on_edge
-                self._update_edge_highlight()
+            self._update_edge_highlight(is_on_edge)
     
     def on_mouse_down(self, event: events.MouseDown) -> None:
         """Handle mouse down events to start resizing from left edge."""
@@ -332,7 +332,7 @@ class OutputPanel(Vertical):
             self._is_resizing = True
             self._resize_start_x = event.x
             # Get current width in cells
-            self._resize_start_width = self.region.width
+            self._resize_start_width = self.size.width
             self.capture_mouse()
     
     def on_mouse_up(self, event: events.MouseUp) -> None:
@@ -343,6 +343,5 @@ class OutputPanel(Vertical):
     
     def on_leave(self, event: events.Leave) -> None:
         """Handle mouse leave events to clear hover state."""
-        if self._is_hovering_edge:
-            self._is_hovering_edge = False
-            self._update_edge_highlight()
+        if not self._is_resizing:
+            self._update_edge_highlight(False)
