@@ -736,20 +736,21 @@ FindInFilesDialog {
 
 .compact-toggle {
     width: 4;
-    height: 1;
+    height: 3;
     background: #374151;
     border: solid #4b5563;
-    color: #e2e8f0;
+    color: #ffffff;
     text-align: center;
     margin: 0 0 0 1;
     padding: 0;
     text-style: none;
     min-width: 4;
+    content-align: center middle;
 }
 
 .compact-toggle:hover {
     background: #4b5563;
-    color: #d1d5db;
+    color: #ffffff;
 }
 
 .compact-toggle.toggle-active {
@@ -761,6 +762,7 @@ FindInFilesDialog {
 
 .compact-toggle.toggle-active:hover {
     background: #2563eb;
+    color: #ffffff;
 }
 
 .button-group {
