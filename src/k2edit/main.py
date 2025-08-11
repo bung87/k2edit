@@ -1233,9 +1233,35 @@ def main():
             # If it's a directory, we'll let the application handle it
             # The FileInitializer will handle directory vs file logic
 
-    # Create and run the application
+    # Create and run the application with proper cleanup
     app = K2EditApp(initial_file=initial_file, logger=logger)
-    app.run()
+    
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        pass
+    finally:
+        # Ensure proper cleanup of any remaining resources
+        try:
+            # Get the current event loop if it exists and is running
+            loop = asyncio.get_event_loop()
+            if not loop.is_closed():
+                # Run any remaining cleanup tasks
+                pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                if pending_tasks:
+                    # Cancel all pending tasks
+                    for task in pending_tasks:
+                        task.cancel()
+                    # Wait for tasks to complete cancellation
+                    try:
+                        loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                    except RuntimeError:
+                        # Event loop might be closed by now, ignore
+                        pass
+        except RuntimeError:
+            # No event loop or event loop is closed, which is fine
+            pass
 
 
 if __name__ == "__main__":

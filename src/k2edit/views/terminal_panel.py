@@ -323,66 +323,96 @@ class TerminalPanel(Widget):
     
     async def cleanup(self) -> None:
         """Clean up terminal resources."""
-        await self.logger.info("Cleaning up terminal panel")
+        try:
+            await self.logger.info("Cleaning up terminal panel")
+        except:
+            # Logger might be unavailable during shutdown
+            pass
         
         # Cancel read task
         if self._read_task and not self._read_task.done():
             self._read_task.cancel()
             try:
                 await self._read_task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError):
+                # Task cancelled or event loop closed
                 pass
         
         # Terminate process
         if self._process:
             try:
+                # First try graceful termination
                 if platform.system().lower() == "windows":
                     self._process.terminate()
                 else:
                     # Send SIGTERM to process group
-                    os.killpg(os.getpgid(self._process.pid), 15)
+                    try:
+                        os.killpg(os.getpgid(self._process.pid), 15)
+                    except (OSError, ProcessLookupError):
+                        # Process group might not exist, try direct termination
+                        self._process.terminate()
                 
-                # Wait for process to terminate
+                # Wait for process to terminate with timeout
                 try:
                     # Check if event loop is still running
                     loop = asyncio.get_running_loop()
                     if loop.is_closed():
                         # Event loop is closed, force terminate immediately
-                        if platform.system().lower() == "windows":
-                            self._process.kill()
-                        else:
-                            os.killpg(os.getpgid(self._process.pid), 9)
+                        self._force_kill_process()
                     else:
                         await asyncio.wait_for(
                             self._wait_for_process_sync(),
-                            timeout=5.0
+                            timeout=2.0  # Reduced timeout for faster shutdown
                         )
                 except (asyncio.TimeoutError, RuntimeError):
                     # Force kill if it doesn't terminate gracefully or event loop is closed
-                    if platform.system().lower() == "windows":
-                        self._process.kill()
-                    else:
-                        os.killpg(os.getpgid(self._process.pid), 9)
+                    self._force_kill_process()
                         
             except Exception as e:
-                await self.logger.error(f"Error terminating process: {e}")
+                try:
+                    await self.logger.error(f"Error terminating process: {e}")
+                except:
+                    # Logger might be unavailable during shutdown
+                    pass
+                # Force kill as last resort
+                self._force_kill_process()
         
         # Close file descriptors
+        self._close_file_descriptors()
+        
+        self._process = None
+    
+    def _force_kill_process(self) -> None:
+        """Force kill the process immediately."""
+        if self._process:
+            try:
+                if platform.system().lower() == "windows":
+                    self._process.kill()
+                else:
+                    try:
+                        os.killpg(os.getpgid(self._process.pid), 9)
+                    except (OSError, ProcessLookupError):
+                        # Process group might not exist, try direct kill
+                        self._process.kill()
+            except (OSError, ProcessLookupError):
+                # Process might already be dead
+                pass
+    
+    def _close_file_descriptors(self) -> None:
+        """Close file descriptors safely."""
         if self._master_fd:
             try:
                 os.close(self._master_fd)
-            except:
+            except (OSError, ValueError):
                 pass
             self._master_fd = None
         
         if self._slave_fd:
             try:
                 os.close(self._slave_fd)
-            except:
+            except (OSError, ValueError):
                 pass
             self._slave_fd = None
-        
-        self._process = None
     
     async def _wait_for_process_sync(self) -> None:
         """Wait for process to terminate synchronously."""
