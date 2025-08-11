@@ -193,25 +193,20 @@ class FindInFilesDialog(ModalScreen):
             # Dialog title with icon
             yield Label("🔍 Find in Files", id="dialog-title")
             
-            # Search section
+            # Search section with inline options
             yield Label("Search Pattern", classes="section-header")
-            with Horizontal(classes="input-group"):
+            with Horizontal(classes="search-row"):
                 yield Label("🔍", classes="input-icon")
                 yield Input(placeholder="Enter search text...", id="search-input", value=self.initial_text)
+                with Horizontal(classes="inline-options"):
+                    yield Button("Aa", id="case-sensitive", classes="compact-toggle")
+                    yield Button(".*", id="regex-mode", classes="compact-toggle")
 
             # File pattern section
             yield Label("File Filters", classes="section-header")
             with Horizontal(classes="input-group"):
                 yield Label("📂", classes="input-icon")
                 yield Input(placeholder="*.py, *.js, etc. (leave empty for all files)", id="file-pattern-input")
-
-            # Options section
-            yield Label("Search Options", classes="section-header")
-            with Horizontal(classes="options-group"):
-                yield Button("Aa", id="case-sensitive", classes="toggle-button")
-                yield Label("Case sensitive", classes="option-label")
-                yield Button(".*", id="regex-mode", classes="toggle-button")
-                yield Label("Regular expression", classes="option-label")
 
             # Action buttons
             with Horizontal(classes="button-group"):

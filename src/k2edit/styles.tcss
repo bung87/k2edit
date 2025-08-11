@@ -686,6 +686,13 @@ FindInFilesDialog {
     align: left middle;
 }
 
+.search-row {
+    width: 100%;
+    height: 3;
+    margin: 0 0 1 0;
+    align: left middle;
+}
+
 .input-icon {
     width: 3;
     height: 3;
@@ -698,7 +705,8 @@ FindInFilesDialog {
     margin: 0;
 }
 
-.input-group Input {
+.input-group Input,
+.search-row Input {
     width: 1fr;
     height: 3;
     margin: 0;
@@ -709,7 +717,8 @@ FindInFilesDialog {
     color: #f1f5f9;
 }
 
-.input-group Input:focus {
+.input-group Input:focus,
+.search-row Input:focus {
     border: solid #10b981;
     border-left: none;
 }
@@ -718,48 +727,39 @@ FindInFilesDialog {
     border: solid #10b981;
 }
 
-.options-group {
-    width: 100%;
-    height: auto;
-    margin: 0 0 2 0;
+.inline-options {
+    width: auto;
+    height: 3;
+    margin: 0 0 0 1;
     align: left middle;
-    layout: grid;
-    grid-size: 4 1;
-    grid-gutter: 1;
 }
 
-.toggle-button {
-    width: 8;
-    height: 3;
+.compact-toggle {
+    width: 5;
+    height: 2;
     background: #374151;
     border: solid #4b5563;
     color: #9ca3af;
     text-align: center;
-    margin: 0;
+    margin: 0 0 0 1;
     padding: 0;
+    text-style: none;
 }
 
-.toggle-button:hover {
+.compact-toggle:hover {
     background: #4b5563;
     color: #d1d5db;
 }
 
-.toggle-button.toggle-active {
+.compact-toggle.toggle-active {
     background: #3b82f6;
     border: solid #2563eb;
     color: #ffffff;
     text-style: bold;
 }
 
-.toggle-button.toggle-active:hover {
+.compact-toggle.toggle-active:hover {
     background: #2563eb;
-}
-
-.option-label {
-    color: #d1d5db;
-    margin: 0;
-    padding: 0;
-    align: left middle;
 }
 
 .button-group {
