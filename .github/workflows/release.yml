@@ -26,16 +26,16 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install nuitka
+        pip install pyinstaller
 
-    - name: Build with Nuitka
+    - name: Build with PyInstaller
       run: |
-        python -m nuitka --standalone --onefile --output-dir=dist --output-filename=k2edit k2edit.py
+        pyinstaller --onefile --name=k2edit --distpath=dist k2edit.py
 
     - name: Rename binary (Linux/macOS)
       if: runner.os != 'Windows'
       run: |
-        mv dist/k2edit.bin dist/k2edit-${{ runner.os }}-${{ runner.arch }}
+        mv dist/k2edit dist/k2edit-${{ runner.os }}-${{ runner.arch }}
 
     - name: Rename binary (Windows)
       if: runner.os == 'Windows'
