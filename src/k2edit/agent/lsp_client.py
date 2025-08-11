@@ -4,7 +4,7 @@ import json
 import asyncio
 from typing import Dict, List, Any, Optional, Callable
 from pathlib import Path
-import subprocess
+
 import aiofiles
 from dataclasses import dataclass
 from enum import Enum
@@ -121,26 +121,33 @@ class LSPClient:
             return
             
         connection = self.connections[language]
+        await self.logger.info(f"Stopping server for {language}. Process: {connection.process.pid if connection.process else 'N/A'}")
         
         try:
             # Cancel pending requests
+            await self.logger.info(f"Cancelling {len(connection.pending_requests)} pending requests for {language}")
             for future in connection.pending_requests.values():
                 if not future.done():
                     future.cancel()
             
             # Stop message reader
             if language in self.message_readers:
+                await self.logger.info(f"Stopping message reader for {language}")
                 self.message_readers[language].cancel()
                 del self.message_readers[language]
             
             # Terminate process
-            if connection.process.returncode is None:
+            if connection.process and connection.process.returncode is None:
+                await self.logger.info(f"Terminating process for {language}")
                 connection.process.terminate()
                 try:
                     await asyncio.wait_for(connection.process.wait(), timeout=5.0)
+                    await self.logger.info(f"Process for {language} terminated gracefully.")
                 except asyncio.TimeoutError:
+                    await self.logger.warning(f"Timeout waiting for {language} process to terminate. Killing it.")
                     connection.process.kill()
                     await connection.process.wait()
+                    await self.logger.info(f"Process for {language} killed.")
             
             await self.logger.info(f"Stopped {language} language server")
             
@@ -151,6 +158,7 @@ class LSPClient:
         except Exception as e:
             await self.logger.error(f"Error stopping {language} server: {e}")
         finally:
+            await self.logger.info(f"Cleaning up connection for {language}")
             del self.connections[language]
             self.failed_health_checks.pop(language, None)
     
@@ -753,17 +761,21 @@ class LSPClient:
         
         # Cancel health monitor
         if self.health_monitor_task:
+            await self.logger.info("Cancelling LSP health monitor")
             self.health_monitor_task.cancel()
             try:
                 # Only await if it's actually an asyncio task
                 if hasattr(self.health_monitor_task, '__await__'):
                     await self.health_monitor_task
             except asyncio.CancelledError:
+                await self.logger.info("LSP health monitor cancelled")
                 pass
         
         # Stop all servers
         for language in list(self.connections.keys()):
+            await self.logger.info(f"Stopping server for language: {language}")
             await self.stop_server(language)
+            await self.logger.info(f"Server for {language} stopped")
         
         await self.logger.info("All LSP servers shut down")
     

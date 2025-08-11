@@ -735,7 +735,7 @@ FindInFilesDialog {
 }
 
 .compact-toggle {
-    width: 4;
+    width: 8;
     height: 3;
     background: #374151;
     border: solid #4b5563;
@@ -744,7 +744,7 @@ FindInFilesDialog {
     margin: 0 0 0 1;
     padding: 0;
     text-style: none;
-    min-width: 4;
+    min-width: 8;
     content-align: center middle;
 }
 

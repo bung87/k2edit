@@ -323,23 +323,21 @@ class TerminalPanel(Widget):
     
     async def cleanup(self) -> None:
         """Clean up terminal resources."""
-        try:
-            await self.logger.info("Cleaning up terminal panel")
-        except:
-            # Logger might be unavailable during shutdown
-            pass
+        await self.logger.info("Cleaning up terminal panel")
         
         # Cancel read task
         if self._read_task and not self._read_task.done():
+            await self.logger.info("Cancelling terminal read task")
             self._read_task.cancel()
             try:
                 await self._read_task
             except (asyncio.CancelledError, RuntimeError):
-                # Task cancelled or event loop closed
+                await self.logger.info("Terminal read task cancelled or event loop closed")
                 pass
         
         # Terminate process
         if self._process:
+            await self.logger.info(f"Terminating terminal process {self._process.pid}")
             try:
                 # First try graceful termination
                 if platform.system().lower() == "windows":
@@ -357,30 +355,32 @@ class TerminalPanel(Widget):
                     # Check if event loop is still running
                     loop = asyncio.get_running_loop()
                     if loop.is_closed():
+                        await self.logger.warning("Event loop closed, force killing process")
                         # Event loop is closed, force terminate immediately
                         self._force_kill_process()
                     else:
+                        await self.logger.info("Waiting for terminal process to terminate")
                         await asyncio.wait_for(
                             self._wait_for_process_sync(),
                             timeout=2.0  # Reduced timeout for faster shutdown
                         )
-                except (asyncio.TimeoutError, RuntimeError):
+                        await self.logger.info("Terminal process terminated gracefully")
+                except (asyncio.TimeoutError, RuntimeError) as e:
+                    await self.logger.warning(f"Timeout or runtime error waiting for process, force killing: {e}")
                     # Force kill if it doesn't terminate gracefully or event loop is closed
                     self._force_kill_process()
                         
             except Exception as e:
-                try:
-                    await self.logger.error(f"Error terminating process: {e}")
-                except:
-                    # Logger might be unavailable during shutdown
-                    pass
+                await self.logger.error(f"Error terminating process: {e}")
                 # Force kill as last resort
                 self._force_kill_process()
         
         # Close file descriptors
+        await self.logger.info("Closing terminal file descriptors")
         self._close_file_descriptors()
         
         self._process = None
+        await self.logger.info("Terminal panel cleanup complete")
     
     def _force_kill_process(self) -> None:
         """Force kill the process immediately."""

@@ -195,8 +195,8 @@ class FindInFilesDialog(ModalScreen):
                 yield Label("🔍", classes="input-icon")
                 yield Input(placeholder="Enter search text...", id="search-input", value=self.initial_text)
                 with Horizontal(classes="inline-options"):
-                    yield Button("Aa", id="case-sensitive", classes="compact-toggle")
-                    yield Button(".*", id="regex-mode", classes="compact-toggle")
+                    yield Button("Case", id="case-sensitive", classes="compact-toggle")
+                    yield Button("Regex", id="regex-mode", classes="compact-toggle")
 
             # File pattern section
             yield Label("File Filters", classes="section-header")
