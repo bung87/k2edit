@@ -3,8 +3,6 @@ Integration tests for the complete agentic system
 """
 
 import pytest
-import asyncio
-from pathlib import Path
 from src.k2edit.agent import initialize_agentic_system, process_agent_query, record_code_change, get_code_intelligence
 from src.k2edit.agent.integration import K2EditAgentIntegration
 

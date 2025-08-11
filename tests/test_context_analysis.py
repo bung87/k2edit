@@ -20,10 +20,7 @@ from unittest.mock import Mock, patch, AsyncMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.k2edit.logger import get_logger
-from aiologger import Logger
-from src.k2edit.agent.context_manager import AgenticContextManager
 from src.k2edit.agent.chroma_memory_store import ChromaMemoryStore
-from src.k2edit.agent.kimi_api import KimiAPI
 
 
 class TestContextAnalysis:

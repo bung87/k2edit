@@ -4,9 +4,7 @@ Test script to verify context truncation when limits are exceeded.
 """
 
 import pytest
-import asyncio
 import sys
-import os
 from pathlib import Path
 
 # Add the parent directory to the path so we can import the agent modules

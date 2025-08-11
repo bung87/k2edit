@@ -7,7 +7,6 @@ import json
 import asyncio
 from typing import Dict, List, Any, Optional
 from pathlib import Path
-import subprocess
 from aiologger import Logger
 
 

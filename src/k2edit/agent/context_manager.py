@@ -12,10 +12,6 @@ if os.name == 'posix':
         pass  # Already set
 
 import asyncio
-import json
-import re
-import threading
-import time
 from aiologger import Logger
 from aiologger.levels import LogLevel
 from typing import Dict, List, Optional, Any, Tuple

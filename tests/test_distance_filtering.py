@@ -3,9 +3,7 @@
 
 import pytest
 import asyncio
-import json
 import sys
-import os
 from pathlib import Path
 
 # Add parent directory to path for imports

@@ -4,7 +4,6 @@
 import re
 from typing import List, Tuple, Optional, Iterator
 from pathlib import Path
-import glob
 
 
 class SearchMatch:

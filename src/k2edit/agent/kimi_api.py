@@ -1,12 +1,9 @@
 """Kimi API integration with support for chat, agent mode, and tool calling."""
 
 import asyncio
-import json
-import logging
 import os
 import time
-from typing import Dict, List, Optional, Any, Union
-from pathlib import Path
+from typing import Dict, List, Optional, Any
 from aiologger import Logger
 
 try:

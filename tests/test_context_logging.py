@@ -4,9 +4,7 @@ Test script to verify context logging and validation in Kimi API integration.
 """
 
 import pytest
-import asyncio
 import sys
-import os
 from pathlib import Path
 
 # Add the parent directory to the path so we can import the agent modules

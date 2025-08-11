@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 import os
 from pathlib import Path
 from src.k2edit.agent.kimi_api import KimiAPI

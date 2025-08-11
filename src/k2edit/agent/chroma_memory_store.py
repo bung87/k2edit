@@ -3,15 +3,11 @@ Handles persistent storage of conversations, code context, and learned patterns 
 for native vector embedding support.
 """
 
-import json
 import asyncio
-import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, asdict
-import hashlib
-import numpy as np
+from dataclasses import dataclass
 import chromadb
 from chromadb.config import Settings
 from aiologger import Logger

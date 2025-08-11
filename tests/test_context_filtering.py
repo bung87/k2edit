@@ -7,7 +7,6 @@ import pytest
 import asyncio
 import json
 import tempfile
-import re
 from pathlib import Path
 import sys
 

@@ -3,7 +3,6 @@ Tests for the LSPIndexer
 """
 
 import pytest
-import asyncio
 from pathlib import Path
 from src.k2edit.agent.lsp_indexer import LSPIndexer
 

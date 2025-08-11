@@ -5,7 +5,6 @@ This module provides simple integration hooks for the existing K2Edit applicatio
 to add agentic context, memory, and LSP indexing capabilities.
 """
 
-import asyncio
 from aiologger import Logger
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -20,7 +19,6 @@ from . import (
 from .lsp_client import LSPClient
 from .language_configs import LanguageConfigs
 from .file_filter import FileFilter
-# Error handler removed - using basic exception handling
 
 class K2EditAgentIntegration:
     """Simple integration class for K2Edit agentic system"""

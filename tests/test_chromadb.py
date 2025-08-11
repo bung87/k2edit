@@ -4,7 +4,6 @@ Quick test script to verify ChromaDB integration works correctly.
 This script tests the basic functionality without the full K2Edit application.
 """
 
-import os
 import sys
 import pytest
 import asyncio

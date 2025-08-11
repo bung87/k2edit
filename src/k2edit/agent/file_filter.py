@@ -5,9 +5,7 @@ Handles file filtering based on language-specific patterns and project structure
 
 from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
-import re
 from aiologger import Logger
-from ..utils.language_utils import detect_project_language
 
 
 class FileFilter:

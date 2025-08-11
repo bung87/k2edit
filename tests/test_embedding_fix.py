@@ -6,8 +6,6 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath('.'))
 
-import asyncio
-from aiologger import Logger
 from src.k2edit.agent.context_manager import AgenticContextManager
 
 @pytest.mark.asyncio

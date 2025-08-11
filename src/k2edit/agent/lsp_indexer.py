@@ -12,7 +12,6 @@ from .lsp_client import LSPClient
 from .language_configs import LanguageConfigs
 from .symbol_parser import SymbolParser
 from .file_filter import FileFilter
-from ..utils.language_utils import detect_language_by_extension
 
 
 class LSPIndexer:
