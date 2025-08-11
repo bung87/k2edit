@@ -168,12 +168,6 @@ class FindInFilesDialog(ModalScreen):
         Binding("enter", "search_files", "Search"),
     ]
     
-    def __init__(self, initial_text: str = "", **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.initial_text = initial_text
-        self.case_sensitive_active = False
-        self.regex_mode_active = False
-    
     class SearchInFilesResult(Message):
         """Message sent when search in files is performed."""
         def __init__(self, pattern: str, file_pattern: str, case_sensitive: bool, regex: bool) -> None:
@@ -186,6 +180,8 @@ class FindInFilesDialog(ModalScreen):
     def __init__(self, initial_text: str = "", **kwargs):
         super().__init__(**kwargs)
         self.initial_text = initial_text
+        self.case_sensitive_active = False
+        self.regex_mode_active = False
     
     def compose(self) -> ComposeResult:
         """Compose the find in files dialog."""

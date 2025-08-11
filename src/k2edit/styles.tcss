@@ -735,15 +735,16 @@ FindInFilesDialog {
 }
 
 .compact-toggle {
-    width: 5;
-    height: 2;
+    width: 4;
+    height: 1;
     background: #374151;
     border: solid #4b5563;
-    color: #9ca3af;
+    color: #e2e8f0;
     text-align: center;
     margin: 0 0 0 1;
     padding: 0;
     text-style: none;
+    min-width: 4;
 }
 
 .compact-toggle:hover {
