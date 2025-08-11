@@ -22,7 +22,7 @@ class AIModeSelector(Widget):
     def compose(self) -> ComposeResult:
         """Compose the AI mode selector."""
         options = [("Ask", "ask"), ("Agent", "agent")]
-        yield Select(options, value="ask", id="ai-mode-selector")
+        yield Select(options, value="ask", id="ai-mode-selector", compact=True)
     
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle select change events."""

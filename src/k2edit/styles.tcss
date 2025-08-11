@@ -646,6 +646,165 @@ SettingsModal {
    background: #3b82f6;
 }
 
+/* Find in Files Dialog Styles */
+FindInFilesDialog {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.8);
+}
+
+#find-in-files-dialog {
+    width: 70;
+    max-width: 90;
+    height: auto;
+    max-height: 35;
+    background: #1e293b;
+    border: solid #3b82f6;
+    padding: 2;
+}
+
+#find-in-files-dialog #dialog-title {
+    text-align: center;
+    color: #f1f5f9;
+    text-style: bold;
+    margin: 0 0 2 0;
+    padding: 0;
+}
+
+.section-header {
+    color: #60a5fa;
+    text-style: bold;
+    margin: 1 0 0 0;
+    padding: 0;
+    border-bottom: solid #334155;
+    width: 100%;
+}
+
+.input-group {
+    width: 100%;
+    height: 3;
+    margin: 0 0 1 0;
+    align: left middle;
+}
+
+.input-icon {
+    width: 3;
+    height: 3;
+    text-align: center;
+    color: #94a3b8;
+    background: #0f172a;
+    border: solid #3b82f6;
+    border-right: none;
+    padding: 0;
+    margin: 0;
+}
+
+.input-group Input {
+    width: 1fr;
+    height: 3;
+    margin: 0;
+    padding: 0 1;
+    background: #0f172a;
+    border: solid #3b82f6;
+    border-left: none;
+    color: #f1f5f9;
+}
+
+.input-group Input:focus {
+    border: solid #10b981;
+    border-left: none;
+}
+
+.input-icon:focus {
+    border: solid #10b981;
+}
+
+.options-group {
+    width: 100%;
+    height: auto;
+    margin: 0 0 2 0;
+    align: left middle;
+    layout: grid;
+    grid-size: 4 1;
+    grid-gutter: 1;
+}
+
+.toggle-button {
+    width: 8;
+    height: 3;
+    background: #374151;
+    border: solid #4b5563;
+    color: #9ca3af;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+}
+
+.toggle-button:hover {
+    background: #4b5563;
+    color: #d1d5db;
+}
+
+.toggle-button.toggle-active {
+    background: #3b82f6;
+    border: solid #2563eb;
+    color: #ffffff;
+    text-style: bold;
+}
+
+.toggle-button.toggle-active:hover {
+    background: #2563eb;
+}
+
+.option-label {
+    color: #d1d5db;
+    margin: 0;
+    padding: 0;
+    align: left middle;
+}
+
+.button-group {
+    width: 100%;
+    height: 3;
+    margin: 2 0 0 0;
+    align: center middle;
+    layout: horizontal;
+}
+
+.primary-button {
+    min-width: 16;
+    height: 3;
+    margin: 0 1;
+    background: #10b981;
+    border: none;
+    color: #ffffff;
+    text-style: bold;
+}
+
+.primary-button:hover {
+    background: #059669;
+}
+
+.primary-button:focus {
+    background: #047857;
+}
+
+.secondary-button {
+    min-width: 12;
+    height: 3;
+    margin: 0 1;
+    background: #64748b;
+    border: none;
+    color: #ffffff;
+}
+
+.secondary-button:hover {
+    background: #475569;
+}
+
+.secondary-button:focus {
+    background: #334155;
+}
+
 /* Branch Switcher Modal - Command Palette Style */
 BranchSwitcherModal {
     align: center middle;
@@ -871,37 +1030,96 @@ CustomSyntaxEditor .tok-code {
     background: #3e3d32;
 }
 
+/* AI Panel Styles */
+#ai-panel {
+    dock: bottom;
+    height: 8;
+    box-sizing: border-box;
+    background: #1e293b;
+    border: solid #3b82f6;
+    layout: horizontal;
+    align: left middle;
+    padding: 0;
+    margin: 0;
+}
+
+/* Selector Container Styles */
+#selector-container {
+    width: 18;
+    min-width: 16;
+    height: 8;
+
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    border: none;
+}
+
 /* AI Model Selector Styles */
 AIModelSelector {
-    width: 20;
-    min-width: 15;
-    max-width: 25;
-    height: 3;
-    margin: 0 1;
-}
-
-#ai-model-selector {
     width: 100%;
-    height: 3;
+    height: 1fr;
+    min-height: 2;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+AIModelSelector SelectCurrent {
     background: #1e293b;
+    color: #f1f5f9;
     border: solid #475569;
-    color: #f1f5f9;
+    padding: 0 1;
+    height: auto;
+    min-height: 1;
+    text-style: dim;
+    box-sizing: border-box;
 }
 
-#ai-model-selector:focus {
+AIModelSelector SelectCurrent:focus {
     border: solid #3b82f6;
+    background-tint: #f1f5f9 5%;
 }
 
-#ai-model-selector > .select--button {
+AIModelSelector SelectCurrent Static#label {
+    color: #f1f5f9;
+    background: transparent;
+    text-style: dim;
+    height: 1;
+}
+
+AIModeSelector {
+    width: 100%;
+    height: 1fr;
+    min-height: 2;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+AIModeSelector SelectCurrent {
     background: #1e293b;
     color: #f1f5f9;
-    border: none;
+    border: solid #475569;
     padding: 0 1;
+    height: auto;
+    min-height: 1;
+    text-style: dim;
+    box-sizing: border-box;
 }
 
-#ai-model-selector > .select--button:hover {
-    background: #334155;
+AIModeSelector SelectCurrent:focus {
+    border: solid #3b82f6;
+    background-tint: #f1f5f9 5%;
 }
+
+AIModeSelector SelectCurrent Static#label {
+    color: #f1f5f9;
+    background: transparent;
+    text-style: dim;
+    height: 1;
+}
+
 
 /* Terminal Panel Styles */
 TerminalPanel {
@@ -973,40 +1191,22 @@ TerminalPanel:focus {
     overflow: hidden;
 }
 
-/* AI Panel Styles */
-#ai-panel {
-   
-    
-    height: 6;
- box-sizing: border-box;
-    background: #1e293b;
-    border: solid #3b82f6;
-
-}
-
-/* AI Mode Selector Styles */
-#ai-mode-selector {
-    width: 20;
-   box-sizing: border-box;
-}
-
-
 
 /* Command Bar Styles */
 CommandBar {
-    height: 4;
-
-   border: solid #3b82f6;
+    height: 6;
+    min-height: 3;
+    width: 1fr;
+    border: solid #3b82f6;
     background: #1e293b;
     color: #f1f5f9;
     padding: 0;
-    margin: 0;
+    margin: 0 1;
     box-sizing: border-box;
 }
 
 CommandBar:focus {
     border: solid #10b981;
     background: #1e293b;
-
 }
 

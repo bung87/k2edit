@@ -162,11 +162,17 @@ class SearchReplaceDialog(ModalScreen):
 
 class FindInFilesDialog(ModalScreen):
     """Modal dialog for find in files functionality."""
-    
+
     BINDINGS = [
-        Binding("escape", "dismiss", "Close"),
+        Binding("escape", "close_dialog", "Close"),
         Binding("enter", "search_files", "Search"),
     ]
+    
+    def __init__(self, initial_text: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.initial_text = initial_text
+        self.case_sensitive_active = False
+        self.regex_mode_active = False
     
     class SearchInFilesResult(Message):
         """Message sent when search in files is performed."""
@@ -184,27 +190,33 @@ class FindInFilesDialog(ModalScreen):
     def compose(self) -> ComposeResult:
         """Compose the find in files dialog."""
         with Vertical(id="find-in-files-dialog"):
-            yield Label("Find in Files", id="dialog-title")
+            # Dialog title with icon
+            yield Label("🔍 Find in Files", id="dialog-title")
             
-            # Search pattern input
-            with Horizontal(classes="input-row"):
-                yield Label("Find:", classes="input-label")
-                yield Input(placeholder="Search text...", id="search-input", value=self.initial_text)
-            
-            # File pattern input
-            with Horizontal(classes="input-row"):
-                yield Label("Files:", classes="input-label")
+            # Search section
+            yield Label("Search Pattern", classes="section-header")
+            with Horizontal(classes="input-group"):
+                yield Label("🔍", classes="input-icon")
+                yield Input(placeholder="Enter search text...", id="search-input", value=self.initial_text)
+
+            # File pattern section
+            yield Label("File Filters", classes="section-header")
+            with Horizontal(classes="input-group"):
+                yield Label("📂", classes="input-icon")
                 yield Input(placeholder="*.py, *.js, etc. (leave empty for all files)", id="file-pattern-input")
-            
-            # Options
-            with Horizontal(classes="options-row"):
-                yield Checkbox("Case sensitive", id="case-sensitive")
-                yield Checkbox("Regular expression", id="regex-mode")
-            
-            # Buttons
-            with Horizontal(classes="button-row"):
-                yield Button("Search", id="search-files", variant="primary")
-                yield Button("Close", id="close-dialog")
+
+            # Options section
+            yield Label("Search Options", classes="section-header")
+            with Horizontal(classes="options-group"):
+                yield Button("Aa", id="case-sensitive", classes="toggle-button")
+                yield Label("Case sensitive", classes="option-label")
+                yield Button(".*", id="regex-mode", classes="toggle-button")
+                yield Label("Regular expression", classes="option-label")
+
+            # Action buttons
+            with Horizontal(classes="button-group"):
+                yield Button("🔍 Search", id="search-files", classes="primary-button")
+                yield Button("Close", id="close-dialog", classes="secondary-button")
     
     def on_mount(self) -> None:
         """Focus the search input when mounted."""
@@ -214,11 +226,32 @@ class FindInFilesDialog(ModalScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         button_id = event.button.id
-        
         if button_id == "close-dialog":
             self.dismiss()
         elif button_id == "search-files":
             self._perform_search()
+        elif button_id == "case-sensitive":
+            self._toggle_case_sensitive()
+        elif button_id == "regex-mode":
+            self._toggle_regex_mode()
+    
+    def _toggle_case_sensitive(self) -> None:
+        """Toggle case sensitive option."""
+        self.case_sensitive_active = not self.case_sensitive_active
+        button = self.query_one("#case-sensitive", Button)
+        if self.case_sensitive_active:
+            button.add_class("toggle-active")
+        else:
+            button.remove_class("toggle-active")
+    
+    def _toggle_regex_mode(self) -> None:
+        """Toggle regex mode option."""
+        self.regex_mode_active = not self.regex_mode_active
+        button = self.query_one("#regex-mode", Button)
+        if self.regex_mode_active:
+            button.add_class("toggle-active")
+        else:
+            button.remove_class("toggle-active")
     
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission (Enter key)."""
@@ -228,15 +261,15 @@ class FindInFilesDialog(ModalScreen):
         """Perform search in files operation."""
         search_input = self.query_one("#search-input", Input)
         file_pattern_input = self.query_one("#file-pattern-input", Input)
-        case_sensitive = self.query_one("#case-sensitive", Checkbox).value
-        regex_mode = self.query_one("#regex-mode", Checkbox).value
-        
+
         pattern = search_input.value.strip()
         file_pattern = file_pattern_input.value.strip() or "*"
-        
+        case_sensitive = self.case_sensitive_active
+        regex_mode = self.regex_mode_active
+
         if not pattern:
             return
-        
+
         # Send search message to parent
         self.post_message(self.SearchInFilesResult(pattern, file_pattern, case_sensitive, regex_mode))
         self.dismiss()

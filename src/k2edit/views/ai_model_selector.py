@@ -32,7 +32,7 @@ class AIModelSelector(Widget):
         models = self.settings_manager.get_all_models()
         options = [(display_name, model_id) for model_id, display_name in models.items()]
         
-        yield Select(options, value="openai", id="ai-model-selector")
+        yield Select(options, value="openai", id="ai-model-selector", compact=True)
     
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle select change events."""
