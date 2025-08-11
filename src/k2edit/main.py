@@ -705,13 +705,11 @@ class K2EditApp(App):
                     self.editor.styles.overflow_y = "auto"
                     yield self.editor
                     with Horizontal(id="ai-panel") as ai_panel:
-                        
-                        # AI mode selector on the left
-                        self.ai_mode_selector.styles.width = 8
-                        self.ai_mode_selector.styles.min_width = 6
-                        with Vertical():
-                          yield self.ai_mode_selector
-                          yield self.ai_model_selector
+                        # Left container for selectors
+                        with Vertical(id="selector-container"):
+                            yield self.ai_mode_selector
+                            yield self.ai_model_selector
+                        # Right side command bar
                         yield self.command_bar
 
                     # Output panel on the right
@@ -900,7 +898,7 @@ class K2EditApp(App):
         if self.current_search_dialog:
             self.current_search_dialog.dismiss()
         
-        dialog = FindInFilesDialog(self.search_manager, self.project_root)
+        dialog = FindInFilesDialog()
         self.current_search_dialog = dialog
         await self.push_screen(dialog)
     
