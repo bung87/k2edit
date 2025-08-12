@@ -1,63 +1,40 @@
 """Local tool implementations for extended functionality."""
 
-import os
 import re
+import subprocess
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union
-from aiologger import Logger
-
-try:
-    import aiologger
-except ImportError:
-    aiologger = None
-
+from typing import Dict, List, Any, Optional
 
 class ToolExecutor:
     """Executor for local tools that extend Kimi's capabilities."""
     
-    def __init__(self, logger, editor_widget=None):
+    def __init__(self, logger, editor_widget=None, agent_integration=None):
         self.editor = editor_widget
         self.current_directory = Path.cwd()
         self.logger = logger
-        
-        # All logging is now standardized to async patterns
-    
+        self.agent_integration = agent_integration
 
     
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool by name with given arguments."""
-        try:
-            if tool_name == "list_files":
-                return await self.list_files(**arguments)
-            elif tool_name == "search_code":
-                return await self.search_code(**arguments)
-            elif tool_name == "run_command":
-                return await self.run_command(**arguments)
-            elif tool_name == "analyze_code":
-                return await self.analyze_code(**arguments)
-            elif tool_name == "insert_code":
-                return await self.insert_code(**arguments)
-            elif tool_name == "replace_code":
-                return await self.replace_code(**arguments)
-            elif tool_name == "read_file":
-                return await self.read_file(**arguments)
-            elif tool_name == "write_file":
-                return await self.write_file(**arguments)
-            else:
-                return {"error": f"Unknown tool: {tool_name}"}
-        
-        except TypeError as e:
-            error_msg = f"Invalid arguments for tool {tool_name}: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except AttributeError as e:
-            error_msg = f"Tool function not available: {tool_name}: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error executing tool {tool_name}: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+        if tool_name == "list_files":
+            return await self.list_files(**arguments)
+        elif tool_name == "search_code":
+            return await self.search_code(**arguments)
+        elif tool_name == "run_command":
+            return await self.run_command(**arguments)
+        elif tool_name == "analyze_code":
+            return await self.analyze_code(**arguments)
+        elif tool_name == "insert_code":
+            return await self.insert_code(**arguments)
+        elif tool_name == "replace_code":
+            return await self.replace_code(**arguments)
+        elif tool_name == "read_file":
+            return await self.read_file(**arguments)
+        elif tool_name == "write_file":
+            return await self.write_file(**arguments)
+        else:
+            return {"error": f"Unknown tool: {tool_name}"}
     
     async def list_files(self, directory: str = ".", pattern: str = "*") -> Dict[str, Any]:
         """List files in a directory with optional pattern filtering."""
@@ -120,10 +97,7 @@ class ToolExecutor:
             error_msg = f"OS error listing files in {directory}: {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error listing files: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+
     
     async def search_code(self, pattern: str, directory: str = ".", file_types: Optional[List[str]] = None) -> Dict[str, Any]:
         """Search for code patterns in files."""
@@ -179,10 +153,7 @@ class ToolExecutor:
             error_msg = f"Invalid regex pattern '{pattern}': {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error during search: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+
     
     async def run_command(self, command: str, working_directory: str = ".") -> Dict[str, Any]:
         """Execute a shell command safely."""
@@ -218,56 +189,117 @@ class ToolExecutor:
         except subprocess.TimeoutExpired:
             await self.logger.error("Command timed out after 30 seconds")
             return {"error": "Command timed out after 30 seconds"}
-        except Exception as e:
-            await self.logger.error(f"Command execution failed: {str(e)}")
-            return {"error": f"Command execution failed: {str(e)}"}
+
     
     async def analyze_code(self, analysis_type: str, scope: str = "selection") -> Dict[str, Any]:
-        """Analyze code structure and patterns."""
-        try:
-            if not self.editor:
-                return {"error": "No editor available for analysis"}
-            
-            # Get code to analyze based on scope
-            if scope == "selection":
-                code = self.editor.get_selected_text()
-                if not code.strip():
-                    code = self.editor.text
-            elif scope == "file":
-                code = self.editor.text
-            else:  # project scope
-                return {"error": "Project scope analysis not implemented yet"}
-            
-            if not code.strip():
-                return {"error": "No code to analyze"}
-            
-            # Perform analysis based on type
-            if analysis_type == "structure":
-                return self._analyze_structure(code)
-            elif analysis_type == "dependencies":
-                return self._analyze_dependencies(code)
-            elif analysis_type == "complexity":
-                return self._analyze_complexity(code)
-            elif analysis_type == "style":
-                return self._analyze_style(code)
-            elif analysis_type == "security":
-                return self._analyze_security(code)
-            else:
-                return {"error": f"Unknown analysis type: {analysis_type}"}
+        """Analyze code structure, dependencies, or patterns using LSP when available."""
+        if scope == "selection" and self.editor:
+            content = self.editor.get_selected_text() or self.editor.text
+            file_path = str(getattr(self.editor, 'current_file', '<current_file>'))
+        elif scope == "file" and self.editor:
+            content = self.editor.text
+            file_path = str(getattr(self.editor, 'current_file', '<current_file>'))
+        else:
+            return {"error": "No content available for analysis"}
         
-        except AttributeError as e:
-            error_msg = f"Editor not properly initialized for analysis: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except ValueError as e:
-            error_msg = f"Invalid analysis parameters: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error during analysis: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-    
+        if not content.strip():
+            return {"error": "No code to analyze"}
+        
+        # Use LSP-based analysis when available
+        lsp_result = await self._get_lsp_analysis(analysis_type, file_path, content)
+        if lsp_result:
+            return lsp_result
+        
+        # Return error if LSP is not available
+        return {"error": f"LSP-based analysis not available for {analysis_type}. Please ensure LSP server is running."}
+                
+
+
+    async def _get_lsp_analysis(self, analysis_type: str, file_path: str, content: str) -> Optional[Dict[str, Any]]:
+        """Get LSP-based code analysis when available."""
+        if not self.agent_integration or not self.agent_integration.lsp_client:
+            return None
+        
+        try:
+            # Get the agent context for LSP access
+            from . import get_agent_context
+            agent = await get_agent_context()
+            if not agent or not agent.lsp_indexer:
+                return None
+            
+            # Ensure file is indexed
+            if file_path != "<current_file>":
+                await agent.lsp_indexer.index_file(file_path)
+            
+            result = {"analysis_type": analysis_type, "file_path": file_path, "lsp_based": True}
+            
+            if analysis_type == "structure":
+                # Get symbols and document structure from LSP
+                symbols = await agent.lsp_indexer.get_symbols(file_path)
+                result.update({
+                    "symbols": symbols,
+                    "classes": [s for s in symbols if s.get("kind") == "class"],
+                    "functions": [s for s in symbols if s.get("kind") == "function"],
+                    "variables": [s for s in symbols if s.get("kind") == "variable"],
+                    "imports": [s for s in symbols if s.get("kind") == "module"]
+                })
+                
+            elif analysis_type == "dependencies":
+                # Get dependencies from LSP
+                dependencies = await agent.lsp_indexer.get_dependencies(file_path)
+                result.update({
+                    "dependencies": dependencies,
+                    "imports": dependencies.get("imports", []),
+                    "external_deps": dependencies.get("external", []),
+                    "internal_deps": dependencies.get("internal", [])
+                })
+                
+            elif analysis_type == "complexity":
+                # Use LSP symbols to calculate complexity metrics
+                symbols = await agent.lsp_indexer.get_symbols(file_path)
+                functions = [s for s in symbols if s.get("kind") == "function"]
+                classes = [s for s in symbols if s.get("kind") == "class"]
+                
+                result.update({
+                    "function_count": len(functions),
+                    "class_count": len(classes),
+                    "total_symbols": len(symbols),
+                    "complexity_score": min(10, len(functions) + len(classes) * 2),
+                    "functions": [{
+                        "name": f.get("name", "unknown"),
+                        "line": f.get("line", 0),
+                        "complexity": "medium"  # Could be enhanced with more LSP data
+                    } for f in functions]
+                })
+                
+            elif analysis_type == "style":
+                # Basic style analysis using LSP diagnostics
+                diagnostics = await self.agent_integration.lsp_client.get_diagnostics(file_path)
+                style_issues = [d for d in diagnostics if d.get("severity") in ["warning", "info"]]
+                
+                result.update({
+                    "style_issues": style_issues,
+                    "issue_count": len(style_issues),
+                    "suggestions": [issue.get("message", "") for issue in style_issues[:5]]
+                })
+                
+            elif analysis_type == "security":
+                # Security analysis using LSP diagnostics
+                diagnostics = await self.agent_integration.lsp_client.get_diagnostics(file_path)
+                security_issues = [d for d in diagnostics if "security" in d.get("message", "").lower()]
+                
+                result.update({
+                    "security_issues": security_issues,
+                    "issue_count": len(security_issues),
+                    "recommendations": [issue.get("message", "") for issue in security_issues]
+                })
+            
+            return result
+        except ImportError:
+            return None
+            
+
+
     async def insert_code(self, line_number: int, code: str) -> Dict[str, Any]:
         """Insert code at a specific line in the editor."""
         try:
@@ -298,10 +330,7 @@ class ToolExecutor:
             error_msg = f"Invalid line number for insertion: {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error during code insertion: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+
     
     async def replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict[str, Any]:
         """Replace code at specific lines in the editor."""
@@ -346,10 +375,7 @@ class ToolExecutor:
             error_msg = f"Invalid line range for replacement: {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error during code replacement: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+
     
     async def read_file(self, path: str) -> Dict[str, Any]:
         """Read content from a file."""
@@ -394,10 +420,7 @@ class ToolExecutor:
             error_msg = f"Path is a directory, not a file: {path}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error reading file: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+
     
     async def write_file(self, path: str, content: str) -> Dict[str, Any]:
         """Write content to a file."""
@@ -433,12 +456,9 @@ class ToolExecutor:
             error_msg = f"OS error writing file {path}: {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error writing file: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
+
     
-    def _analyze_structure(self, code: str) -> Dict[str, Any]:
+    async def _analyze_structure(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze code structure (functions, classes, etc.)."""
         lines = code.splitlines()
         
@@ -463,6 +483,8 @@ class ToolExecutor:
         return {
             "success": True,
             "analysis_type": "structure",
+            "file_path": file_path,
+            "lsp_based": False,
             "total_lines": len(lines),
             "functions": functions,
             "classes": classes,
@@ -474,7 +496,7 @@ class ToolExecutor:
             }
         }
     
-    def _analyze_dependencies(self, code: str) -> Dict[str, Any]:
+    async def _analyze_dependencies(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze code dependencies."""
         import_pattern = r'^\s*(?:from\s+([\w.]+)\s+)?import\s+([\w.,\s*]+)'
         
@@ -491,12 +513,14 @@ class ToolExecutor:
         return {
             "success": True,
             "analysis_type": "dependencies",
+            "file_path": file_path,
+            "lsp_based": False,
             "dependencies": sorted(list(dependencies)),
             "import_statements": imports,
             "dependency_count": len(dependencies)
         }
     
-    def _analyze_complexity(self, code: str) -> Dict[str, Any]:
+    async def _analyze_complexity(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze code complexity (basic metrics)."""
         lines = code.splitlines()
         
@@ -515,12 +539,14 @@ class ToolExecutor:
         return {
             "success": True,
             "analysis_type": "complexity",
+            "file_path": file_path,
+            "lsp_based": False,
             "metrics": complexity_indicators,
             "complexity_score": complexity_score,
             "complexity_level": "low" if complexity_score < 10 else "medium" if complexity_score < 25 else "high"
         }
     
-    def _analyze_style(self, code: str) -> Dict[str, Any]:
+    async def _analyze_style(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze code style issues."""
         lines = code.splitlines()
         issues = []
@@ -539,18 +565,20 @@ class ToolExecutor:
         return {
             "success": True,
             "analysis_type": "style",
+            "file_path": file_path,
+            "lsp_based": False,
             "issues": issues,
             "issue_count": len(issues),
             "style_score": max(0, 100 - len(issues) * 2)  # Simple scoring
         }
     
-    def _analyze_security(self, code: str) -> Dict[str, Any]:
+    async def _analyze_security(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze potential security issues."""
         security_patterns = {
             "eval_usage": r'\beval\s*\(',
             "exec_usage": r'\bexec\s*\(',
             "shell_injection": r'os\.system\s*\(|subprocess\.[^\s]*\s*\([^)]*shell\s*=\s*True',
-            "hardcoded_secrets": r'(?i)(password|secret|key|token)\s*=\s*["\'][^"\'\n]{8,}["\']',
+            "hardcoded_secrets": r'(?i)(password|secret|key|token)\s*=\s*["\'][^"\']{8,}["\']',
             "sql_injection": r'["\']\s*\+\s*\w+\s*\+\s*["\']|%s.*%\s*\(',
         }
         
@@ -569,6 +597,8 @@ class ToolExecutor:
         return {
             "success": True,
             "analysis_type": "security",
+            "file_path": file_path,
+            "lsp_based": False,
             "issues": issues,
             "issue_count": len(issues),
             "security_score": max(0, 100 - len(issues) * 10)  # Harsh penalty for security issues
