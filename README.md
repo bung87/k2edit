@@ -226,13 +226,6 @@ Logs are stored in a cross-platform location:
 - **Linux/macOS**: `~/k2edit/logs/k2edit.log`
 - **Windows**: `%USERPROFILE%\k2edit\logs\k2edit.log`
 
-### Debug Mode
-
-For debugging, you can:
-1. Check the output panel for error messages
-2. Use `/kimi "debug this error: <error_message>"` for AI assistance
-3. Review the terminal output for Python exceptions
-
 ## Contributing
 
 Contributions are welcome! Areas for improvement:
