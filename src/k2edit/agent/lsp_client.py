@@ -159,7 +159,8 @@ class LSPClient:
             await self.logger.error(f"Error stopping {language} server: {e}")
         finally:
             await self.logger.info(f"Cleaning up connection for {language}")
-            del self.connections[language]
+            if language in self.connections:
+                del self.connections[language]
             self.failed_health_checks.pop(language, None)
     
     async def initialize_connection(self, language: str, project_root: Path, settings: Dict[str, Any] = None) -> bool:

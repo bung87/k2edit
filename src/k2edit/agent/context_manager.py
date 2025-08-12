@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-
+import threading
 from sentence_transformers import SentenceTransformer
 
 from .memory_config import create_memory_store
