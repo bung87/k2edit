@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from textual.widget import Widget
 from textual.widgets import Static, Button
-from textual.containers import Horizontal, Container, HorizontalScroll
+from textual.containers import Horizontal
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.message import Message
@@ -15,7 +15,6 @@ from textual.screen import Screen
 from textual import work
 from aiologger import Logger
 import asyncio
-import chardet
 from ..utils.language_utils import detect_language_from_file_path
 from ..utils.file_utils import detect_encoding
 

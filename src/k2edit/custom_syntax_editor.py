@@ -10,7 +10,6 @@ from textual.events import MouseDown, Key
 from textual.geometry import Offset
 from textual.containers import Container
 from textual.widgets import ListView, ListItem, Static
-from textual.binding import Binding
 
 # Import the Nim highlight module
 from .nim_highlight import register_nim_language, is_nim_available

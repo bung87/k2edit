@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """Search and Replace dialog widget for K2Edit."""
 
-import re
-from typing import Optional, List, Tuple
-from pathlib import Path
-
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Input, Button, Checkbox, Static, Label
+from textual.widgets import Input, Button, Checkbox, Label
 from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual.message import Message

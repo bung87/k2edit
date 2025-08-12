@@ -3,12 +3,10 @@
 Shared logging configuration for K2Edit application.
 """
 
-import os
 from pathlib import Path
 from aiologger import Logger
 from aiologger.levels import LogLevel
 from aiologger.handlers.files import AsyncTimedRotatingFileHandler
-from aiologger.handlers.streams import AsyncStreamHandler
 from aiologger.formatters.base import Formatter
 
 

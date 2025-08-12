@@ -6,9 +6,7 @@ import os
 import platform
 import pty
 import subprocess
-import sys
-from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from textual import events
 from textual.app import ComposeResult

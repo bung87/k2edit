@@ -8,7 +8,6 @@ A terminal-based code editor with AI integration using Textual framework.
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
 from dotenv import load_dotenv
 import asyncio
 from typing import Dict, Any

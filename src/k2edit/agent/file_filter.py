@@ -3,9 +3,10 @@ File Filter for K2Edit Agentic System
 Handles file filtering based on language-specific patterns and project structure
 """
 
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List
 from pathlib import Path
 from aiologger import Logger
+from ..utils.language_utils import detect_project_language
 
 
 class FileFilter:

@@ -1,6 +1,7 @@
 """Kimi API integration with support for chat, agent mode, and tool calling."""
 
 import asyncio
+import logging
 import os
 import time
 from typing import Dict, List, Optional, Any

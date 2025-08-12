@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """Hover widget for displaying LSP hover information."""
 
-from typing import Optional, Dict, Any
-from pathlib import Path
-
 from textual.widgets import Markdown
 from textual.containers import Container
 from textual.widget import Widget
-from textual.reactive import reactive
-from textual.geometry import Size, Region
-from textual.strip import Strip
-from textual.color import Color
-
 from ..logger import Logger
 
 
