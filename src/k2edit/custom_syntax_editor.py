@@ -35,6 +35,7 @@ class CustomSyntaxEditor(TextArea):
         
         # Cursor position callback
         self.cursor_position_changed = None
+        self._last_cursor_position = None  # Track last cursor position to prevent duplicates
         
         # Autocomplete support
         self._suggestion_popup = None
@@ -339,6 +340,13 @@ class CustomSyntaxEditor(TextArea):
     async def on_text_area_selection_changed(self, event) -> None:
         """Called when cursor position or selection changes."""
         line, column = self.cursor_location
+        current_position = (line, column)
+        
+        # Only process if position actually changed
+        if current_position == self._last_cursor_position:
+            return
+            
+        self._last_cursor_position = current_position
         self.logger.debug(f"Cursor position changed: line {line}, column {column}")
         
         # Call the callback if it exists
