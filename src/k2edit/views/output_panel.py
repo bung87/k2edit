@@ -79,9 +79,7 @@ class OutputPanel(Vertical):
         """Add a welcome message to the output panel."""
         welcome_text = Text()
         welcome_text.append("AI Assistant Ready\n", style="bold blue")
-        welcome_text.append("Commands: /help, /kimi <query>, /explain, /fix, /refactor\n")
-        welcome_text.append("Select code and use commands for AI assistance")
-        
+ 
         panel = Panel(
             welcome_text,
             title="AI Assistant",

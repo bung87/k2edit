@@ -1,7 +1,6 @@
 """Kimi API integration with support for chat, agent mode, and tool calling."""
 
 import asyncio
-import logging
 import os
 import time
 from typing import Dict, List, Optional, Any
@@ -540,7 +539,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         # This is a conservative estimate for context validation
         return len(text) // 4
     
-    async def _validate_context_length(self, messages: List[Dict], logger: logging.Logger) -> List[Dict]:
+    async def _validate_context_length(self, messages: List[Dict], logger: Logger) -> List[Dict]:
         """Validate and truncate context if it exceeds limits."""
         # Kimi API context limit is approximately 200K tokens
         # We'll use a conservative limit of 150K tokens to be safe
@@ -608,7 +607,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
         
         return validated_messages
     
-    async def _log_context_details(self, context: Optional[Dict], logger: logging.Logger) -> None:
+    async def _log_context_details(self, context: Optional[Dict], logger: Logger) -> None:
         """Log detailed context information for debugging."""
         if not context:
             await logger.info("No context provided")
@@ -718,8 +717,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             }
         
         except Exception as e:
-            logger = Logger(name="k2edit")
-            await logger.error(f"Failed to read file: {str(e)}")
+            await self.logger.error(f"Failed to read file: {str(e)}")
             return {"error": f"Failed to read file: {str(e)}"}
     
     async def _tool_write_file(self, path: str, content: str) -> Dict:
@@ -738,8 +736,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             }
         
         except Exception as e:
-            logger = Logger(name="k2edit")
-            await logger.error(f"Failed to write file: {str(e)}")
+            await self.logger.error(f"Failed to write file: {str(e)}")
             return {"error": f"Failed to write file: {str(e)}"}
     
     async def _tool_replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict:
@@ -803,8 +800,7 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             }
         
         except Exception as e:
-            logger = Logger(name="k2edit")
-            await logger.error(f"Failed to search code: {str(e)}")
+            await self.logger.error(f"Failed to search code: {str(e)}")
             return {"error": f"Failed to search code: {str(e)}"}
     
     async def close(self):

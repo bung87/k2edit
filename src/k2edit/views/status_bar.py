@@ -200,24 +200,6 @@ class StatusBar(Widget):
         
         # Always show diagnostics modal, even if no data available
         diagnostics_to_show = self.diagnostics_data if self.diagnostics_data else []
-        
-        # If no real diagnostics, create a sample to test the modal
-        if not diagnostics_to_show:
-            diagnostics_to_show = [
-                {
-                    'file_path': 'test_diagnostics.py',
-                    'message': 'No diagnostics available - this is a test message',
-                    'severity': 2,
-                    'line': 1,
-                    'column': 1,
-                    'source': 'test',
-                    'code': 'NO_DIAG',
-                    'severity_name': 'Warning'
-                }
-            ]
-            await self.logger.debug(f"No diagnostics found, using test data with {len(diagnostics_to_show)} items")
-        else:
-            await self.logger.debug(f"Found {len(diagnostics_to_show)} diagnostics to show")
 
         await self.logger.debug("About to show diagnostics modal...")
         try:
@@ -377,30 +359,26 @@ class StatusBar(Widget):
         all_diagnostics = []
         
         # Expect consistent dict format: {'diagnostics': [...], 'file_path': '...'}
-        if isinstance(diagnostics_data, dict):
-            diagnostics = diagnostics_data.get('diagnostics', [])
-            file_path = diagnostics_data.get('file_path', '')
-            for diagnostic in diagnostics:
-                diagnostic_info = {
-                    'file_path': file_path,
-                    'message': diagnostic.get('message', ''),
-                    'severity': diagnostic.get('severity', 1),
-                    'line': diagnostic.get('range', {}).get('start', {}).get('line', 0) + 1,
-                    'column': diagnostic.get('range', {}).get('start', {}).get('character', 0) + 1,
-                    'source': diagnostic.get('source', ''),
-                    'code': diagnostic.get('code', ''),
-                    'severity_name': 'Error' if diagnostic.get('severity', 1) == 1 else 'Warning'
-                }
-                all_diagnostics.append(diagnostic_info)
-                
-                if diagnostic.get('severity', 1) == 2:  # Warning
-                    warnings += 1
-                elif diagnostic.get('severity', 1) == 1:  # Error
-                    errors += 1
-        else:
-            # Log unexpected format
-            await self.logger.warning(f"Unexpected diagnostics data format: {type(diagnostics_data)}")
-            return
+        diagnostics = diagnostics_data.get('diagnostics', [])
+        file_path = diagnostics_data.get('file_path', '')
+        for diagnostic in diagnostics:
+            diagnostic_info = {
+                'file_path': file_path,
+                'message': diagnostic.get('message', ''),
+                'severity': diagnostic.get('severity', 1),
+                'line': diagnostic.get('range', {}).get('start', {}).get('line', 0) + 1,
+                'column': diagnostic.get('range', {}).get('start', {}).get('character', 0) + 1,
+                'source': diagnostic.get('source', ''),
+                'code': diagnostic.get('code', ''),
+                'severity_name': 'Error' if diagnostic.get('severity', 1) == 1 else 'Warning'
+            }
+            all_diagnostics.append(diagnostic_info)
+            
+            if diagnostic.get('severity', 1) == 2:  # Warning
+                warnings += 1
+            elif diagnostic.get('severity', 1) == 1:  # Error
+                errors += 1
+
         
         # Update reactive properties to trigger watchers
         self.diagnostics_warnings = warnings
@@ -523,4 +501,3 @@ class StatusBar(Widget):
         # Log initial status
         await self.logger.debug("StatusBar initialization complete")
         await self.logger.debug(f"Initial values - Cursor: {self.cursor_line},{self.cursor_column}, File: {self.file_path}, Lang: {self.language}")
-    

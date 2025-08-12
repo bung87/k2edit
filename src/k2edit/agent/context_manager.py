@@ -13,7 +13,6 @@ if os.name == 'posix':
 
 import asyncio
 from aiologger import Logger
-from aiologger.levels import LogLevel
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime

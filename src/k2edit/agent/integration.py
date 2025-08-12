@@ -132,9 +132,12 @@ class K2EditAgentIntegration:
             # Update context with the opened file
             from . import get_agent_context
             agent = await get_agent_context()
-            if agent:
-                await agent.update_context(file_path)
-                await self.logger.info(f"Context updated for file: {file_path}")
+            if agent is None:
+                await self.logger.warning(f"Agent context not available for file {file_path}")
+                return
+                
+            await agent.update_context(file_path)
+            await self.logger.info(f"Context updated for file: {file_path}")
         except Exception as e:
             await self.logger.warning(f"Failed to update context for file {file_path}: {e}", exc_info=True)
             if self.output_panel:
@@ -207,9 +210,11 @@ class K2EditAgentIntegration:
         try:
             from . import get_agent_context
             agent = await get_agent_context()
-            if agent:
-                return await agent.add_context_file(file_path, file_content)
-            return False
+            if agent is None:
+                await self.logger.warning(f"Agent context not available for adding file {file_path}")
+                return False
+                
+            return await agent.add_context_file(file_path, file_content)
         except Exception as e:
             await self.logger.warning(f"Failed to add file to context {file_path}: {e}", exc_info=True)
             if self.output_panel:
