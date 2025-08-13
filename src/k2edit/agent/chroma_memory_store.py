@@ -5,13 +5,91 @@ for native vector embedding support.
 
 import asyncio
 import json
-from typing import Dict, List, Any, Optional
+import hashlib
+import uuid
+import re
+from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import partial
+import multiprocessing as mp
+
 import chromadb
 from chromadb.config import Settings
 from aiologger import Logger
+import aiofiles
+
+from ..utils.async_performance_utils import get_thread_pool
+
+
+def _process_search_results_chunk(results_chunk: List[Tuple], max_distance: float, 
+                                  quality_filter: bool = True) -> List[Dict[str, Any]]:
+    """Worker function for multiprocessing search result processing."""
+    processed_results = []
+    
+    for doc_id, document, metadata, distance in results_chunk:
+        if distance > max_distance:
+            continue
+            
+        try:
+            content = json.loads(document)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        
+        if quality_filter and _is_low_quality_content_static(content):
+            continue
+            
+        processed_results.append({
+            "id": doc_id,
+            "content": content,
+            "metadata": metadata,
+            "distance": distance,
+            "relevance_score": max(0, 1.0 - (distance / max_distance))
+        })
+    
+    return processed_results
+
+
+# Low-quality patterns compiled once for performance
+LOW_QUALITY_PATTERNS = [
+    re.compile(r'console\.log', re.IGNORECASE),
+    re.compile(r'print\s*\(', re.IGNORECASE),
+    re.compile(r'\b(TODO|FIXME|HACK|XXX)\b', re.IGNORECASE),
+    re.compile(r'^\s*import\s+\w+\s*$', re.IGNORECASE),
+    re.compile(r'^\s*from\s+\w+\s+import\s+\w+\s*$', re.IGNORECASE),
+    re.compile(r'^\s*(var|let|const)\s+\w+\s*=\s*\w+\s*$', re.IGNORECASE),
+    re.compile(r'\btemp\d*\b', re.IGNORECASE),
+    re.compile(r'\btmp\d*\b', re.IGNORECASE),
+]
+
+def _extract_content_string(content: Any) -> str:
+    """Extract string content from various content formats."""
+    if isinstance(content, dict):
+        if 'code' in content:
+            return content['code']
+        elif 'content' in content and isinstance(content['content'], dict) and 'code' in content['content']:
+            return content['content']['code']
+    return str(content).strip()
+
+def _is_low_quality_content_static(content: Any) -> bool:
+    """Static version of quality check for multiprocessing."""
+    if not content:
+        return True
+        
+    content_str = _extract_content_string(content)
+    
+    # Check for very short content
+    if len(content_str) < 15:
+        return True
+        
+    # Check for content that is mostly whitespace or special characters
+    alphanumeric_count = len(re.sub(r'[^\w\s]', '', content_str))
+    if alphanumeric_count < len(content_str) * 0.2:
+        return True
+        
+    # Check for common low-quality patterns
+    return any(pattern.search(content_str) for pattern in LOW_QUALITY_PATTERNS)
 
 
 @dataclass
@@ -22,15 +100,17 @@ class MemoryEntry:
     content: Dict[str, Any]
     timestamp: str
     file_path: Optional[str] = None
-    tags: List[str] = None
-    
-    def __post_init__(self):
-        if self.tags is None:
-            self.tags = []
+    tags: List[str] = field(default_factory=list)
 
 
 class ChromaMemoryStore:
     """ChromaDB-based memory storage for agentic context and conversations"""
+    
+    COLLECTION_CONFIGS = {
+        "memories": "General memory storage for conversations, context, and patterns",
+        "code_patterns": "Code patterns and reusable snippets",
+        "relationships": "Context relationships between memory items"
+    }
     
     def __init__(self, context_manager, logger: Logger):
         self.logger = logger
@@ -67,15 +147,8 @@ class ChromaMemoryStore:
         
     async def _init_collections(self):
         """Initialize ChromaDB collections for different data types"""
-        collection_configs = {
-            "memories": "General memory storage for conversations, context, and patterns",
-            "code_patterns": "Code patterns and reusable snippets",
-            "relationships": "Context relationships between memory items"
-        }
-        
-        for name, description in collection_configs.items():
+        for name, description in self.COLLECTION_CONFIGS.items():
             try:
-                # Get or create collection
                 collection = await asyncio.to_thread(
                     self.client.get_or_create_collection,
                     name=name,
@@ -87,47 +160,34 @@ class ChromaMemoryStore:
                 await self.logger.error(f"Failed to initialize collection {name}: {e}")
                 raise
                 
+    def _create_memory_entry(self, entry_type: str, content: Dict[str, Any], 
+                           file_path: Optional[str] = None, tags: Optional[List[str]] = None,
+                           prefix: Optional[str] = None) -> MemoryEntry:
+        """Create a memory entry with common fields."""
+        return MemoryEntry(
+            id=self._generate_id(prefix),
+            type=entry_type,
+            content=content,
+            timestamp=datetime.now().isoformat(),
+            file_path=file_path,
+            tags=tags or []
+        )
+    
     async def store_conversation(self, conversation: Dict[str, Any]):
         """Store a conversation entry"""
-        entry_id = self._generate_id()
-        
-        memory_entry = MemoryEntry(
-            id=entry_id,
-            type="conversation",
-            content=conversation,
-            timestamp=datetime.now().isoformat()
-        )
-        
-        await self._store_memory(memory_entry)
+        entry = self._create_memory_entry("conversation", conversation)
+        await self._store_memory(entry)
         
     async def store_context(self, file_path: str, context: Dict[str, Any]):
         """Store code context for a file"""
-        entry_id = self._generate_id(f"context_{file_path}")
-        
-        memory_entry = MemoryEntry(
-            id=entry_id,
-            type="context",
-            content=context,
-            timestamp=datetime.now().isoformat(),
-            file_path=file_path,
-            tags=["code", "context", Path(file_path).suffix]
-        )
-        
-        await self._store_memory(memory_entry)
+        tags = ["code", "context", Path(file_path).suffix]
+        entry = self._create_memory_entry("context", context, file_path, tags, f"context_{file_path}")
+        await self._store_memory(entry)
         
     async def store_change(self, change: Dict[str, Any]):
         """Store a code change"""
-        entry_id = self._generate_id()
-        
-        memory_entry = MemoryEntry(
-            id=entry_id,
-            type="change",
-            content=change,
-            timestamp=datetime.now().isoformat(),
-            file_path=change.get("file_path")
-        )
-        
-        await self._store_memory(memory_entry)
+        entry = self._create_memory_entry("change", change, change.get("file_path"))
+        await self._store_memory(entry)
         
     async def store_pattern(self, pattern_type: str, content: str, context: Dict[str, Any]):
         """Store a code pattern for future reference"""
@@ -152,12 +212,7 @@ class ChromaMemoryStore:
             }
             
             # Generate embedding for the pattern content
-            if self.context_manager is None:
-                embedding = [0.0] * 384  # Default zero vector
-            else:
-                embedding = await self.context_manager._generate_embedding(content)
-                if embedding is None:
-                    embedding = [0.0] * 384  # Fallback zero vector
+            embedding = await self._get_embedding(content)
             
             self.collections["code_patterns"].upsert(
                 ids=[entry_id],
@@ -202,12 +257,7 @@ class ChromaMemoryStore:
                 metadata["last_used"] = datetime.now().isoformat()
                 
                 # Generate new embedding
-                if self.context_manager is None:
-                    embedding = [0.0] * 384  # Default zero vector
-                else:
-                    embedding = await self.context_manager._generate_embedding(document)
-                    if embedding is None:
-                        embedding = [0.0] * 384  # Fallback zero vector
+                embedding = await self._get_embedding(document)
                 
                 # Update the record
                 self.collections["code_patterns"].upsert(
@@ -223,18 +273,9 @@ class ChromaMemoryStore:
     async def search_relevant_context(self, query: str, limit: int = 10, max_distance: float = 1.5) -> List[Dict[str, Any]]:
         """Search for relevant context based on query using semantic search with distance filtering"""
         # Generate embedding for the query
-        if self.context_manager is None:
-            await self.logger.error("Context manager not available - cannot generate embeddings")
-            return []
-        
-        try:
-            query_embedding = await self.context_manager._generate_embedding(query)
-        except Exception as e:
-            await self.logger.error(f"Failed to generate embedding for query: {e}")
-            return []
-            
-        if query_embedding is None:
-            await self.logger.error("Failed to generate embedding for query - cannot perform semantic search")
+        query_embedding = await self._get_embedding(query)
+        if not any(query_embedding):  # Check if it's all zeros
+            await self.logger.error("Failed to generate valid embedding for query")
             return []
         
         # Search in memories collection with higher limit for filtering
@@ -263,7 +304,7 @@ class ChromaMemoryStore:
                 if distance <= max_distance:
                     try:
                         content = json.loads(results["documents"][0][i])
-                    except json.JSONDecodeError as e:
+                    except (json.JSONDecodeError, TypeError) as e:
                         await self.logger.warning(f"Failed to parse document content for {doc_id}: {e}")
                         continue
                     
@@ -294,18 +335,9 @@ class ChromaMemoryStore:
     async def find_similar_code(self, code: str, limit: int = 5, max_distance: float = 1.2) -> List[Dict[str, Any]]:
         """Find similar code patterns with distance filtering"""
         # Generate embedding for the code
-        if self.context_manager is None:
-            await self.logger.error("Context manager not available - cannot generate embeddings")
-            return []
-        
-        try:
-            code_embedding = await self.context_manager._generate_embedding(code)
-        except Exception as e:
-            await self.logger.error(f"Failed to generate embedding for code: {e}")
-            return []
-            
-        if code_embedding is None:
-            await self.logger.error("Failed to generate embedding for code - cannot perform semantic search")
+        code_embedding = await self._get_embedding(code)
+        if not any(code_embedding):  # Check if it's all zeros
+            await self.logger.error("Failed to generate valid embedding for code")
             return []
         
         # Search in code_patterns collection with more results for filtering
@@ -426,11 +458,12 @@ class ChromaMemoryStore:
                     "context": context_data,
                     "timestamp": metadata.get("timestamp")
                 }
-            except (json.JSONDecodeError, TypeError) as e:
-                await self.logger.error(f"Failed to parse file context data for {file_path}: {e}")
-                return None
-            except Exception as e:
-                await self.logger.error(f"Error processing file context for {file_path}: {e}")
+            except (json.JSONDecodeError, TypeError, Exception) as e:
+                error_type = type(e).__name__
+                if isinstance(e, (json.JSONDecodeError, TypeError)):
+                    await self.logger.error(f"Failed to parse file context data for {file_path}: {e}")
+                else:
+                    await self.logger.error(f"Error processing file context for {file_path}: {e}")
                 return None
                 
         return None
@@ -440,12 +473,8 @@ class ChromaMemoryStore:
         try:
             # Generate embedding for the content
             content_str = json.dumps(memory_entry.content)
-            if self.context_manager is None:
-                await self.logger.error("Context manager not available - cannot generate embeddings for memory storage")
-                raise RuntimeError("Cannot store memory without embedding generation capability")
-            
-            embedding = await self.context_manager._generate_embedding(content_str)
-            if embedding is None:
+            embedding = await self._get_embedding(content_str)
+            if not any(embedding):  # Check if it's all zeros
                 await self.logger.error("Failed to generate embedding for memory content - cannot store memory")
                 raise RuntimeError("Failed to generate embedding for memory storage")
             
@@ -472,9 +501,20 @@ class ChromaMemoryStore:
             await self.logger.error(f"Error storing memory: {e}")
             raise
             
+    async def _get_embedding(self, content: str) -> List[float]:
+        """Generate embedding with fallback to zero vector."""
+        if self.context_manager is None:
+            return [0.0] * 384
+        
+        try:
+            embedding = await self.context_manager._generate_embedding(content)
+            return embedding if embedding is not None else [0.0] * 384
+        except Exception as e:
+            await self.logger.error(f"Failed to generate embedding: {e}")
+            return [0.0] * 384
+    
     def _generate_id(self, prefix: str = None) -> str:
         """Generate a unique ID for memory entries"""
-        import uuid
         prefix_str = f"{prefix}_" if prefix else ""
         return f"{prefix_str}{uuid.uuid4().hex[:12]}"
         
@@ -484,68 +524,14 @@ class ChromaMemoryStore:
 
     def _is_low_quality_content(self, content: Any) -> bool:
         """Check if content is low quality and should be filtered out"""
-        if not content:
-            return True
-            
-        import re
-        
-        # Extract actual code content from the memory entry
-        content_str = ""
-        if isinstance(content, dict):
-            # Handle memory entry format
-            if 'code' in content:
-                content_str = content['code']
-            elif 'content' in content and isinstance(content['content'], dict) and 'code' in content['content']:
-                content_str = content['content']['code']
-            else:
-                content_str = str(content)
-        else:
-            content_str = str(content)
-            
-        content_str = content_str.strip()
-        
-        # Check for very short content
-        if len(content_str) < 15:
-            return True
-            
-        # Check for content that is mostly whitespace or special characters
-        alphanumeric_count = len(re.sub(r'[^\w\s]', '', content_str))
-        if alphanumeric_count < len(content_str) * 0.2:
-            return True
-            
-        # Check for common low-quality patterns
-        low_quality_patterns = [
-            r'console\.log',
-            r'print\s*\(',
-            r'\b(TODO|FIXME|HACK|XXX)\b',
-            r'^\s*import\s+\w+\s*$',
-            r'^\s*from\s+\w+\s+import\s+\w+\s*$',
-            r'^\s*(var|let|const)\s+\w+\s*=\s*\w+\s*$',
-            r'\btemp\d*\b',
-            r'\btmp\d*\b',
-        ]
-        
-        for pattern in low_quality_patterns:
-            if re.search(pattern, content_str, re.IGNORECASE):
-                return True
-                
-        return False
+        return _is_low_quality_content_static(content)
     
     async def semantic_search(self, query: str, limit: int = 5, max_distance: float = 1.5) -> List[Dict[str, Any]]:
         """Perform semantic search using ChromaDB's native vector search with distance filtering"""
         # Generate embedding for the query
-        if self.context_manager is None:
-            await self.logger.error("Context manager not available - cannot generate embeddings for semantic search")
-            return []
-        
-        try:
-            query_embedding = await self.context_manager._generate_embedding(query)
-        except Exception as e:
-            await self.logger.error(f"Failed to generate embedding for query: {e}")
-            return []
-            
-        if query_embedding is None:
-            await self.logger.error("Failed to generate embedding for query - cannot perform semantic search")
+        query_embedding = await self._get_embedding(query)
+        if not any(query_embedding):  # Check if it's all zeros
+            await self.logger.error("Failed to generate valid embedding for semantic search")
             return []
         
         # Search across all memories with higher limit for filtering
@@ -559,30 +545,22 @@ class ChromaMemoryStore:
             await self.logger.error(f"ChromaDB semantic search query failed: {e}")
             return []
         
-        # Process search results
+        # Process search results with multiprocessing optimization
         try:
-            search_results = []
-            for i, doc_id in enumerate(results["ids"][0]):
-                distance = results["distances"][0][i]
-                
-                # Apply distance-based filtering
-                if distance <= max_distance:
-                    try:
-                        content = json.loads(results["documents"][0][i])
-                    except (json.JSONDecodeError, TypeError) as e:
-                        await self.logger.warning(f"Failed to parse search result content for {doc_id}: {e}")
-                        continue
-                    
-                    # Apply quality filtering
-                    if not self._is_low_quality_content(content):
-                        search_results.append({
-                            "id": doc_id,
-                            "content": content,
-                            "metadata": results["metadatas"][0][i],
-                            "distance": distance,
-                            "similarity": 1.0 - distance,  # Convert distance to similarity
-                            "relevance_score": max(0, 1.0 - (distance / max_distance))
-                        })
+            doc_ids = results["ids"][0]
+            documents = results["documents"][0]
+            metadatas = results["metadatas"][0]
+            distances = results["distances"][0]
+            
+            # Use multiprocessing for large result sets (>30 results)
+            if len(doc_ids) > 30:
+                search_results = await self._process_search_results_multiprocess(
+                    doc_ids, documents, metadatas, distances, max_distance
+                )
+            else:
+                search_results = await self._process_search_results_sequential(
+                    doc_ids, documents, metadatas, distances, max_distance
+                )
             
             # Sort by distance (closest first) and limit results
             search_results.sort(key=lambda x: x["distance"])
@@ -591,6 +569,77 @@ class ChromaMemoryStore:
         except Exception as e:
             await self.logger.error(f"Error processing semantic search results: {e}")
             return []
+    
+    async def _process_search_results_sequential(self, doc_ids: List[str], documents: List[str],
+                                               metadatas: List[Dict], distances: List[float],
+                                               max_distance: float) -> List[Dict[str, Any]]:
+        """Process search results sequentially for smaller result sets."""
+        search_results = []
+        
+        for i, doc_id in enumerate(doc_ids):
+            distance = distances[i]
+            
+            # Apply distance-based filtering
+            if distance <= max_distance:
+                try:
+                    content = json.loads(documents[i])
+                except (json.JSONDecodeError, TypeError) as e:
+                    await self.logger.warning(f"Failed to parse search result content for {doc_id}: {e}")
+                    continue
+                
+                # Apply quality filtering
+                if not self._is_low_quality_content(content):
+                    search_results.append({
+                        "id": doc_id,
+                        "content": content,
+                        "metadata": metadatas[i],
+                        "distance": distance,
+                        "similarity": 1.0 - distance,  # Convert distance to similarity
+                        "relevance_score": max(0, 1.0 - (distance / max_distance))
+                    })
+        
+        return search_results
+    
+    async def _process_search_results_multiprocess(self, doc_ids: List[str], documents: List[str],
+                                                  metadatas: List[Dict], distances: List[float],
+                                                  max_distance: float) -> List[Dict[str, Any]]:
+        """Process search results using multiprocessing for large result sets."""
+        # Determine optimal number of processes
+        num_processes = min(mp.cpu_count(), max(2, len(doc_ids) // 15))
+        
+        # Create chunks of results for each process
+        chunk_size = max(1, len(doc_ids) // num_processes)
+        result_chunks = []
+        
+        for i in range(0, len(doc_ids), chunk_size):
+            chunk_data = list(zip(
+                doc_ids[i:i + chunk_size],
+                documents[i:i + chunk_size],
+                metadatas[i:i + chunk_size],
+                distances[i:i + chunk_size]
+            ))
+            result_chunks.append(chunk_data)
+        
+        # Create partial function with search parameters
+        process_func = partial(_process_search_results_chunk, 
+                              max_distance=max_distance, quality_filter=True)
+        
+        # Execute optimized processing using thread pool for CPU-bound operations
+        thread_pool = get_thread_pool()
+        chunk_results = []
+        for chunk in result_chunks:
+            result = await thread_pool.run_cpu_bound(process_func, chunk)
+            chunk_results.append(result)
+        
+        # Flatten results from all chunks
+        search_results = []
+        for chunk_result in chunk_results:
+            for result in chunk_result:
+                # Add similarity score for compatibility
+                result["similarity"] = 1.0 - result["distance"]
+                search_results.append(result)
+        
+        return search_results
     
     async def update_memory_score(self, memory_id: str, score_change: float):
         """Update the semantic score of a memory based on usage"""
@@ -622,17 +671,8 @@ class ChromaMemoryStore:
             return
         
         # Generate new embedding
-        if self.context_manager is None:
-            await self.logger.error("Context manager not available - cannot update memory embedding")
-            return
-        
-        try:
-            embedding = await self.context_manager._generate_embedding(document)
-        except Exception as e:
-            await self.logger.error(f"Failed to generate embedding for memory {memory_id}: {e}")
-            return
-            
-        if embedding is None:
+        embedding = await self._get_embedding(document)
+        if not any(embedding):  # Check if it's all zeros
             await self.logger.error(f"Failed to generate embedding for memory {memory_id} - cannot update")
             return
         
@@ -669,17 +709,8 @@ class ChromaMemoryStore:
             return
         
         # Generate embedding for the relationship
-        if self.context_manager is None:
-            await self.logger.error("Context manager not available - cannot generate embeddings for relationship")
-            return
-        
-        try:
-            embedding = await self.context_manager._generate_embedding(relationship_doc)
-        except Exception as e:
-            await self.logger.error(f"Failed to generate embedding for relationship: {e}")
-            return
-            
-        if embedding is None:
+        embedding = await self._get_embedding(relationship_doc)
+        if not any(embedding):  # Check if it's all zeros
             await self.logger.error("Failed to generate embedding for relationship - cannot store")
             return
         
@@ -800,11 +831,9 @@ class ChromaMemoryStore:
                     "metadata": relationships["metadatas"][i]
                 })
             
-            with open(output_path, 'w') as f:
-                json.dump(export_data, f, indent=2, default=str)
+            async with aiofiles.open(output_path, 'w') as f:
+                await f.write(json.dumps(export_data, indent=2, default=str))
                 
-            if self.logger:
-                await self.logger.info(f"Exported memories to {output_path}")
+            await self.logger.info(f"Exported memories to {output_path}")
         except Exception as e:
-            if self.logger:
-                await self.logger.error(f"Error exporting memories: {e}")
+            await self.logger.error(f"Error exporting memories: {e}")

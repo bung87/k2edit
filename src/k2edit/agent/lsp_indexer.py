@@ -4,11 +4,12 @@ High-level orchestrator for LSP-based code intelligence
 """
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from aiologger import Logger
 
-from .lsp_client import LSPClient
+from .lsp_client import LSPClient, ServerStatus
 from .language_configs import LanguageConfigs
 from .symbol_parser import SymbolParser
 from .file_filter import FileFilter
@@ -32,6 +33,9 @@ class LSPIndexer:
         # Indexes
         self.symbol_index: Dict[str, List[Dict[str, Any]]] = {}
         self.file_index: Dict[str, Dict[str, Any]] = {}
+        
+        # Server restart lock to prevent concurrent restarts
+        self._server_restart_lock = asyncio.Lock()
         
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize LSP indexer for project with optional progress callback"""
@@ -79,15 +83,6 @@ class LSPIndexer:
         if progress_callback:
             await progress_callback("Symbol indexing started in background...")
     
-    async def ensure_language_server(self, language: str) -> bool:
-        """Ensure LSP server is running for the given language"""
-        if self.lsp_client.is_server_running(language):
-            await self.logger.debug(f"LSP server for {language} already running")
-            return True
-        
-        return False
-    
-
     
     async def _build_initial_index_background(self, progress_callback=None):
         """Build initial symbol index for all files in background with progress updates using concurrent processing"""
@@ -115,8 +110,8 @@ class LSPIndexer:
         indexed_count = 0
         failed_count = 0
         
-        # Determine optimal number of workers (max 8 to avoid overwhelming LSP server)
-        max_workers = min(8, max(1, len(files) // 10))
+        # Determine optimal number of workers (max 3 to avoid overwhelming LSP server)
+        max_workers = min(3, max(1, len(files) // 20))
         await self.logger.info(f"Using {max_workers} concurrent workers for indexing")
         
         # Process files in batches to manage memory and provide progress updates
@@ -143,6 +138,9 @@ class LSPIndexer:
                 await progress_callback(f"Indexing symbols... {total_processed}/{len(files)} files ({progress:.1f}%)")
             
             await self.logger.info(f"Batch complete: {indexed_count}/{total_processed} files indexed...")
+            
+            # Small delay to prevent overwhelming the LSP server
+            await asyncio.sleep(0.5)
         
         await self.logger.info(f"Initial indexing complete: {indexed_count} successful, {failed_count} failed")
         if progress_callback:
@@ -204,42 +202,162 @@ class LSPIndexer:
             await self.logger.error(f"Failed to index file {file_path}: {e}")
     
     async def _get_document_symbols(self, file_path: str) -> List[Dict[str, Any]]:
-        """Get symbols from a specific file via LSP"""
-        if not self.lsp_client.is_server_running(self.language):
-            return []
+        """Get symbols from a specific file via LSP with AST fallback"""
+        # Build absolute file path
+        abs_file_path = str(self.project_root / file_path)
         
-        # Build LSP URI
-        uri = f"file://{self.project_root}/{file_path}"
+        # Check if we need to restart the LSP server
+        await self._ensure_server_healthy()
         
-        # Request document symbols
-        request = {
-            "jsonrpc": "2.0",
-            "id": 0,  # Will be set by LSP client
-            "method": "textDocument/documentSymbol",
-            "params": {
-                "textDocument": {
-                    "uri": uri
-                }
-            }
-        }
-        
-        try:
-            response = await self.lsp_client.send_request(self.language, request)
-            if response and "result" in response:
-                result = response["result"]
-                if isinstance(result, list):
-                    return await self.symbol_parser.parse_lsp_symbols(result)
+        # Try LSP first if server is running
+        if self.lsp_client.is_server_running(self.language):
+            # Notify LSP server that file is opened (required by some servers)
+            try:
+                await self.lsp_client.notify_file_opened(abs_file_path, self.language)
+            except Exception as e:
+                await self.logger.warning(f"Failed to notify file opened for {file_path}: {e}")
+            
+            try:
+                # Use the LSP client's get_document_symbols method
+                lsp_symbols = await self.lsp_client.get_document_symbols(abs_file_path, self.language)
+                if lsp_symbols:
+                    symbols = await self.symbol_parser.parse_lsp_symbols(lsp_symbols)
+                    if symbols:  # If we got symbols from LSP, return them
+                        return symbols
                 else:
-                    await self.logger.debug(f"Unexpected LSP result format: {type(result)}")
-                    return []
-        except Exception as e:
-            await self.logger.aerror(f"LSP request failed for {file_path}: {e}")
+                     # If LSP returned None/empty, the server might be unresponsive
+                     await self.logger.warning(f"LSP server returned no symbols for {file_path} - server may be unresponsive")
+                     # Mark server as potentially unhealthy for future restart
+                     if self.language in self.lsp_client.connections:
+                         connection = self.lsp_client.connections[self.language]
+                         connection.failed_health_checks += 1
+                         if connection.failed_health_checks >= 2:
+                             await self.logger.info(f"Marking {self.language} server as unhealthy due to repeated failures")
+                             connection.status = ServerStatus.ERROR
+            except Exception as e:
+                await self.logger.warning(f"LSP request failed for {file_path}: {e}")
+                # Mark server as unhealthy on exception
+                if self.language in self.lsp_client.connections:
+                    connection = self.lsp_client.connections[self.language]
+                    connection.failed_health_checks += 1
+                    connection.status = ServerStatus.ERROR
         
+        # Fallback: return empty list if LSP failed
+        # Only log if this is unexpected (file should have symbols)
+        if file_path.endswith(('.py', '.js', '.ts', '.java', '.cpp', '.c')):
+            await self.logger.debug(f"No symbols extracted for {file_path} (LSP failed)")
         return []
     
-
+    async def _ensure_server_healthy(self):
+        """Ensure the LSP server is healthy, restart if necessary"""
+        if not self.language or self.language == "unknown":
+            return
+        
+        # Use lock to prevent concurrent server restarts
+        async with self._server_restart_lock:
+            # Re-check server status after acquiring lock (another task might have fixed it)
+            if self.language in self.lsp_client.connections:
+                connection = self.lsp_client.connections[self.language]
+                
+                # Check if server is unhealthy or unresponsive
+                is_unhealthy = (
+                    connection.status.value == "error" or 
+                    (connection.process and connection.process.returncode is not None) or
+                    connection.failed_health_checks >= 3 or
+                    (time.time() - connection.last_activity > 30.0)  # No activity for 30 seconds
+                )
+                
+                if is_unhealthy:
+                    await self.logger.info(f"LSP server for {self.language} is unhealthy, attempting restart")
+                    
+                    # Get the server configuration
+                    config = self.language_configs.get_config(self.language)
+                    if config and "command" in config:
+                        try:
+                            # Stop the unhealthy server first
+                            await self.lsp_client.stop_server(self.language)
+                            await asyncio.sleep(1.0)  # Wait for cleanup
+                            
+                            # Start a new server (this uses proper locking)
+                            success = await self.lsp_client.start_server(
+                                self.language, 
+                                config["command"], 
+                                self.project_root
+                            )
+                            
+                            if success:
+                                # Re-initialize the connection
+                                await self.lsp_client.initialize_connection(
+                                    self.language, 
+                                    self.project_root, 
+                                    config.get("settings", {})
+                                )
+                                await self.logger.info(f"Successfully restarted LSP server for {self.language}")
+                            else:
+                                await self.logger.error(f"Failed to restart LSP server for {self.language}")
+                        except Exception as e:
+                            await self.logger.error(f"Error restarting LSP server for {self.language}: {e}")
+                else:
+                    # Server is healthy, no action needed
+                    return
+            
+            # If no server exists, try to start one
+            elif not self.lsp_client.is_server_running(self.language):
+                await self.logger.info(f"No LSP server running for {self.language}, starting one")
+                config = self.language_configs.get_config(self.language)
+                if config and "command" in config:
+                    try:
+                        success = await self.lsp_client.start_server(
+                            self.language, 
+                            config["command"], 
+                            self.project_root
+                        )
+                        
+                        if success:
+                            # Initialize the connection
+                            await self.lsp_client.initialize_connection(
+                                self.language, 
+                                self.project_root, 
+                                config.get("settings", {})
+                            )
+                            await self.logger.info(f"Successfully started LSP server for {self.language}")
+                        else:
+                            await self.logger.error(f"Failed to start LSP server for {self.language}")
+                    except Exception as e:
+                        await self.logger.error(f"Error starting LSP server for {self.language}: {e}")
     
+
+
     # Public API methods
+    async def index_file(self, file_path: str) -> bool:
+        """Index a specific file and add it to the symbol index
+        
+        Args:
+            file_path: Path to the file to index (can be relative or absolute)
+            
+        Returns:
+            True if indexing was successful, False otherwise
+        """
+        try:
+            # Ensure file_path is absolute
+            abs_path = Path(file_path)
+            if not abs_path.is_absolute():
+                abs_path = self.project_root / file_path
+            
+            # Check if file exists
+            if not abs_path.exists():
+                await self.logger.warning(f"File does not exist: {abs_path}")
+                return False
+            
+            # Index the file
+            await self._index_file(abs_path)
+            await self.logger.info(f"Successfully indexed file: {abs_path}")
+            return True
+            
+        except Exception as e:
+            await self.logger.error(f"Failed to index file {file_path}: {e}")
+            return False
+    
     async def get_symbols(self, file_path: str) -> List[Dict[str, Any]]:
         """Get symbols for a specific file"""
         try:
@@ -320,24 +438,18 @@ class LSPIndexer:
     
     async def get_project_dependencies(self, file_paths: List[str] = None) -> Dict[str, List[str]]:
         """Get dependencies for multiple files concurrently"""
-        if file_paths is None:
-            # Get all indexed files
-            file_paths = list(self.symbol_index.keys())
-        
+        file_paths = file_paths or list(self.symbol_index.keys())
         if not file_paths:
             return {}
         
         await self.logger.info(f"Extracting dependencies for {len(file_paths)} files")
         
-        # Process files concurrently for better performance
         max_workers = min(8, max(1, len(file_paths) // 5))
         semaphore = asyncio.Semaphore(max_workers)
         
         async def _extract_file_dependencies(file_path: str) -> tuple[str, List[str]]:
-            """Extract dependencies for a single file"""
             async with semaphore:
                 try:
-                    # Convert relative path to absolute for dependency extraction
                     abs_path = str(self.project_root / file_path)
                     language = detect_language_by_extension(Path(file_path).suffix)
                     dependencies = await self.symbol_parser.extract_dependencies(abs_path, language)
@@ -346,13 +458,8 @@ class LSPIndexer:
                     await self.logger.warning(f"Failed to extract dependencies for {file_path}: {e}")
                     return file_path, []
         
-        # Create tasks for concurrent processing
         tasks = [_extract_file_dependencies(file_path) for file_path in file_paths]
-        
-        # Execute all tasks concurrently
         results = await asyncio.gather(*tasks, return_exceptions=False)
-        
-        # Build dependency map
         dependency_map = {file_path: deps for file_path, deps in results}
         
         total_deps = sum(len(deps) for deps in dependency_map.values())
@@ -361,50 +468,34 @@ class LSPIndexer:
         return dependency_map
     
     async def get_project_symbols(self, top_level_only: bool = False) -> List[Dict[str, Any]]:
-        """Get symbols across the project, optionally filtering for top-level symbols only with concurrent processing"""
-        await self.logger.info(f"Starting project-wide symbol fetching (top_level_only={top_level_only})")
-        
-        total_files = len(self.symbol_index)
-        await self.logger.info(f"Symbol index contains {total_files} files")
-        
+        """Get symbols across the project, optionally filtering for top-level symbols only"""
         if not self.symbol_index:
             return []
         
-        # Process files concurrently for better performance with large projects
+        total_files = len(self.symbol_index)
+        await self.logger.info(f"Starting project-wide symbol fetching (top_level_only={top_level_only}) for {total_files} files")
+        
         max_workers = min(8, max(1, total_files // 5))
         semaphore = asyncio.Semaphore(max_workers)
         
         async def _process_file_symbols(file_path: str, symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-            """Process symbols from a single file with filtering"""
             async with semaphore:
                 file_symbols = []
                 for symbol in symbols:
-                    # Filter for top-level symbols only if requested
                     if top_level_only and symbol.get("parent"):
                         continue
                     
-                    # Create a copy to avoid modifying the original
                     symbol_copy = symbol.copy()
                     symbol_copy["file_path"] = file_path
                     file_symbols.append(symbol_copy)
                 
                 return file_symbols
         
-        # Create tasks for concurrent processing
-        tasks = [
-            _process_file_symbols(file_path, symbols)
-            for file_path, symbols in self.symbol_index.items()
-        ]
-        
-        # Execute all tasks concurrently
+        tasks = [_process_file_symbols(file_path, symbols) for file_path, symbols in self.symbol_index.items()]
         file_results = await asyncio.gather(*tasks, return_exceptions=False)
         
-        # Flatten results
-        all_symbols = []
-        for file_symbols in file_results:
-            all_symbols.extend(file_symbols)
+        all_symbols = [symbol for file_symbols in file_results for symbol in file_symbols]
         
-        # Log statistics
         stats = await self.symbol_parser.get_symbol_statistics(self.symbol_index)
         await self.logger.info(f"Fetched {stats['total_symbols']} total symbols from {stats['total_files']} files")
         await self.logger.info(f"Symbol type breakdown: {stats['symbol_type_breakdown']}")

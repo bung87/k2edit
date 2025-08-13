@@ -22,7 +22,10 @@ def event_loop():
 def temp_project_dir():
     """Create a temporary directory for test projects."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
+        temp_path = Path(temp_dir)
+        # Create a requirements.txt to make it a proper Python project
+        (temp_path / "requirements.txt").write_text("# Test requirements\n")
+        yield temp_path
 
 
 @pytest.fixture
@@ -95,6 +98,9 @@ def complex_project(temp_project_dir):
     (temp_project_dir / "src").mkdir()
     (temp_project_dir / "src" / "utils").mkdir()
     (temp_project_dir / "tests").mkdir()
+    
+    # Create requirements.txt to make it a proper Python project
+    (temp_project_dir / "requirements.txt").write_text("# Test requirements\n")
     
     # Create main.py
     (temp_project_dir / "main.py").write_text('''

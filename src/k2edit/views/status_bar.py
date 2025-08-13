@@ -252,7 +252,7 @@ class StatusBar(Widget):
 
     @work
     async def _update_available_branches(self) -> None:
-        """Update the list of available git branches."""
+        """Update the list of available git branches using async subprocess."""
         try:
             current_dir = Path.cwd()
             
@@ -262,24 +262,35 @@ class StatusBar(Widget):
                 self.available_branches = []
                 return
             
-            # Get all branches
-            result = subprocess.run(
-                ["git", "branch", "-a"],
-                capture_output=True,
-                text=True,
-                cwd=current_dir,
-                timeout=5
+            # Get all branches using async subprocess
+            process = await asyncio.create_subprocess_exec(
+                "git", "branch", "-a",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=current_dir
             )
             
-            if result.returncode == 0:
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+                result_stdout = stdout.decode('utf-8') if stdout else ''
+                returncode = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                self.available_branches = []
+                await self.logger.debug("Git branch command timed out")
+                return
+            
+            if returncode == 0:
                 branches = []
-                for line in result.stdout.strip().split('\n'):
+                for line in result_stdout.strip().split('\n'):
                     line = line.strip()
                     if line.startswith('* '):
                         line = line[2:]  # Remove the '* ' from current branch
                     if line.startswith('remotes/'):
                         continue  # Skip remote branches for now
-                    branches.append(line)
+                    if line:  # Only add non-empty lines
+                        branches.append(line)
                 
                 self.available_branches = branches
                 await self.logger.debug(f"Available branches: {branches}")
@@ -300,7 +311,7 @@ class StatusBar(Widget):
 
     @work
     async def _update_git_branch(self):
-        """Update git branch information."""
+        """Update git branch information using async subprocess."""
         try:
             # Get current directory
             current_dir = Path.cwd()
@@ -312,17 +323,28 @@ class StatusBar(Widget):
                 await self.logger.debug("Not in a git repository")
                 return
             
-            # Get current branch
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True,
-                text=True,
-                cwd=current_dir,
-                timeout=5
+            # Get current branch using async subprocess
+            process = await asyncio.create_subprocess_exec(
+                "git", "rev-parse", "--abbrev-ref", "HEAD",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=current_dir
             )
             
-            if result.returncode == 0:
-                branch = result.stdout.strip()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+                result_stdout = stdout.decode('utf-8') if stdout else ''
+                returncode = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                if self.git_branch != "":
+                    self.git_branch = ""
+                    await self.logger.debug("Git branch command timed out")
+                return
+            
+            if returncode == 0:
+                branch = result_stdout.strip()
                 # Only log if branch actually changed
                 if branch != self.git_branch:
                     await self.logger.debug(f"Git branch updated: {branch}")

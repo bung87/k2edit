@@ -28,10 +28,16 @@ class LSPConnection:
     last_activity: float
     pending_requests: Dict[int, asyncio.Future]
     message_id_counter: int = 0
+    failed_health_checks: int = 0
     
     def is_healthy(self) -> bool:
         """Check if connection is healthy"""
+        # A connection is healthy if:
+        # 1. Status is STARTING or RUNNING (not ERROR or STOPPED)
+        # 2. Process is still alive (returncode is None)
+        # 3. Process object exists
         return (self.status in [ServerStatus.STARTING, ServerStatus.RUNNING] and 
+                self.process is not None and
                 self.process.returncode is None)
     
     def get_next_message_id(self) -> int:
@@ -53,30 +59,54 @@ class LSPClient:
         self.message_readers: Dict[str, asyncio.Task] = {}
         
         # Configuration
-        self.request_timeout = 10.0
+        self.request_timeout = 15.0  # seconds - balanced timeout for large files
         self.health_check_interval = 30.0
         self.max_failed_health_checks = 3
         self.failed_health_checks: Dict[str, int] = {}
+        
+        # Server operation locks to prevent concurrent starts/restarts
+        self._server_locks: Dict[str, asyncio.Lock] = {}
         
 
         
     async def start_server(self, language: str, command: List[str], project_root: Path) -> bool:
         """Start a language server with improved error handling"""
+        # Get or create lock for this language
+        if language not in self._server_locks:
+            self._server_locks[language] = asyncio.Lock()
+        
+        async with self._server_locks[language]:
+            return await self._start_server_internal(language, command, project_root)
+    
+    async def _start_server_internal(self, language: str, command: List[str], project_root: Path) -> bool:
+        """Internal server start logic without locking"""
         try:
             await self.logger.info(f"Starting {language} language server: {' '.join(command)}")
+            
+            # Check if server is already running (another task might have started it)
+            if language in self.connections and self.connections[language].is_healthy():
+                await self.logger.info(f"{language} server is already running and healthy")
+                return True
             
             # Stop existing server if running
             if language in self.connections:
                 await self.stop_server(language)
             
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(project_root)
-            )
+            # Create subprocess with specific error handling
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(project_root)
+                )
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                error_type = type(e).__name__
+                await self.logger.error(f"{error_type} starting {language} server: {e}")
+                return False
             
+            # Create connection object
             connection = LSPConnection(
                 language=language,
                 process=process,
@@ -88,29 +118,33 @@ class LSPClient:
             self.connections[language] = connection
             
             # Start message reader
-            reader_task = asyncio.create_task(self._message_reader(language))
-            self.message_readers[language] = reader_task
+            try:
+                reader_task = asyncio.create_task(self._message_reader(language))
+                self.message_readers[language] = reader_task
+            except RuntimeError as e:
+                await self.logger.error(f"Failed to create message reader task for {language}: {e}")
+                await self.stop_server(language)
+                return False
             
             # Start stderr logger
-            asyncio.create_task(self._stderr_logger(language))
+            try:
+                asyncio.create_task(self._stderr_logger(language))
+            except RuntimeError as e:
+                await self.logger.warning(f"Failed to create stderr logger task for {language}: {e}")
+                # Don't fail the entire operation for this
             
             await self.logger.info(f"{language} server started with PID: {process.pid}")
             
             # Start health monitoring if not already running
             if self.health_monitor_task is None:
-                self.health_monitor_task = asyncio.create_task(self._health_monitor())
+                try:
+                    self.health_monitor_task = asyncio.create_task(self._health_monitor())
+                except RuntimeError as e:
+                    await self.logger.warning(f"Failed to create health monitor task: {e}")
+                    # Don't fail the entire operation for this
             
             return True
             
-        except FileNotFoundError as e:
-            await self.logger.error(f"Language server executable not found for {language}: {e}")
-            return False
-        except PermissionError as e:
-            await self.logger.error(f"Permission denied starting {language} server: {e}")
-            return False
-        except OSError as e:
-            await self.logger.error(f"OS error starting {language} server: {e}")
-            return False
         except Exception as e:
             await self.logger.error(f"Failed to start {language} server: {e}", exc_info=True)
             return False
@@ -123,20 +157,26 @@ class LSPClient:
         connection = self.connections[language]
         await self.logger.info(f"Stopping server for {language}. Process: {connection.process.pid if connection.process else 'N/A'}")
         
+        # Cancel pending requests
         try:
-            # Cancel pending requests
             await self.logger.info(f"Cancelling {len(connection.pending_requests)} pending requests for {language}")
             for future in connection.pending_requests.values():
                 if not future.done():
                     future.cancel()
-            
-            # Stop message reader
+        except Exception as e:
+            await self.logger.warning(f"Error cancelling pending requests for {language}: {e}")
+        
+        # Stop message reader
+        try:
             if language in self.message_readers:
                 await self.logger.info(f"Stopping message reader for {language}")
                 self.message_readers[language].cancel()
                 del self.message_readers[language]
-            
-            # Terminate process
+        except Exception as e:
+            await self.logger.warning(f"Error stopping message reader for {language}: {e}")
+        
+        # Terminate process
+        try:
             if connection.process and connection.process.returncode is None:
                 await self.logger.info(f"Terminating process for {language}")
                 connection.process.terminate()
@@ -148,13 +188,8 @@ class LSPClient:
                     connection.process.kill()
                     await connection.process.wait()
                     await self.logger.info(f"Process for {language} killed.")
-            
-            await self.logger.info(f"Stopped {language} language server")
-            
-        except ProcessLookupError as e:
-            await self.logger.warning(f"Process already terminated for {language} server: {e}")
-        except OSError as e:
-            await self.logger.error(f"OS error stopping {language} server: {e}")
+        except (ProcessLookupError, OSError) as e:
+            await self.logger.warning(f"Process error stopping {language} server: {e}")
         except Exception as e:
             await self.logger.error(f"Error stopping {language} server: {e}")
         finally:
@@ -198,33 +233,37 @@ class LSPClient:
             "params": init_params
         }
         
+        # Send initialization request
         try:
             response = await self.send_request(language, init_request)
-            if response and "result" in response:
-                # Mark connection as running
-                self.connections[language].status = ServerStatus.RUNNING
-                
-                # Send initialized notification
+        except (ConnectionError, json.JSONDecodeError) as e:
+            error_type = type(e).__name__
+            await self.logger.error(f"{error_type} initializing {language} server: {e}")
+            return False
+        except Exception as e:
+            await self.logger.error(f"Error initializing {language} server: {e}")
+            return False
+        
+        # Handle response
+        if response and "result" in response:
+            # Mark connection as running
+            self.connections[language].status = ServerStatus.RUNNING
+            
+            # Send initialized notification
+            try:
                 await self.send_notification(language, {
                     "jsonrpc": "2.0",
                     "method": "initialized",
                     "params": {}
                 })
-                
-                await self.logger.info(f"{language} server initialized successfully")
-                return True
-            else:
-                await self.logger.error(f"Failed to initialize {language} server")
-                return False
-                
-        except ConnectionError as e:
-            await self.logger.error(f"Connection error initializing {language} server: {e}")
-            return False
-        except json.JSONDecodeError as e:
-            await self.logger.error(f"JSON decode error initializing {language} server: {e}")
-            return False
-        except Exception as e:
-            await self.logger.error(f"Error initializing {language} server: {e}")
+            except Exception as e:
+                await self.logger.warning(f"Failed to send initialized notification for {language}: {e}")
+                # Don't fail initialization for this
+            
+            await self.logger.info(f"{language} server initialized successfully")
+            return True
+        else:
+            await self.logger.error(f"Failed to initialize {language} server")
             return False
     
     async def send_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -239,39 +278,53 @@ class LSPClient:
             await self.logger.warning(f"Connection unhealthy for {language}")
             return None
         
+        # Check if process is still alive before sending request
+        if connection.process.returncode is not None:
+            await self.logger.warning(f"LSP server process for {language} has died (exit code: {connection.process.returncode})")
+            connection.status = ServerStatus.ERROR
+            return None
+        
+        # Assign message ID
+        message_id = connection.get_next_message_id()
+        request["id"] = message_id
+        
+        # Create future for response
+        response_future = asyncio.Future()
+        connection.pending_requests[message_id] = response_future
+        
         try:
-            # Assign message ID
-            message_id = connection.get_next_message_id()
-            request["id"] = message_id
-            
-            # Create future for response
-            response_future = asyncio.Future()
-            connection.pending_requests[message_id] = response_future
-            
             # Send message
             await self._send_message(connection, request)
             connection.last_activity = time.time()
-            
-            # Wait for response with timeout
-            try:
-                response = await asyncio.wait_for(response_future, timeout=self.request_timeout)
-                return response
-            except asyncio.TimeoutError:
-                await self.logger.warning(f"Request {message_id} timed out for {language}")
-                return None
-            finally:
-                # Clean up pending request
-                connection.pending_requests.pop(message_id, None)
-                
         except ConnectionError as e:
             await self.logger.error(f"Connection error sending request to {language}: {e}")
+            connection.pending_requests.pop(message_id, None)
             return None
-        except json.JSONEncodeError as e:
+        except (TypeError, ValueError) as e:
             await self.logger.error(f"JSON encode error sending request to {language}: {e}")
+            connection.pending_requests.pop(message_id, None)
             return None
         except Exception as e:
             await self.logger.error(f"Error sending request to {language}: {e}")
+            connection.pending_requests.pop(message_id, None)
             return None
+        
+        # Wait for response with timeout
+        try:
+            response = await asyncio.wait_for(response_future, timeout=self.request_timeout)
+            return response
+        except asyncio.TimeoutError:
+            await self.logger.warning(f"Request {message_id} timed out for {language} after {self.request_timeout}s - server may be unresponsive")
+            # Mark server as potentially unhealthy after timeout
+            connection.failed_health_checks += 1
+            
+            # Mark connection as unhealthy after timeout
+            connection.status = ServerStatus.ERROR
+            await self.logger.info(f"Marking {language} server as unhealthy due to timeout")
+            return None
+        finally:
+            # Clean up pending request
+            connection.pending_requests.pop(message_id, None)
 
     async def get_definition(self, language: str, file_path: str, line: int, character: int) -> Optional[List[Dict[str, Any]]]:
         """Send textDocument/definition request to get definition locations"""
@@ -289,7 +342,7 @@ class LSPClient:
         try:
             file_path_obj = Path(file_path).resolve()
             file_uri = f"file://{file_path_obj}"
-        except Exception as e:
+        except (OSError, ValueError) as e:
             await self.logger.error(f"Error resolving file path '{file_path}': {e}")
             return None
         
@@ -307,27 +360,10 @@ class LSPClient:
             }
         }
         
+        # Send definition request
         try:
             await self.logger.debug(f"Sending definition request for {file_path} at line {line}, char {character}")
             response = await self.send_request(language, definition_request)
-            
-            if response and "result" in response:
-                result = response["result"]
-                if result is None:
-                    await self.logger.debug("No definitions found")
-                    return None
-                elif isinstance(result, list):
-                    await self.logger.debug(f"Found {len(result)} definitions")
-                    return result
-                elif isinstance(result, dict):
-                    await self.logger.debug("Found 1 definition")
-                    return [result]
-                else:
-                    await self.logger.warning(f"Unexpected result type: {type(result)}")
-                    return None
-            else:
-                await self.logger.warning(f"Invalid response format: {response}")
-                return None
         except ValueError as e:
             await self.logger.error(f"Invalid position for definition request: {e}")
             return None
@@ -336,6 +372,25 @@ class LSPClient:
             return None
         except Exception as e:
             await self.logger.error(f"Error getting definition for {file_path}: {e}")
+            return None
+        
+        # Handle response
+        if response and "result" in response:
+            result = response["result"]
+            if result is None:
+                await self.logger.debug("No definitions found")
+                return None
+            elif isinstance(result, list):
+                await self.logger.debug(f"Found {len(result)} definitions")
+                return result
+            elif isinstance(result, dict):
+                await self.logger.debug("Found 1 definition")
+                return [result]
+            else:
+                await self.logger.warning(f"Unexpected result type: {type(result)}")
+                return None
+        else:
+            await self.logger.warning(f"Invalid response format: {response}")
             return None
     
     async def send_notification(self, language: str, notification: Dict[str, Any]) -> None:
@@ -353,7 +408,7 @@ class LSPClient:
             connection.last_activity = time.time()
         except ConnectionError as e:
             await self.logger.error(f"Connection error sending notification to {language}: {e}")
-        except json.JSONEncodeError as e:
+        except (TypeError, ValueError) as e:
             await self.logger.error(f"JSON encode error sending notification to {language}: {e}")
         except Exception as e:
             await self.logger.error(f"Error sending notification to {language}: {e}")
@@ -375,39 +430,79 @@ class LSPClient:
             return
         
         connection = self.connections[language]
-        await self.logger.info(f"Started message reader for {language}")
+        await self.logger.debug(f"Started message reader for {language}")
+        consecutive_errors = 0
+        max_consecutive_errors = 5
         
         try:
             while connection.is_healthy():
-                message = await self._read_single_message(connection)
-                if message is None:
-                    break
-                
-                connection.last_activity = time.time()
-                
-                # Route message without blocking
-                if "method" in message:
-                    # Handle notification asynchronously
-                    asyncio.create_task(self._handle_notification(language, message))
-                elif "id" in message:
-                    # Resolve pending request
-                    message_id = message["id"]
-                    if message_id in connection.pending_requests:
-                        future = connection.pending_requests[message_id]
-                        if not future.done():
-                            future.set_result(message)
+                try:
+                    message = await self._read_single_message(connection)
+                    if message is None:
+                        consecutive_errors += 1
+                        if consecutive_errors <= 2:  # Only log first 2 attempts
+                            await self.logger.debug(f"No message read for {language} (attempt {consecutive_errors})")
+                        if consecutive_errors >= max_consecutive_errors:
+                            await self.logger.warning(f"Too many consecutive null reads for {language}, stopping message reader")
+                            break
+                        # Wait a bit before retrying
+                        await asyncio.sleep(0.1)
+                        continue
+                    
+                    # Reset error counter on successful message read
+                    consecutive_errors = 0
+                    connection.last_activity = time.time()
+                    
+                    # Route message without blocking
+                    if "method" in message:
+                        # Handle notification asynchronously
+                        asyncio.create_task(self._handle_notification(language, message))
+                    elif "id" in message:
+                        # Resolve pending request
+                        message_id = message["id"]
+                        if message_id in connection.pending_requests:
+                            future = connection.pending_requests[message_id]
+                            if not future.done():
+                                future.set_result(message)
+                        else:
+                            await self.logger.debug(f"Received response for unknown request ID {message_id} in {language}")
+                    else:
+                        await self.logger.warning(f"Received message without method or id in {language}: {message}")
+                                
+                except (ConnectionResetError, BrokenPipeError) as e:
+                    consecutive_errors += 1
+                    if consecutive_errors <= 2:  # Only log first 2 attempts
+                        await self.logger.warning(f"Connection error in message reader for {language} (attempt {consecutive_errors}): {e}")
+                    if consecutive_errors >= max_consecutive_errors:
+                        await self.logger.error(f"Too many consecutive connection errors for {language}, marking as unhealthy")
+                        connection.status = ServerStatus.ERROR
+                        break
+                    # Wait a bit before retrying
+                    await asyncio.sleep(0.1)
+                    
+                except json.JSONDecodeError as e:
+                    consecutive_errors += 1
+                    if consecutive_errors <= 2:  # Only log first 2 attempts
+                        await self.logger.warning(f"JSON decode error in message reader for {language} (attempt {consecutive_errors}): {e}")
+                    if consecutive_errors >= max_consecutive_errors:
+                        await self.logger.error(f"Too many consecutive JSON errors for {language}, marking as unhealthy")
+                        connection.status = ServerStatus.ERROR
+                        break
+                    # Wait a bit before retrying
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    consecutive_errors += 1
+                    await self.logger.warning(f"Unexpected error in message reader for {language} (attempt {consecutive_errors}): {e}")
+                    if consecutive_errors >= max_consecutive_errors:
+                        await self.logger.error(f"Too many consecutive errors for {language}, marking as unhealthy")
+                        connection.status = ServerStatus.ERROR
+                        break
+                    # Wait a bit before retrying
+                    await asyncio.sleep(0.1)
                 
         except asyncio.CancelledError:
             await self.logger.info(f"Message reader cancelled for {language}")
-        except ConnectionResetError as e:
-            await self.logger.warning(f"Connection reset in message reader for {language}: {e}")
-            connection.status = ServerStatus.ERROR
-        except json.JSONDecodeError as e:
-            await self.logger.error(f"JSON decode error in message reader for {language}: {e}")
-            connection.status = ServerStatus.ERROR
-        except Exception as e:
-            await self.logger.error(f"Error in message reader for {language}: {e}")
-            connection.status = ServerStatus.ERROR
         finally:
             await self.logger.info(f"Message reader stopped for {language}")
     
@@ -419,6 +514,7 @@ class LSPClient:
             while True:
                 line = await connection.process.stdout.readline()
                 if not line:
+                    await self.logger.debug(f"No more data available for {connection.language}")
                     return None
                 
                 line = line.decode('utf-8').strip()
@@ -431,13 +527,32 @@ class LSPClient:
             
             # Read content
             if 'Content-Length' not in headers:
+                await self.logger.warning(f"No Content-Length header found for {connection.language}: {headers}")
                 return None
             
             content_length = int(headers['Content-Length'])
-            content = await connection.process.stdout.read(content_length)
+            await self.logger.debug(f"Reading {content_length} bytes of content for {connection.language}")
+            
+            # Read content with retry logic for partial reads
+            content = b''
+            bytes_remaining = content_length
+            max_retries = 3
+            retry_count = 0
+            
+            while bytes_remaining > 0 and retry_count < max_retries:
+                chunk = await connection.process.stdout.read(bytes_remaining)
+                if not chunk:
+                    retry_count += 1
+                    await self.logger.debug(f"Partial read attempt {retry_count} for {connection.language}, {bytes_remaining} bytes remaining")
+                    await asyncio.sleep(0.1)  # Brief pause before retry
+                    continue
+                
+                content += chunk
+                bytes_remaining -= len(chunk)
+                retry_count = 0  # Reset retry count on successful read
             
             if len(content) != content_length:
-                await self.logger.warning(f"Incomplete message read for {connection.language}")
+                await self.logger.warning(f"Incomplete message read for {connection.language}: expected {content_length}, got {len(content)}")
                 return None
             
             return json.loads(content.decode('utf-8'))
@@ -511,7 +626,7 @@ class LSPClient:
                     break
                 
                 message = line.decode('utf-8').strip()
-                if message:
+                if message and not message.startswith('DEBUG'):
                     await self.logger.warning(f"[{language}-stderr] {message}")
                     
         except UnicodeDecodeError as e:
@@ -545,25 +660,62 @@ class LSPClient:
             return
         
         connection = self.connections[language]
+        max_failed_health_checks = 1  # Reduced to 1 for faster recovery
         
         # Check if process is still alive
-        if not connection.is_healthy():
-            await self.logger.warning(f"Server {language} is unhealthy, attempting restart")
-            await self._restart_server(language)
-            return
+        process_alive = connection.process and connection.process.returncode is None
         
-        # Check for activity timeout
+        if not connection.is_healthy() or not process_alive:
+            connection.failed_health_checks += 1
+            if connection.failed_health_checks <= 1:  # Only log first unhealthy state
+                await self.logger.warning(
+                    f"Server {language} is unhealthy (status: {connection.status}, "
+                    f"process alive: {process_alive}, "
+                    f"failed checks: {connection.failed_health_checks}/{max_failed_health_checks})"
+                )
+            
+            # Restart after fewer consecutive failures for faster recovery
+            if connection.failed_health_checks >= max_failed_health_checks:
+                await self.logger.error(f"Server {language} failed {max_failed_health_checks} consecutive health checks, marking for restart")
+                connection.status = ServerStatus.ERROR
+                # Don't restart here - let the indexer handle it
+            return
+        else:
+            # Reset failed health check counter on successful check
+            if connection.failed_health_checks > 0:
+                await self.logger.info(f"Server {language} health recovered after {connection.failed_health_checks} failed checks")
+                connection.failed_health_checks = 0
+        
+        # Check for activity timeout (reduced to 5 minutes for better responsiveness)
         time_since_activity = time.time() - connection.last_activity
         if time_since_activity > 300:  # 5 minutes
-            await self.logger.warning(f"Server {language} inactive for {time_since_activity:.1f}s")
+            await self.logger.debug(f"Server {language} inactive for {time_since_activity:.1f}s (this is normal for idle servers)")
+            # Don't restart immediately, just log the info
+            # The server might be idle but still healthy
     
-    async def _restart_server(self, language: str) -> None:
-        """Restart a language server"""
-        await self.logger.info(f"Restarting {language} server")
+    async def _restart_server(self, language: str, command: List[str], project_root: Path) -> bool:
+        """Restart a language server with given command and project root"""
+        # Get or create lock for this language
+        if language not in self._server_locks:
+            self._server_locks[language] = asyncio.Lock()
         
-        # This would need to be implemented with access to the original command and project_root
-        # For now, just stop the server - the application layer should handle restart
-        await self.stop_server(language)
+        async with self._server_locks[language]:
+            await self.logger.info(f"Restarting {language} server")
+            
+            try:
+                # Stop the existing server
+                await self.stop_server(language)
+                
+                # Wait a moment for cleanup
+                await asyncio.sleep(1.0)
+                
+                # Start the server again (this will use the same lock, but we're already holding it)
+                # So we need to call the internal start logic directly
+                return await self._start_server_internal(language, command, project_root)
+                
+            except Exception as e:
+                await self.logger.error(f"Failed to restart {language} server: {e}")
+                return False
     
     async def notify_file_opened(self, file_path: str, language: str = None) -> None:
         """Notify LSP server about opened file with async file reading"""
@@ -751,6 +903,121 @@ class LSPClient:
             await self.logger.error(f"Failed to get completions: {e}")
             return None
     
+    async def send_request_with_timeout(self, language: str, request: Dict[str, Any], timeout: float) -> Optional[Dict[str, Any]]:
+        """Send LSP request with custom timeout"""
+        if language not in self.connections:
+            await self.logger.warning(f"No connection for language: {language}")
+            return None
+        
+        connection = self.connections[language]
+        
+        if not connection.is_healthy():
+            await self.logger.warning(f"Connection unhealthy for {language}")
+            return None
+        
+        # Check if process is still alive before sending request
+        if connection.process.returncode is not None:
+            await self.logger.warning(f"LSP server process for {language} has died (exit code: {connection.process.returncode})")
+            connection.status = ServerStatus.ERROR
+            return None
+        
+        # Assign message ID
+        message_id = connection.get_next_message_id()
+        request["id"] = message_id
+        
+        # Create future for response
+        response_future = asyncio.Future()
+        connection.pending_requests[message_id] = response_future
+        
+        try:
+            # Send message
+            await self._send_message(connection, request)
+            connection.last_activity = time.time()
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error sending request to {language}: {e}")
+            connection.pending_requests.pop(message_id, None)
+            return None
+        except (TypeError, ValueError) as e:
+            await self.logger.error(f"JSON encode error sending request to {language}: {e}")
+            connection.pending_requests.pop(message_id, None)
+            return None
+        except Exception as e:
+            await self.logger.error(f"Error sending request to {language}: {e}")
+            connection.pending_requests.pop(message_id, None)
+            return None
+        
+        # Wait for response with custom timeout
+        try:
+            response = await asyncio.wait_for(response_future, timeout=timeout)
+            return response
+        except asyncio.TimeoutError:
+            await self.logger.warning(f"Request {message_id} timed out for {language} after {timeout}s - server may be unresponsive")
+            # Mark server as potentially unhealthy after timeout
+            connection.failed_health_checks += 1
+            
+            # Mark connection as unhealthy after timeout
+            connection.status = ServerStatus.ERROR
+            await self.logger.info(f"Marking {language} server as unhealthy due to timeout")
+            return None
+        finally:
+            # Clean up pending request
+            connection.pending_requests.pop(message_id, None)
+
+    async def get_document_symbols(self, file_path: str, language: str = None) -> Optional[List[Dict[str, Any]]]:
+        """Get document symbols for a file"""
+        try:
+            if language is None:
+                language = detect_language_by_extension(Path(file_path).suffix)
+            
+            if language == "unknown":
+                await self.logger.warning(f"Unknown language for file: {file_path}")
+                return None
+                
+            if not self.is_server_running(language):
+                await self.logger.warning(f"LSP server not running for language: {language}")
+                return None
+            
+            # Ensure file is opened first
+            await self.notify_file_opened(file_path, language)
+            
+            # Give the server a moment to process the file
+            await asyncio.sleep(0.5)
+            
+            uri = f"file://{Path(file_path).absolute()}"
+            
+            request = {
+                "jsonrpc": "2.0",
+                "method": "textDocument/documentSymbol",
+                "params": {
+                    "textDocument": {"uri": uri}
+                }
+            }
+            
+            await self.logger.debug(f"Requesting document symbols for {file_path} (language: {language})")
+            # Use increased timeout for large files
+            response = await self.send_request_with_timeout(language, request, timeout=20.0)
+            
+            if response and "result" in response:
+                result = response["result"]
+                if isinstance(result, list):
+                    await self.logger.debug(f"Found {len(result)} symbols for {file_path}")
+                    return result
+                else:
+                    await self.logger.warning(f"Unexpected result type: {type(result)} for {file_path}")
+            elif response and "error" in response:
+                await self.logger.error(f"LSP error getting symbols: {response['error']}")
+            else:
+                await self.logger.warning(f"No response or result for document symbols: {file_path}")
+                
+            return []
+            
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error getting document symbols: {e}")
+            return None
+        except Exception as e:
+            await self.logger.error(f"Failed to get document symbols: {e}")
+            return None
+    
     def is_server_running(self, language: str) -> bool:
         """Check if a language server is running"""
         return (language in self.connections and 
@@ -779,6 +1046,10 @@ class LSPClient:
             await self.logger.info(f"Server for {language} stopped")
         
         await self.logger.info("All LSP servers shut down")
+    
+    async def shutdown_all_servers(self) -> None:
+        """Alias for shutdown method for backward compatibility"""
+        await self.shutdown()
     
     def get_diagnostics(self, file_path: str = None) -> Dict[str, List[Dict[str, Any]]]:
         """Get diagnostics for a specific file or all files"""

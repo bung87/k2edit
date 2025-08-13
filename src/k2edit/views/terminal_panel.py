@@ -190,7 +190,10 @@ class TerminalPanel(Widget):
                     if data:
                         await self._process_output(data)
                     else:
-                        # No data, small delay to prevent busy waiting
+                        # No data available, wait a bit to avoid busy-waiting
+                        # Only break if process has actually terminated
+                        if self._process and self._process.poll() is not None:
+                            break
                         await asyncio.sleep(0.01)
                         
                 except (OSError, ValueError) as e:
@@ -206,7 +209,7 @@ class TerminalPanel(Widget):
             await self.logger.debug("Unix output reader finished")
     
     def _read_fd_blocking(self, fd: int) -> bytes:
-        """Blocking read from file descriptor."""
+        """Blocking read from file descriptor - runs in executor to avoid blocking main thread."""
         try:
             return os.read(fd, 1024)
         except (OSError, ValueError):
@@ -224,6 +227,10 @@ class TerminalPanel(Widget):
                     if data:
                         await self._process_output(data.encode('utf-8'))
                     else:
+                        # No data available, wait a bit to avoid busy-waiting
+                        # Only break if process has actually terminated
+                        if self._process and self._process.poll() is not None:
+                            break
                         await asyncio.sleep(0.01)
                         
                 except Exception as e:
@@ -236,7 +243,7 @@ class TerminalPanel(Widget):
             await self.logger.debug("Windows output reader finished")
     
     def _read_stdout_blocking(self) -> str:
-        """Blocking read from stdout."""
+        """Blocking read from stdout - runs in executor to avoid blocking main thread."""
         if self._process and self._process.stdout:
             try:
                 return self._process.stdout.read(1024)
@@ -285,9 +292,10 @@ class TerminalPanel(Widget):
                     self._process.stdin.write(text)
                     self._process.stdin.flush()
             else:
-                # Unix implementation
+                # Unix implementation - use executor to avoid blocking main thread
                 if self._master_fd:
-                    os.write(self._master_fd, text.encode('utf-8'))
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self._write_to_fd, self._master_fd, text.encode('utf-8'))
             
             # Echo input to output log
             if self._output_log:
@@ -412,19 +420,36 @@ class TerminalPanel(Widget):
                 pass
             self._slave_fd = None
     
+    def _write_to_fd(self, fd: int, data: bytes) -> None:
+        """Write data to file descriptor - runs in executor to avoid blocking main thread."""
+        try:
+            os.write(fd, data)
+        except (OSError, ValueError) as e:
+            # Log error but don't raise to avoid breaking the executor
+            pass
+    
     async def _wait_for_process_sync(self) -> None:
         """Wait for process to terminate synchronously."""
         if self._process:
             try:
                 loop = asyncio.get_running_loop()
                 if not loop.is_closed():
-                    await loop.run_in_executor(None, self._process.wait)
+                    await loop.run_in_executor(None, self._process_wait_blocking)
                 else:
                     # Fallback to synchronous wait if loop is closed
                     self._process.wait()
             except RuntimeError:
                 # Event loop is closed, use synchronous wait
                 self._process.wait()
+    
+    def _process_wait_blocking(self) -> None:
+        """Blocking process wait - runs in executor to avoid blocking main thread."""
+        if self._process:
+            try:
+                self._process.wait()
+            except (OSError, ProcessLookupError):
+                # Process might already be terminated
+                pass
     
     async def _wait_for_process(self) -> None:
         """Wait for process to terminate (legacy method)."""

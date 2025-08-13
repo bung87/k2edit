@@ -2,8 +2,10 @@
 
 import re
 import subprocess
+import asyncio
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+import aiofiles
 
 class ToolExecutor:
     """Executor for local tools that extend Kimi's capabilities."""
@@ -89,12 +91,9 @@ class ToolExecutor:
                 "total_directories": len(directories)
             }
         
-        except PermissionError as e:
-            error_msg = f"Permission denied accessing directory {directory}: {e}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except OSError as e:
-            error_msg = f"OS error listing files in {directory}: {e}"
+        except (PermissionError, OSError) as e:
+            error_type = type(e).__name__
+            error_msg = f"{error_type} accessing directory {directory}: {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
 
@@ -121,8 +120,10 @@ class ToolExecutor:
                     continue
                 
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
+                    import aiofiles
+                    async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                        content = await f.read()
+                        lines = content.splitlines()
                     
                     for line_num, line in enumerate(lines, 1):
                         if re.search(pattern, line, re.IGNORECASE):
@@ -167,22 +168,33 @@ class ToolExecutor:
             if not work_dir.exists():
                 return {"error": f"Working directory not found: {working_directory}"}
             
-            # Execute command with timeout
-            result = subprocess.run(
+            # Execute command with timeout using async subprocess
+            process = await asyncio.create_subprocess_shell(
                 command,
-                shell=True,
                 cwd=work_dir,
-                capture_output=True,
-                text=True,
-                timeout=30  # 30 second timeout
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=30.0
+                )
+                result_stdout = stdout.decode('utf-8') if stdout else ''
+                result_stderr = stderr.decode('utf-8') if stderr else ''
+                return_code = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                await self.logger.error("Command timed out after 30 seconds")
+                return {"error": "Command timed out after 30 seconds"}
             
             return {
                 "success": True,
                 "command": command,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+                "return_code": return_code,
+                "stdout": result_stdout,
+                "stderr": result_stderr,
                 "working_directory": str(work_dir)
             }
         
@@ -397,8 +409,8 @@ class ToolExecutor:
                 return {"error": f"File too large ({file_size} bytes). Maximum size is {max_size} bytes."}
             
             # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
             
             return {
                 "success": True,
@@ -408,16 +420,16 @@ class ToolExecutor:
                 "lines": len(content.splitlines())
             }
         
-        except UnicodeDecodeError:
-            return {"error": f"File is not a text file: {path}"}
-        except PermissionError:
-            return {"error": f"Permission denied reading file: {path}"}
-        except FileNotFoundError as e:
-            error_msg = f"File not found: {path}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except IsADirectoryError as e:
-            error_msg = f"Path is a directory, not a file: {path}"
+        except (UnicodeDecodeError, PermissionError, FileNotFoundError, IsADirectoryError) as e:
+            error_type = type(e).__name__
+            if isinstance(e, UnicodeDecodeError):
+                error_msg = f"File is not a text file: {path}"
+            elif isinstance(e, PermissionError):
+                error_msg = f"Permission denied reading file: {path}"
+            elif isinstance(e, FileNotFoundError):
+                error_msg = f"File not found: {path}"
+            else:  # IsADirectoryError
+                error_msg = f"Path is a directory, not a file: {path}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
 
@@ -431,8 +443,8 @@ class ToolExecutor:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Write content to file
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                await f.write(content)
             
             # Get file info after writing
             file_size = file_path.stat().st_size
@@ -446,14 +458,13 @@ class ToolExecutor:
                 "message": f"File written successfully: {path}"
             }
         
-        except PermissionError:
-            return {"error": f"Permission denied writing to file: {path}"}
-        except IsADirectoryError as e:
-            error_msg = f"Cannot write to directory: {path}"
-            await self.logger.error(error_msg)
-            return {"error": error_msg}
-        except OSError as e:
-            error_msg = f"OS error writing file {path}: {e}"
+        except (PermissionError, IsADirectoryError, OSError) as e:
+            if isinstance(e, PermissionError):
+                error_msg = f"Permission denied writing to file: {path}"
+            elif isinstance(e, IsADirectoryError):
+                error_msg = f"Cannot write to directory: {path}"
+            else:  # OSError
+                error_msg = f"OS error writing file {path}: {e}"
             await self.logger.error(error_msg)
             return {"error": error_msg}
 

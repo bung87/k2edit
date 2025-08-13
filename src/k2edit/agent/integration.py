@@ -5,6 +5,7 @@ This module provides simple integration hooks for the existing K2Edit applicatio
 to add agentic context, memory, and LSP indexing capabilities.
 """
 
+import asyncio
 from aiologger import Logger
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -36,6 +37,12 @@ class K2EditAgentIntegration:
         """Set the output panel reference."""
         self.output_panel = output_panel
     
+    async def _handle_error(self, log_message: str, panel_message: str = None) -> None:
+        """Helper method to handle errors consistently"""
+        await self.logger.error(log_message)
+        if self.output_panel and panel_message:
+            self.output_panel.add_error(panel_message)
+    
     async def set_current_model(self, model_id: str) -> None:
         """Set the current AI model for the agent system.
         
@@ -44,19 +51,15 @@ class K2EditAgentIntegration:
         """
         try:
             await self.logger.info(f"Setting agent model to: {model_id}")
-            # Store the current model for future use
             self.current_model = model_id
             
-            # If we have an initialized agent, update its model configuration
             from . import get_agent_context
             agent = await get_agent_context()
             if agent and hasattr(agent, 'set_model'):
                 await agent.set_model(model_id)
                 
         except Exception as e:
-            await self.logger.error(f"Failed to set agent model: {e}")
-            if self.output_panel:
-                self.output_panel.add_error(f"Failed to set AI model: {e}")
+            await self._handle_error(f"Failed to set agent model: {e}", "Failed to set AI model: {e}")
         
     async def initialize(self, progress_callback=None):
         """Initialize the agentic system with progress updates"""
@@ -78,7 +81,6 @@ class K2EditAgentIntegration:
     async def _initialize_lsp_client(self, progress_callback=None):
         """Initialize the LSP client for the project"""
         try:
-            # Detect project language
             file_filter = FileFilter(logger=self.logger)
             language = file_filter.detect_project_language(self.project_root)
             
@@ -89,7 +91,6 @@ class K2EditAgentIntegration:
                 if progress_callback:
                     await progress_callback(f"Starting {language} language server...")
                 
-                # Start the language server
                 success = await self.lsp_client.start_server(
                     language, 
                     config["command"], 
@@ -97,7 +98,6 @@ class K2EditAgentIntegration:
                 )
                 
                 if success:
-                    # Initialize the connection with settings
                     await self.lsp_client.initialize_connection(language, self.project_root, config.get("settings"))
                     await self.logger.info(f"LSP server for {language} started successfully")
                     if progress_callback:
@@ -127,9 +127,13 @@ class K2EditAgentIntegration:
         """Called when a file is opened in the editor"""
         if not self.agent_initialized:
             return
-            
+        
+        # Run the context update in a background task to avoid blocking the UI
+        asyncio.create_task(self._update_context_background(file_path))
+
+    async def _update_context_background(self, file_path: str):
+        """Update agent context in the background"""
         try:
-            # Update context with the opened file
             from . import get_agent_context
             agent = await get_agent_context()
             if agent is None:
@@ -172,13 +176,12 @@ class K2EditAgentIntegration:
             }
         
         try:
-            result = await process_agent_query(
+            return await process_agent_query(
                 query=query,
                 file_path=file_path,
                 selected_code=selected_text,
                 cursor_position=cursor_position
             )
-            return result
         except Exception as e:
             await self.logger.error(f"Failed to process AI query: {e}", exc_info=True)
             if self.output_panel:
@@ -224,10 +227,8 @@ class K2EditAgentIntegration:
     async def shutdown(self):
         """Shutdown the agentic system"""
         if self.agent_initialized:
-            # Shutdown LSP client
             if self.lsp_client:
                 try:
-                    # Stop all running language servers
                     for language in list(self.lsp_client.connections.keys()):
                         await self.lsp_client.stop_server(language)
                     await self.logger.info("LSP client shutdown")
@@ -261,4 +262,8 @@ async def setup_k2edit_agent(project_root: str = None) -> K2EditAgentIntegration
 async def get_k2edit_agent() -> Optional[K2EditAgentIntegration]:
     """Get the global agent integration instance"""
     return _agent_integration
+
+
+# Alias for backward compatibility
+AgenticIntegration = K2EditAgentIntegration
 

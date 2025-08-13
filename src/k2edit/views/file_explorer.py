@@ -5,14 +5,12 @@ This module provides a tree-style file explorer widget that allows users
 to browse and open files from the filesystem.
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 from textual.widgets import Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.message import Message
-from textual.containers import Horizontal
 from textual import events
 from ..logger import get_logger
 

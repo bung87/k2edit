@@ -109,8 +109,7 @@ class HoverWidget(Widget):
         
     async def hide_hover(self) -> None:
         """Hide the hover widget."""
-        await self.logger.debug("HoverWidget.hide_hover called")
-        
+
         self._visible = False
         self.remove_class("visible")
         self.add_class("hidden")

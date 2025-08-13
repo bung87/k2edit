@@ -43,18 +43,29 @@ class CustomSyntaxEditor(TextArea):
         self._selected_suggestion_index = 0
         self._autocomplete_enabled = True
         
-        # Register Nim language with Textual
-        self._register_nim_language()
+        # Register Nim language with Textual (deferred to avoid async in __init__)
+        self._nim_registration_pending = True
 
-    def _register_nim_language(self):
+    async def _register_nim_language(self):
         """Register Nim as a supported language in Textual."""
         if is_nim_available():
-            success = register_nim_language(self)
-            # Note: Logging removed to avoid async logger issues during __init__
-            # The registration will be logged later when the app is running
+            try:
+                success = await register_nim_language(self)
+                if success:
+                    await self.logger.info("Nim language registered successfully")
+                else:
+                    await self.logger.warning("Failed to register Nim language")
+            except Exception as e:
+                await self.logger.error(f"Error registering Nim language: {e}")
         else:
-            # Note: Logging removed to avoid async logger issues during __init__
-            pass
+            await self.logger.info("Nim language support not available (tree-sitter-nim not installed)")
+        
+        self._nim_registration_pending = False
+
+    async def _handle_deferred_registration(self):
+        """Handle deferred Nim language registration."""
+        if hasattr(self, '_nim_registration_pending') and self._nim_registration_pending:
+            await self._register_nim_language()
 
     def _show_welcome_screen(self):
         """Display a welcome screen when no file is loaded."""
@@ -91,8 +102,9 @@ class CustomSyntaxEditor(TextArea):
 
     async def _load_existing_file(self, path: Path) -> bool:
         """Load content from an existing file."""
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        import aiofiles
+        async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+            content = await f.read()
         
         # Set language based on file extension
         extension = path.suffix.lower()
@@ -114,6 +126,9 @@ class CustomSyntaxEditor(TextArea):
     async def load_file(self, file_path: Union[str, Path]) -> bool:
         """Load a file into the editor."""
         try:
+            # Handle deferred Nim registration if needed
+            await self._handle_deferred_registration()
+            
             path = Path(file_path)
             
             if not path.exists():
@@ -228,9 +243,10 @@ class CustomSyntaxEditor(TextArea):
             # Ensure parent directory exists
             path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write content to file
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(self.text)
+            # Write content to file asynchronously
+            import aiofiles
+            async with aiofiles.open(path, 'w', encoding='utf-8') as f:
+                await f.write(self.text)
 
             self.current_file = path
             self.is_modified = False
@@ -587,8 +603,7 @@ class CustomSyntaxEditor(TextArea):
             insert_text = suggestion.get("insertText", "")
             if not insert_text:
                 insert_text = suggestion.get("label", "")
-            
-            # Handle textEdit if provided
+
             text_edit = suggestion.get("textEdit")
             if text_edit:
                 new_text = text_edit.get("newText", "")
@@ -596,37 +611,24 @@ class CustomSyntaxEditor(TextArea):
                 start = range_info.get("start", {})
                 end = range_info.get("end", {})
                 
-                # For simplicity, just use newText
-                insert_text = new_text
-            
-            if insert_text:
-                self.insert_completion(insert_text)
-                
+                start_loc = (start.get("line", 0), start.get("character", 0))
+                end_loc = (end.get("line", 0), end.get("character", 0))
+
+                self.replace(new_text, start=start_loc, end=end_loc)
+            elif insert_text:
+                self.insert_text(insert_text)
+
         except Exception as e:
             await self.logger.error(f"Error inserting completion: {e}")
+
+    def insert_text(self, text: str):
+        """Insert text at the current cursor position."""
+        self.replace(text, start=self.cursor_location, end=self.cursor_location)
 
     def insert_completion(self, text: str):
         """Insert completion text at cursor position."""
         try:
-            # Get current cursor position
-            line, column = self.cursor_location
-            
-            # Get current text lines
-            lines = self.text.splitlines(True)
-            if line >= len(lines):
-                lines.append(text)
-            else:
-                current_line = lines[line]
-                new_line = current_line[:column] + text + current_line[column:]
-                lines[line] = new_line
-            
-            # Update text
-            self.text = "".join(lines)
-            
-            # Move cursor to end of inserted text
-            new_column = column + len(text)
-            self.cursor_location = (line, new_column)
-            
+            self.replace(text, start=self.cursor_location, end=self.cursor_location)
         except Exception as e:
             self.logger.error(f"Error inserting completion: {e}")
 

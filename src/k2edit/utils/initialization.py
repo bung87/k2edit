@@ -1,12 +1,9 @@
 """Shared initialization utilities for K2Edit."""
 
-import asyncio
 from pathlib import Path
 from typing import Optional, Callable, Any
 from aiologger import Logger
-
 from ..agent.integration import K2EditAgentIntegration
-# Removed error_handler import - using basic exception handling
 from .config import get_config
 
 
@@ -109,7 +106,7 @@ class AgentInitializer:
                 not agent_integration.lsp_client.is_server_running(language)):
                 
                 await self.logger.info(
-                    f"Starting {language} language server for opened file: {file_path}"
+                    f"Starting {language} language server for file: {file_path}"
                 )
                 
                 config = LanguageConfigs.get_config(language)

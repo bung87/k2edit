@@ -1,13 +1,13 @@
-"""Command bar widget for handling user commands and AI interactions."""
+"""Command bar for AI interactions in K2Edit"""
 
-import asyncio
-import json
+
+import uuid
+import aiofiles
 from typing import Optional
-from aiologger import Logger
 
-from textual import events
+from textual.widgets import Input, Button
+
 from textual.message import Message
-from textual.widgets import Input
 
 from ..agent.tools import ToolExecutor
 from ..logger import get_logger
@@ -84,7 +84,6 @@ class CommandBar(Input):
     
     async def _process_command(self, command: str) -> None:
         """Process and execute AI command based on current mode."""
-        import uuid
         request_id = str(uuid.uuid4())[:8]
         await self.logger.info(f"Processing AI command [{request_id}]: {command}")
         
@@ -104,53 +103,50 @@ class CommandBar(Input):
 
     
     async def _handle_kimi_query(self, query: str) -> None:
-        """Handle general Kimi query."""
+        """Handle Kimi API query execution."""
         if not query:
-            await self.logger.warning("Kimi query issued without query text")
-            self.app.notify("Kimi query requires query text", severity="warning")
+            await self.logger.warning("Kimi query issued without content")
+            self.app.notify("Kimi query requires content", severity="warning")
             return
 
         if not self.kimi_api:
             await self.logger.error("Kimi API not available")
             return
 
-        # Display user query in output panel
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_ai_response(query, "", streaming=True)
-            # Ensure output panel is visible and focused
-            self.app.query_one("#output-panel").scroll_visible()
-
-        # Get current context
+        # Get current editor context
         context = self._get_editor_context()
-
-        # Show loading message in output panel instead of notification
-        if hasattr(self, 'output_panel') and self.output_panel:
-            self.output_panel.add_info("Asking Kimi...")
-
+        
+        # Make API call
         try:
-            response = await self.kimi_api.chat(
-                query,
-                context=context,
-                use_tools=True
-            )
-
-            # Handle tool calls if present
-            if response.get('tool_calls'):
-                await self._handle_tool_calls(response['tool_calls'])
-
-            # Post the response
-            self.post_message(self.CommandExecuted(f"/kimi {query}", response.get('content', '')))
-
+            response = await self.kimi_api.chat(query, context=context)
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error in Kimi API request: {e}")
+            if self.output_panel:
+                self.output_panel.add_error("Connection error - please check your internet connection")
+            return
+        except TimeoutError as e:
+            await self.logger.error(f"Timeout error in Kimi API request: {e}")
+            if self.output_panel:
+                self.output_panel.add_error("Request timed out - please try again")
+            return
+        except ValueError as e:
+            await self.logger.error(f"Invalid request parameters: {e}")
+            if self.output_panel:
+                self.output_panel.add_error("Invalid request - please check your input")
+            return
         except Exception as e:
             await self.logger.error(f"Kimi API request failed: {e}", exc_info=True)
             if self.output_panel:
                 self.output_panel.add_error("Kimi API request failed - please wait and try again")
+            return
+
+        # Post the response
+        self.post_message(self.CommandExecuted(f"/kimi {query}", response.get('content', '')))
     
 
     
     async def _handle_run_agent(self, goal: str) -> None:
         """Handle agent mode execution using the integrated agentic system."""
-        import uuid
         
         if not goal:
             await self.logger.warning("Run agent command issued without goal")
@@ -173,52 +169,78 @@ class CommandBar(Input):
             self.app.query_one("#output-panel").scroll_visible()
             self.output_panel.add_agent_progress(request_id, 0, 10, "started")
 
+        # Get current editor state
         try:
-            # Get current editor state
             current_file = str(self.editor.current_file) if self.editor.current_file else None
             selected_text = self.editor.get_selected_text()
             cursor_pos = {"line": self.editor.cursor_line, "column": self.editor.cursor_column}
+        except Exception as e:
+            await self.logger.warning(f"Failed to get editor state: {e}")
+            current_file = None
+            selected_text = ""
+            cursor_pos = {"line": 0, "column": 0}
 
-            # Get enhanced context from agentic system
+        # Get enhanced context from agentic system
+        try:
             agent_result = await self.agent_integration.on_ai_query(
                 query=goal,
                 file_path=current_file,
                 selected_text=selected_text,
                 cursor_position=cursor_pos
             )
-
-            # Extract the actual context data from agent result
             context = agent_result.get("context", {})
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error getting agent context: {e}")
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_error("Failed to get context from agentic system")
+                self.output_panel.add_agent_progress(request_id, 0, 10, "error")
+            return
+        except Exception as e:
+            await self.logger.warning(f"Failed to get agent context, using basic context: {e}")
+            context = {}
 
-            # Use Kimi API's agent mode with enhanced context
-            def progress_callback(req_id, current, max_iter, status):
-                if hasattr(self, 'output_panel') and self.output_panel:
-                    self.output_panel.add_agent_progress(req_id, current, max_iter, status)
-            
+        # Use Kimi API's agent mode with enhanced context
+        def progress_callback(req_id, current, max_iter, status):
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_agent_progress(req_id, current, max_iter, status)
+        
+        try:
             response = await self.kimi_api.run_agent(
                 goal=goal,
                 context=context,
                 progress_callback=progress_callback
             )
-
-            # Format and display response
-            content = response.get('content', str(response))
-            final_iterations = response.get('iterations', 10)
-            if response.get('error'):
-                content = f"Error: {response['error']}"
-                if hasattr(self, 'output_panel') and self.output_panel:
-                    self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "error")
-            else:
-                if hasattr(self, 'output_panel') and self.output_panel:
-                    self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "completed")
-
-            self.post_message(self.CommandExecuted(f"/run_agent {goal}", content))
-
+        except ConnectionError as e:
+            await self.logger.error(f"Connection error in agent execution: {e}")
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_error("Connection error during agent execution")
+                self.output_panel.add_agent_progress(request_id, 0, 10, "error")
+            return
+        except TimeoutError as e:
+            await self.logger.error(f"Timeout error in agent execution: {e}")
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_error("Agent execution timed out")
+                self.output_panel.add_agent_progress(request_id, 0, 10, "error")
+            return
         except Exception as e:
             await self.logger.error(f"Agentic system request failed for goal '{goal}': {e}", exc_info=True)
             if hasattr(self, 'output_panel') and self.output_panel:
                 self.output_panel.add_error("Agentic system request failed")
                 self.output_panel.add_agent_progress(request_id, 0, 10, "error")
+            return
+
+        # Format and display response
+        content = response.get('content', str(response))
+        final_iterations = response.get('iterations', 10)
+        if response.get('error'):
+            content = f"Error: {response['error']}"
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "error")
+        else:
+            if hasattr(self, 'output_panel') and self.output_panel:
+                self.output_panel.add_agent_progress(request_id, final_iterations, final_iterations, "completed")
+
+        self.post_message(self.CommandExecuted(f"/run_agent {goal}", content))
     
 
     
@@ -293,8 +315,8 @@ class CommandBar(Input):
     async def _tool_write_file(self, path: str, content: str) -> None:
         """Tool: Write content to a file."""
         try:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            async with aiofiles.open(path, 'w', encoding='utf-8') as f:
+                await f.write(content)
             await self.logger.info(f"Written to {path}")
         except Exception as e:
             await self.logger.error(f"Failed to write {path}: {e}")
@@ -302,10 +324,29 @@ class CommandBar(Input):
     async def _tool_read_file(self, path: str) -> str:
         """Tool: Read content from a file."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+                content = await f.read()
             await self.logger.info(f"Read from {path}")
             return content
         except Exception as e:
             await self.logger.error(f"Failed to read {path}: {e}")
             return ""
+
+    async def _handle_save_file(self, path: str, content: str) -> bool:
+        """Save content to file."""
+        try:
+            async with aiofiles.open(path, 'w', encoding='utf-8') as f:
+                await f.write(content)
+            return True
+        except Exception as e:
+            await self.logger.error(f"Failed to save file {path}: {e}")
+            return False
+    
+    async def _handle_read_file(self, path: str) -> Optional[str]:
+        """Read content from file."""
+        try:
+            async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+                return await f.read()
+        except Exception as e:
+            await self.logger.error(f"Failed to read file {path}: {e}")
+            return None

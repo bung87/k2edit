@@ -1,16 +1,15 @@
-"""Kimi API integration with support for chat, agent mode, and tool calling."""
+"""Kimi API integration for K2Edit"""
 
-import asyncio
 import os
 import time
-from typing import Dict, List, Optional, Any
+import uuid
+import asyncio
+import aiofiles
+import json
+from typing import Dict, List, Optional, Any, Callable
 from aiologger import Logger
-
-try:
-    from openai import AsyncOpenAI
-    from openai import OpenAIError, RateLimitError, AuthenticationError, BadRequestError, APIConnectionError
-except ImportError:
-    raise ImportError("OpenAI library not found. Please install with: pip install openai")
+from openai import AsyncOpenAI
+from openai import RateLimitError, AuthenticationError, BadRequestError, APIConnectionError, OpenAIError
 from dotenv import load_dotenv
 
 from .schema import TOOL_SCHEMAS
@@ -40,42 +39,36 @@ class KimiAPI:
         self.last_request_time = 0
         self.min_request_interval = float(os.getenv("KIMI_REQUEST_INTERVAL", "1.0"))  # Minimum interval between requests in seconds
     
-    async def update_config(self, api_address: str, api_key: str, model_id: str) -> None:
-        """Update API configuration with new settings.
-        
-        Args:
-            api_address: The new API endpoint URL
-            api_key: The new API key
-            model_id: The model identifier
-        """
+    async def update_config(self, api_address: str, model: str) -> None:
+        """Update API configuration."""
         try:
-            self.api_key = api_key
+            # Validate parameters
+            if not api_address or not model:
+                raise ValueError("API address and model must be provided")
+            
+            # Update configuration
             self.base_url = api_address
-            
-            # Map model_id to actual model names
-            model_mapping = {
-                "openai": "gpt-4",
-                "claude": "claude-3-sonnet-20240229",
-                "gemini": "gemini-pro",
-                "mistral": "mistral-large-latest",
-                "openrouter": "openai/gpt-4",
-                "moonshot_china": "moonshot-v1-8k",
-                "moonshot_international": "moonshot-v1-8k",
-                "local": "llama2",  # Default local model
-                "kimi": "kimi-k2-0711-preview"  # Keep original kimi model
-            }
-            
-            self.model = model_mapping.get(model_id, "gpt-4")
+            self.model = model
             
             # Recreate the client with new configuration
-            self.client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                timeout=60.0
-            )
+            try:
+                self.client = AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    timeout=60.0
+                )
+            except (ValueError, TypeError) as e:
+                await self.logger.error(f"Invalid configuration for KimiAPI client: {e}")
+                raise
+            except Exception as e:
+                await self.logger.error(f"Failed to create KimiAPI client: {e}")
+                raise
             
             await self.logger.info(f"Updated KimiAPI config - URL: {api_address}, Model: {self.model}")
             
+        except ValueError as e:
+            await self.logger.error(f"Invalid configuration parameters: {e}")
+            raise
         except Exception as e:
             await self.logger.error(f"Failed to update KimiAPI config: {e}")
             raise
@@ -90,7 +83,6 @@ class KimiAPI:
     ) -> Dict[str, Any]:
         """Send a chat message to Kimi API."""
         
-        import uuid
         request_id = str(uuid.uuid4())[:8]
         await self.logger.info(f"Kimi API chat request [{request_id}]: {message[:50]}...")
         
@@ -119,31 +111,31 @@ class KimiAPI:
             payload["tools"] = TOOL_SCHEMAS
             payload["tool_choice"] = "auto"
         
+        # Make API call
         try:
             if stream:
                 result = await self._stream_chat(payload)
-                await self.logger.info(f"Kimi API chat completed [{request_id}]")
-                return result
             else:
                 result = await self._single_chat(payload)
-                await self.logger.info(f"Kimi API chat completed [{request_id}]")
-                return result
         except RateLimitError as e:
             await self.logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
             raise Exception("Rate limit exceeded. Please wait a moment and try again.")
-        except RateLimitError as e:
-            await self.logger.error(f"Kimi API rate limit hit [{request_id}]: {str(e)}")
-            raise Exception("Rate limit exceeded. Please wait a moment and try again.")
+        except AuthenticationError as e:
+            await self.logger.error(f"Kimi API authentication failed [{request_id}]: {str(e)}")
+            raise Exception("Authentication failed. Please check your API key.")
+        except (BadRequestError, APIConnectionError) as e:
+            error_type = "bad request" if isinstance(e, BadRequestError) else "connection error"
+            await self.logger.error(f"Kimi API {error_type} [{request_id}]: {str(e)}")
+            raise Exception(f"{'Invalid request' if isinstance(e, BadRequestError) else 'Connection error'}: {str(e)}")
         except OpenAIError as e:
-            # Handle other OpenAI errors
-            error_msg = str(e)
-            await self.logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            raise Exception(f"API request failed: {error_msg}")
+            await self.logger.error(f"Kimi API error [{request_id}]: {str(e)}")
+            raise Exception(f"API request failed: {str(e)}")
         except Exception as e:
-            # Handle unexpected errors
-            error_msg = str(e)
-            await self.logger.error(f"Kimi API chat failed [{request_id}]: {error_msg}")
-            raise Exception(f"API error: {error_msg}")
+            await self.logger.error(f"Kimi API unexpected error [{request_id}]: {str(e)}")
+            raise Exception(f"API error: {str(e)}")
+        
+        await self.logger.info(f"Kimi API chat completed [{request_id}]")
+        return result
     
     async def run_agent(
         self,
@@ -164,7 +156,6 @@ class KimiAPI:
         Returns:
             Dict containing the final response and metadata
         """
-        import uuid
         request_id = str(uuid.uuid4())[:8]
         
         # Use configurable max_iterations, default to 10
@@ -677,7 +668,8 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             if isinstance(arguments, str):
                 try:
                     arguments = json.loads(arguments)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    await self.logger.error(f"Invalid JSON in tool arguments: {str(e)}")
                     results.append({"error": "Invalid arguments format"})
                     continue
             
@@ -695,8 +687,15 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 
                 results.append(result)
             
+            except TypeError as e:
+                await self.logger.error(f"Type error in tool {function_name}: {str(e)}")
+                results.append({"error": f"Invalid arguments for {function_name}: {str(e)}"})
+            except KeyError as e:
+                await self.logger.error(f"Missing required argument in tool {function_name}: {str(e)}")
+                results.append({"error": f"Missing required argument: {str(e)}"})
             except Exception as e:
-                results.append({"error": str(e)})
+                await self.logger.error(f"Unexpected error in tool {function_name}: {str(e)}")
+                results.append({"error": f"Tool execution failed: {str(e)}"})
         
         return results
     
@@ -707,8 +706,8 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             if not file_path.exists():
                 return {"error": f"File not found: {path}"}
             
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
             
             return {
                 "success": True,
@@ -716,9 +715,18 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 "path": str(file_path)
             }
         
-        except Exception as e:
-            await self.logger.error(f"Failed to read file: {str(e)}")
-            return {"error": f"Failed to read file: {str(e)}"}
+        except UnicodeDecodeError as e:
+            await self.logger.error(f"Unicode decode error reading file {path}: {str(e)}")
+            return {"error": f"File encoding error: unable to decode file {path}"}
+        except PermissionError as e:
+            await self.logger.error(f"Permission denied reading file {path}: {str(e)}")
+            return {"error": f"Permission denied: unable to read file {path}"}
+        except FileNotFoundError as e:
+            await self.logger.error(f"File not found during read {path}: {str(e)}")
+            return {"error": f"File not found: {path}"}
+        except OSError as e:
+            await self.logger.error(f"OS error reading file {path}: {str(e)}")
+            return {"error": f"System error reading file: {str(e)}"}
     
     async def _tool_write_file(self, path: str, content: str) -> Dict:
         """Tool implementation: Write file."""
@@ -726,8 +734,8 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             file_path = Path(path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                await f.write(content)
             
             return {
                 "success": True,
@@ -735,9 +743,15 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 "path": str(file_path)
             }
         
-        except Exception as e:
-            await self.logger.error(f"Failed to write file: {str(e)}")
-            return {"error": f"Failed to write file: {str(e)}"}
+        except UnicodeEncodeError as e:
+            await self.logger.error(f"Unicode encode error writing file {path}: {str(e)}")
+            return {"error": f"File encoding error: unable to encode content for {path}"}
+        except PermissionError as e:
+            await self.logger.error(f"Permission denied writing file {path}: {str(e)}")
+            return {"error": f"Permission denied: unable to write file {path}"}
+        except OSError as e:
+            await self.logger.error(f"OS error writing file {path}: {str(e)}")
+            return {"error": f"System error writing file: {str(e)}"}
     
     async def _tool_replace_code(self, start_line: int, end_line: int, new_code: str) -> Dict:
         """Tool implementation: Replace code (this would be handled by the editor)."""
@@ -767,8 +781,8 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
             for file_path in files:
                 if file_path.is_file():
                     try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
+                        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                            content = await f.read()
                         
                         # Search for pattern
                         lines = content.split('\n')
@@ -787,8 +801,12 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                                 "matches": matches
                             })
                     
-                    except Exception as e:
-                        # Skip files that can't be read
+                    except (UnicodeDecodeError, PermissionError, FileNotFoundError):
+                        # Skip files that can't be read due to encoding or permission issues
+                        continue
+                    except OSError as e:
+                        # Log other OS errors but continue
+                        await self.logger.warning(f"OS error reading file {file_path}: {str(e)}")
                         continue
             
             return {
@@ -799,9 +817,12 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
                 "total_matches": sum(len(result["matches"]) for result in search_results)
             }
         
-        except Exception as e:
-            await self.logger.error(f"Failed to search code: {str(e)}")
-            return {"error": f"Failed to search code: {str(e)}"}
+        except re.error as e:
+            await self.logger.error(f"Invalid regex pattern '{pattern}': {str(e)}")
+            return {"error": f"Invalid search pattern: {str(e)}"}
+        except OSError as e:
+            await self.logger.error(f"OS error accessing directory {directory}: {str(e)}")
+            return {"error": f"Directory access error: {str(e)}"}
     
     async def close(self):
         """Close the OpenAI client."""

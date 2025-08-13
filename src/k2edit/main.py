@@ -12,6 +12,15 @@ from dotenv import load_dotenv
 import asyncio
 from typing import Dict, Any
 
+# Performance optimization: Use uvloop for better async performance on Unix systems
+try:
+    import uvloop
+    if sys.platform != "win32":
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+except ImportError:
+    # uvloop not available, continue with default event loop
+    pass
+
 from aiologger import Logger
 
 from textual.app import App, ComposeResult
@@ -46,6 +55,11 @@ from .utils import (
 from .utils.initialization import (
     create_agent_initializer,
     AgentInitializer,
+)
+from .utils.async_performance_utils import (
+    get_performance_monitor,
+    get_task_queue,
+    OptimizedThreadPoolExecutor
 )
 
 
@@ -180,6 +194,13 @@ class K2EditApp(App):
         # Initialize utility classes
         self.agent_initializer = create_agent_initializer(self.logger)
         
+        # Performance monitoring and async utilities
+        self.performance_monitor = get_performance_monitor(self.logger)
+        self.thread_pool = OptimizedThreadPoolExecutor()
+        
+        # Initialize task queue for async operations
+        self._task_queue = None
+        
         # Hover state
         self._last_cursor_position = (1, 1)  # (line, column)
         self._hover_timer = None
@@ -192,12 +213,15 @@ class K2EditApp(App):
         """Called when the app is mounted."""
         await self.logger.info("K2Edit app mounted")
         
+        # Initialize task queue
+        self._task_queue = await get_task_queue()
+        
         # Set up project root for file path display
         self.project_root = str(Path.cwd())
         self.file_path_display.set_project_root(self.project_root)
         
-        # Initialize agentic system in background after a short delay
-        self.set_timer(self.config.ui.agent_init_delay_s, lambda: asyncio.create_task(self._initialize_agent_system()))
+        # Initialize agentic system in background using task queue
+        await self._task_queue.submit_task(self._initialize_agent_system, priority=1)
         
         # Connect command bar to other components
         self.command_bar.editor = self.editor
@@ -209,8 +233,10 @@ class K2EditApp(App):
         # Listen for file selection messages from file explorer
         self.file_explorer.watch_file_selected = self.on_file_explorer_file_selected
         
-        # Watch for cursor movement
-        self.editor.cursor_position_changed = lambda line, column: asyncio.create_task(self._on_cursor_position_changed(line, column))
+        # Watch for cursor movement using task queue
+        self.editor.cursor_position_changed = lambda line, column: asyncio.create_task(
+            self._task_queue.submit_task(self._on_cursor_position_changed, line, column, priority=3)
+        ) if self._task_queue else None
 
         # Load initial file if provided, otherwise start with an empty editor
         if self.initial_file:
@@ -223,7 +249,10 @@ class K2EditApp(App):
         await self.logger.info("K2EditApp mounted successfully")
     
     async def _initialize_agent_system(self):
-        """Initialize the agentic system using the standardized initializer."""
+        """Initialize the agentic system using the standardized initializer with performance monitoring."""
+        # Start performance monitoring
+        self.performance_monitor.start_timer("agent_initialization")
+        
         # Define progress callback to update output panel
         async def progress_callback(message):
             self.output_panel.add_info(message)
@@ -231,15 +260,20 @@ class K2EditApp(App):
         # Get current file if available
         current_file = str(self.editor.current_file) if self.editor.current_file else None
         
-        # Initialize agent system
-        self.agent_integration = await self.agent_initializer.initialize_agent_system(
-            project_root=str(Path.cwd()),
-            diagnostics_callback=self._on_diagnostics_received,
-            progress_callback=progress_callback,
-            command_bar=self.command_bar,
-            output_panel=self.output_panel,
-            current_file=current_file
-        )
+        try:
+            # Initialize agent system with performance monitoring
+            self.agent_integration = await self.agent_initializer.initialize_agent_system(
+                project_root=str(Path.cwd()),
+                diagnostics_callback=self._on_diagnostics_received,
+                progress_callback=progress_callback,
+                command_bar=self.command_bar,
+                output_panel=self.output_panel,
+                current_file=current_file
+            )
+        finally:
+            # Log initialization time
+            init_time = self.performance_monitor.end_timer("agent_initialization")
+            await self.logger.info(f"Agent system initialization completed in {init_time:.2f}s")
         
         # Set output panel for agent integration error handling
         if self.agent_integration:
@@ -268,17 +302,30 @@ class K2EditApp(App):
         Returns:
             bool: True if path was successfully opened, False otherwise
         """
+        # Validate path format first
         try:
             from .utils.path_validation import validate_file_path, validate_directory_path
-            
-            # Check if path exists first
+        except ImportError as e:
+            error_msg = f"Failed to import path validation utilities: {e}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        
+        # Check if path exists and determine type
+        try:
             path = Path(file_path)
             if not path.exists():
                 # For non-existent paths, try file validation with allow_create
-                is_valid, error_msg = validate_file_path(file_path, allow_create=True)
-                if not is_valid:
-                    self.output_panel.add_error(error_msg)
+                try:
+                    is_valid, error_msg = validate_file_path(file_path, allow_create=True)
+                    if not is_valid:
+                        self.output_panel.add_error(error_msg)
+                        await self.logger.error(error_msg)
+                        return False
+                except (ValueError, TypeError) as e:
+                    error_msg = f"Invalid file path format: {file_path}"
                     await self.logger.error(error_msg)
+                    self.output_panel.add_error(error_msg)
                     return False
                 return await self._open_file_internal(file_path)
             
@@ -287,10 +334,16 @@ class K2EditApp(App):
                 return await self.open_directory(file_path)
             
             # Handle file case - validate as file
-            is_valid, error_msg = validate_file_path(file_path, allow_create=True)
-            if not is_valid:
-                self.output_panel.add_error(error_msg)
+            try:
+                is_valid, error_msg = validate_file_path(file_path, allow_create=True)
+                if not is_valid:
+                    self.output_panel.add_error(error_msg)
+                    await self.logger.error(error_msg)
+                    return False
+            except (ValueError, TypeError) as e:
+                error_msg = f"Invalid file path format: {file_path}"
                 await self.logger.error(error_msg)
+                self.output_panel.add_error(error_msg)
                 return False
                 
             return await self._open_file_internal(file_path)
@@ -325,17 +378,30 @@ class K2EditApp(App):
         Returns:
             bool: True if directory was successfully set as root, False otherwise
         """
+        # Import validation utilities
         try:
             from .utils.path_validation import validate_directory_path
-            
-            # Validate directory path
+        except ImportError as e:
+            error_msg = f"Failed to import path validation utilities: {e}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        
+        # Validate directory path
+        try:
             is_valid, error_msg = validate_directory_path(directory_path)
             if not is_valid:
                 self.output_panel.add_error(error_msg)
                 await self.logger.error(error_msg)
                 return False
-            
-            # Set as file explorer root
+        except (ValueError, TypeError) as e:
+            error_msg = f"Invalid directory path format: {directory_path}"
+            await self.logger.error(error_msg)
+            self.output_panel.add_error(error_msg)
+            return False
+        
+        # Set as file explorer root
+        try:
             await self.logger.info(f"Setting directory as file explorer root: {directory_path}")
             await self.file_explorer.set_root_path(Path(directory_path))
             
@@ -412,7 +478,7 @@ class K2EditApp(App):
                 language = detect_language_by_extension(Path(file_path).suffix)
                 if language != "unknown" and not self.agent_integration.lsp_client.is_server_running(language):
                     try:
-                        await self.logger.info(f"Starting {language} language server for opened file: {file_path}")
+                        await self.logger.info(f"Starting {language} language server for file: {file_path}")
                         config = LanguageConfigs.get_config(language)
                         await self.agent_integration.lsp_client.start_server(language, config["command"], str(self.agent_integration.project_root))
                         await self.agent_integration.lsp_client.initialize_connection(language, str(self.agent_integration.project_root))
@@ -481,17 +547,19 @@ class K2EditApp(App):
         try:
             await self.logger.debug(f"Diagnostics callback triggered for {file_path}: {len(diagnostics)} items")
             
-            # Update status bar if this is the current file
+            # Always update status bar with diagnostics, regardless of current file
+            await self.logger.debug(f"Updating status bar with diagnostics for: {file_path}")
+            # Format diagnostics data correctly for status bar
+            diagnostics_data = {
+                'diagnostics': diagnostics,
+                'file_path': file_path
+            }
+            await self.status_bar.update_diagnostics_from_lsp(diagnostics_data)
+            
             if self.editor.current_file and str(self.editor.current_file) == file_path:
-                await self.logger.debug(f"Updating status bar for current file: {file_path}")
-                # Format diagnostics data correctly for status bar
-                diagnostics_data = {
-                    'diagnostics': diagnostics,
-                    'file_path': file_path
-                }
-                await self.status_bar.update_diagnostics_from_lsp(diagnostics_data)
+                await self.logger.debug(f"Diagnostics updated for current file: {file_path}")
             else:
-                await self.logger.debug(f"Diagnostics received for non-current file: {file_path}")
+                await self.logger.debug(f"Diagnostics updated for non-current file: {file_path}")
         except AttributeError as e:
             await self.logger.error(f"Status bar method not available: {e}")
             self.output_panel.add_error("Failed to update diagnostics display")
@@ -504,8 +572,7 @@ class K2EditApp(App):
 
     async def _trigger_hover_request(self, line: int, column: int):
         """Trigger LSP hover request after cursor idle."""
-        await self.logger.debug(f"_trigger_hover_request: line={line}, column={column}")
-        
+
         if not self.agent_integration or not self.agent_integration.lsp_indexer:
             await self.logger.debug("Hover request skipped: agent integration or lsp_indexer not available")
             return
@@ -589,7 +656,6 @@ class K2EditApp(App):
     async def _on_cursor_position_changed(self, line: int, column: int) -> None:
         """Handle cursor position changes and trigger hover after delay."""
         new_position = (line, column)
-        await self.logger.debug(f"_on_cursor_position_changed: line={line}, column={column}")
         
         # Hide hover widget on cursor movement
         if self.hover_widget.is_visible():
@@ -615,7 +681,9 @@ class K2EditApp(App):
         
         # Start new hover timer with 500ms delay
         await self.logger.debug("Starting new hover timer with 500ms delay")
-        self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(self._trigger_hover_request(line, column)))
+        self._hover_timer = self.set_timer(0.5, lambda: asyncio.create_task(
+            self._task_queue.submit_task(self._trigger_hover_request, line, column, priority=4)
+        ) if self._task_queue else asyncio.create_task(self._trigger_hover_request(line, column)))
 
     async def _navigate_to_definition(self, definitions: list[dict[str, Any]]) -> None:
         """Navigate to the definition location(s) returned by LSP."""
@@ -775,8 +843,11 @@ class K2EditApp(App):
     
     def on_editor_content_changed(self, event) -> None:
         """Handle editor content changes."""
-        # Schedule the async status bar update
-        asyncio.create_task(self._update_status_bar())
+        # Schedule the async status bar update using task queue
+        if self._task_queue:
+            asyncio.create_task(self._task_queue.submit_task(self._update_status_bar, priority=5))
+        else:
+            asyncio.create_task(self._update_status_bar())
     
     async def _add_file_to_context(self, file_path: str) -> None:
         """Add file to AI agent context."""
@@ -787,9 +858,10 @@ class K2EditApp(App):
             return
         
         try:
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            # Read file content asynchronously
+            import aiofiles
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
             
             # Add to agent context via integration
             success = await self.agent_integration.add_context_file(file_path, content)
@@ -1044,6 +1116,20 @@ class K2EditApp(App):
                 except Exception as e:
                     await self.logger.error(f"Error cleaning up terminal panel: {e}")
             
+            # Shutdown task queue
+            if self._task_queue:
+                try:
+                    await self._task_queue.stop()
+                except Exception as e:
+                    await self.logger.error(f"Error shutting down task queue: {e}")
+            
+            # Shutdown thread pool
+            if hasattr(self, 'thread_pool'):
+                try:
+                    self.thread_pool.shutdown()
+                except Exception as e:
+                    await self.logger.error(f"Error shutting down thread pool: {e}")
+            
             # Shutdown agentic system
             if self.agent_integration:
                 try:
@@ -1113,20 +1199,32 @@ class K2EditApp(App):
                 self.output_panel.add_error("Not in a git repository")
                 return
             
-            # Switch branch
-            result = subprocess.run(
-                ["git", "checkout", message.branch_name],
-                capture_output=True,
-                text=True,
+            # Switch branch using async subprocess
+            process = await asyncio.create_subprocess_exec(
+                "git", "checkout", message.branch_name,
                 cwd=current_dir,
-                timeout=10
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            if result.returncode == 0:
-                self.output_panel.add_info(f"Switched to branch: {message.branch_name}")
-                await self.status_bar._update_git_branch()  # Refresh branch display
-            else:
-                error_msg = f"Failed to switch branch: {result.stderr}"
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=10.0
+                )
+                stdout_text = stdout.decode('utf-8') if stdout else ''
+                stderr_text = stderr.decode('utf-8') if stderr else ''
+                
+                if process.returncode == 0:
+                    self.output_panel.add_info(f"Switched to branch: {message.branch_name}")
+                    await self.status_bar._update_git_branch()  # Refresh branch display
+                else:
+                    error_msg = f"Failed to switch branch: {stderr_text}"
+                    self.output_panel.add_error(error_msg)
+                    await self.logger.error(error_msg)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                error_msg = "Git checkout timed out after 10 seconds"
                 self.output_panel.add_error(error_msg)
                 await self.logger.error(error_msg)
                 
@@ -1194,7 +1292,7 @@ class K2EditApp(App):
         try:
             from .utils.settings_manager import SettingsManager
             settings_manager = SettingsManager()
-            api_address, api_key = settings_manager.get_api_settings(model_id)
+            api_address, api_key = await settings_manager.get_api_settings(model_id)
             
             if api_address and api_key:
                 # Update KimiAPI configuration
@@ -1234,33 +1332,7 @@ def main():
 
     # Create and run the application with proper cleanup
     app = K2EditApp(initial_file=initial_file, logger=logger)
-    
-    try:
-        app.run()
-    except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        pass
-    finally:
-        # Ensure proper cleanup of any remaining resources
-        try:
-            # Get the current event loop if it exists and is running
-            loop = asyncio.get_event_loop()
-            if not loop.is_closed():
-                # Run any remaining cleanup tasks
-                pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-                if pending_tasks:
-                    # Cancel all pending tasks
-                    for task in pending_tasks:
-                        task.cancel()
-                    # Wait for tasks to complete cancellation
-                    try:
-                        loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
-                    except RuntimeError:
-                        # Event loop might be closed by now, ignore
-                        pass
-        except RuntimeError:
-            # No event loop or event loop is closed, which is fine
-            pass
+    app.run()
 
 
 if __name__ == "__main__":

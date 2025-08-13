@@ -1,5 +1,7 @@
 """Path validation utilities for K2Edit."""
 
+import asyncio
+import aiofiles
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -46,12 +48,8 @@ def validate_file_path(file_path: str, allow_create: bool = False) -> Tuple[bool
         if not path.is_file():
             return False, f"Path exists but is not a regular file: {file_path}"
             
-        try:
-            # Test read access
-            with open(path, 'r', encoding='utf-8') as f:
-                pass
-        except (PermissionError, OSError) as e:
-            return False, f"Cannot read file: {e}"
+        # Note: File access test will be done by caller using async operations
+        # This validation focuses on path structure and existence
             
         return True, None
         
@@ -125,25 +123,13 @@ def validate_path_for_save(file_path: str) -> Tuple[bool, Optional[str]]:
         except (OSError, PermissionError) as e:
             return False, f"Cannot create parent directory: {e}"
         
-        # If file exists, check if it's writable
+        # If file exists, check if it's a directory
         if path.exists():
             if path.is_dir():
                 return False, f"Path is a directory, cannot save as file: {file_path}"
-            
-            try:
-                # Test write access
-                with open(path, 'a', encoding='utf-8') as f:
-                    pass
-            except (PermissionError, OSError) as e:
-                return False, f"Cannot write to file: {e}"
-        else:
-            # Test if we can create the file
-            try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    pass
-                path.unlink()  # Remove the test file
-            except (PermissionError, OSError) as e:
-                return False, f"Cannot create file: {e}"
+        
+        # Note: Write access test will be done by caller using async operations
+        # This validation focuses on path structure and parent directory creation
                 
         return True, None
         
@@ -167,3 +153,79 @@ def safe_resolve_path(path_str: str) -> Optional[Path]:
         return Path(path_str).resolve()
     except Exception:
         return None
+
+
+async def async_validate_file_path(file_path: str, allow_create: bool = False) -> Tuple[bool, Optional[str]]:
+    """
+    Async version of validate_file_path with actual file access testing.
+    
+    Args:
+        file_path: The file path to validate
+        allow_create: Whether to allow non-existent files (for creation)
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        # First do basic path validation
+        is_valid, error = validate_file_path(file_path, allow_create)
+        if not is_valid:
+            return is_valid, error
+            
+        path = Path(file_path)
+        
+        # Test actual file access asynchronously if file exists
+        if path.exists() and path.is_file():
+            try:
+                async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+                    # Just test if we can open it
+                    pass
+            except (PermissionError, OSError) as e:
+                return False, f"Cannot read file: {e}"
+                
+        return True, None
+        
+    except Exception as e:
+        return False, f"Async path validation error: {e}"
+
+
+async def async_validate_path_for_save(file_path: str) -> Tuple[bool, Optional[str]]:
+    """
+    Async version of validate_path_for_save with actual file access testing.
+    
+    Args:
+        file_path: The file path to validate for saving
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        # First do basic path validation
+        is_valid, error = validate_path_for_save(file_path)
+        if not is_valid:
+            return is_valid, error
+            
+        path = Path(file_path)
+        
+        # Test actual file access asynchronously
+        if path.exists():
+            try:
+                # Test write access by opening in append mode
+                async with aiofiles.open(path, 'a', encoding='utf-8') as f:
+                    pass
+            except (PermissionError, OSError) as e:
+                return False, f"Cannot write to file: {e}"
+        else:
+            try:
+                # Test if we can create the file
+                async with aiofiles.open(path, 'w', encoding='utf-8') as f:
+                    pass
+                # Use asyncio.to_thread for file deletion to avoid blocking
+                await asyncio.to_thread(path.unlink)
+            except (PermissionError, OSError) as e:
+                return False, f"Cannot create file: {e}"
+                
+        return True, None
+        
+    except Exception as e:
+        return False, f"Async save path validation error: {e}"

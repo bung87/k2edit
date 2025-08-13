@@ -25,10 +25,17 @@ class AIModelSelector(Widget):
         self.logger = logger
         self.settings_manager = SettingsManager()
         self.current_model = "openai"  # Default model
+        self._initialized = False
+    
+    async def initialize(self) -> None:
+        """Initialize the settings manager asynchronously."""
+        if not self._initialized:
+            await self.settings_manager.initialize()
+            self._initialized = True
     
     def compose(self) -> ComposeResult:
         """Compose the AI model selector."""
-        # Get all available models
+        # Get all available models (synchronous fallback for compose)
         models = self.settings_manager.get_all_models()
         options = [(display_name, model_id) for model_id, display_name in models.items()]
         
@@ -37,6 +44,7 @@ class AIModelSelector(Widget):
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle select change events."""
         if event.select.id == "ai-model-selector" and event.value != Select.BLANK:
+            await self.initialize()
             self.current_model = str(event.value)
             model_name = self.settings_manager.get_model_display_name(self.current_model)
             await self.logger.info(f"AI model changed to: {model_name} ({self.current_model})")
@@ -46,8 +54,9 @@ class AIModelSelector(Widget):
         """Get the currently selected model ID."""
         return self.current_model
     
-    def set_model(self, model_id: str) -> None:
+    async def set_model(self, model_id: str) -> None:
         """Set the current model programmatically."""
+        await self.initialize()
         if model_id in self.settings_manager.get_all_models():
             self.current_model = model_id
             # Update the select widget if it exists

@@ -5,23 +5,36 @@ Handles AI agent interactions, context management, and orchestration
 # Configure multiprocessing FIRST to avoid fork issues on macOS
 import os
 import multiprocessing
+import json
+import difflib
+import threading
+import time
+import asyncio
+import aiofiles
+from aiologger import Logger
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass, asdict, field
+from datetime import datetime
+from pathlib import Path
+from sentence_transformers import SentenceTransformer
+
 if os.name == 'posix':
     try:
         multiprocessing.set_start_method('spawn', force=True)
-    except RuntimeError as e:
+    except RuntimeError:
         pass  # Already set
 
-import asyncio
-from aiologger import Logger
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, asdict
-from datetime import datetime
-from pathlib import Path
-import threading
-from sentence_transformers import SentenceTransformer
+# Import performance utilities
+from ..utils.async_performance_utils import (
+    cpu_bound_task,
+    io_bound_task,
+    get_performance_monitor,
+    ConnectionPool
+)
 
 from .memory_config import create_memory_store
 from .lsp_indexer import LSPIndexer
+from .language_configs import LanguageConfigs
 from ..utils.language_utils import detect_language_from_filename, detect_project_language, detect_language_by_extension
 
 
@@ -33,17 +46,9 @@ class AgentContext:
     cursor_position: Optional[Dict[str, int]] = None
     project_root: Optional[str] = None
     language: Optional[str] = None
-    dependencies: List[str] = None
-    symbols: List[Dict[str, Any]] = None
-    recent_changes: List[Dict[str, Any]] = None
-    
-    def __post_init__(self):
-        if self.dependencies is None:
-            self.dependencies = []
-        if self.symbols is None:
-            self.symbols = []
-        if self.recent_changes is None:
-            self.recent_changes = []
+    dependencies: List[str] = field(default_factory=list)
+    symbols: List[Dict[str, Any]] = field(default_factory=list)
+    recent_changes: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class AgenticContextManager:
@@ -57,6 +62,12 @@ class AgenticContextManager:
         self.conversation_history: List[Dict[str, Any]] = []
         self.embedding_model = None
         self._embedding_lock = None
+        
+        # Performance monitoring
+        self.performance_monitor = get_performance_monitor(logger)
+        
+        # Connection pool for embedding model (singleton pattern)
+        self._embedding_pool = None
         
     async def initialize(self, project_root: str, progress_callback=None):
         """Initialize the context manager with project root and progress updates"""
@@ -73,21 +84,19 @@ class AgenticContextManager:
         if progress_callback:
             await progress_callback("Starting symbol indexing...")
         
-        # Initialize LSP indexer
-        try:
-            await self.lsp_indexer.initialize(project_root, progress_callback)
-        except (ConnectionError, TimeoutError) as e:
-            await self.logger.error(f"LSP connection failed: {e}", exc_info=True)
-            if progress_callback:
-                await progress_callback(f"Error: LSP connection failed: {e}")
-        except (FileNotFoundError, PermissionError) as e:
-            await self.logger.error(f"LSP file access error: {e}", exc_info=True)
-            if progress_callback:
-                await progress_callback(f"Error: LSP file access error: {e}")
-        except Exception as e:
-            await self.logger.error(f"Failed to initialize LSP indexer: {e}", exc_info=True)
-            if progress_callback:
-                await progress_callback(f"Error: LSP indexer failed to initialize: {e}")
+        # Initialize LSP indexer in background (non-blocking)
+        async def _initialize_lsp_background():
+            try:
+                await self.lsp_indexer.initialize(project_root, progress_callback)
+            except (ConnectionError, TimeoutError) as e:
+                await self._handle_lsp_error("LSP connection failed", e, progress_callback)
+            except (FileNotFoundError, PermissionError) as e:
+                await self._handle_lsp_error("LSP file access error", e, progress_callback)
+            except Exception as e:
+                await self._handle_lsp_error("Failed to initialize LSP indexer", e, progress_callback)
+        
+        # Start LSP initialization in background
+        asyncio.create_task(_initialize_lsp_background())
         
         if progress_callback:
             await progress_callback("LSP indexing started in background...")
@@ -130,20 +139,8 @@ class AgenticContextManager:
     async def add_context_file(self, file_path: str, file_content: str = None):
         """Add a file to the conversation context without changing current context"""
         if not file_content:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    file_content = f.read()
-            except FileNotFoundError as e:
-                await self.logger.error(f"File not found {file_path}: {e}")
-                return False
-            except PermissionError as e:
-                await self.logger.error(f"Permission denied reading {file_path}: {e}")
-                return False
-            except UnicodeDecodeError as e:
-                await self.logger.error(f"Encoding error reading {file_path}: {e}")
-                return False
-            except Exception as e:
-                await self.logger.error(f"Error reading file {file_path}: {e}")
+            file_content = await self._read_file_safely(file_path)
+            if file_content is None:
                 return False
         
         # Store the file as additional context
@@ -165,6 +162,28 @@ class AgenticContextManager:
         
         await self.logger.info(f"Added file to context: {file_path}")
         return True
+    
+    async def _handle_lsp_error(self, message: str, error: Exception, progress_callback=None):
+        """Handle LSP errors with consistent logging and progress updates"""
+        await self.logger.error(f"{message}: {error}", exc_info=True)
+        if progress_callback:
+            await progress_callback(f"Error: {message}: {error}")
+    
+    async def _read_file_safely(self, file_path: str) -> Optional[str]:
+        """Safely read a file with comprehensive error handling"""
+        try:
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                return await f.read()
+        except (FileNotFoundError, PermissionError, UnicodeDecodeError, Exception) as e:
+            if isinstance(e, FileNotFoundError):
+                await self.logger.error(f"File not found {file_path}: {e}")
+            elif isinstance(e, PermissionError):
+                await self.logger.error(f"Permission denied reading {file_path}: {e}")
+            elif isinstance(e, UnicodeDecodeError):
+                await self.logger.error(f"Encoding error reading {file_path}: {e}")
+            else:
+                await self.logger.error(f"Error reading file {file_path}: {e}")
+        return None
         
     async def _analyze_file_structure(self, project_root: str, max_depth: int = 3) -> List[str]:
         """Analyze and return the file structure of the project."""
@@ -204,23 +223,14 @@ class AgenticContextManager:
         readme_files = [p for p in project_root.glob('README*') if p.is_file()]
         if readme_files:
             readme_path = readme_files[0]
-            try:
-                with open(readme_path, 'r', encoding='utf-8') as f:
-                    readme_content = f.read()
-                    # Simple summary: first 10 lines or 500 characters, whichever is smaller
-                    lines = readme_content.splitlines()[:10]
-                    summary = "\n".join(lines)
-                    if len(summary) > 500:
-                        summary = summary[:500] + "..."
-                    overview["readme_summary"] = summary
-            except FileNotFoundError as e:
-                await self.logger.warning(f"README file not found {readme_path.name}: {e}")
-            except PermissionError as e:
-                await self.logger.warning(f"Permission denied reading {readme_path.name}: {e}")
-            except UnicodeDecodeError as e:
-                await self.logger.warning(f"Encoding error reading {readme_path.name}: {e}")
-            except Exception as e:
-                await self.logger.warning(f"Could not read {readme_path.name}: {e}")
+            readme_content = await self._read_file_safely(str(readme_path))
+            if readme_content:
+                # Simple summary: first 10 lines or 500 characters, whichever is smaller
+                lines = readme_content.splitlines()[:10]
+                summary = "\n".join(lines)
+                if len(summary) > 500:
+                    summary = summary[:500] + "..."
+                overview["readme_summary"] = summary
         
         return overview
 
@@ -262,12 +272,11 @@ class AgenticContextManager:
                     context["symbols"] = lsp_context["symbols"]
                     self.current_context.symbols = lsp_context["symbols"]
                     
-            except ConnectionError as e:
-                await self.logger.error(f"LSP connection error for file {self.current_context.file_path}: {e}")
-            except AttributeError as e:
-                await self.logger.error(f"LSP attribute error for file {self.current_context.file_path}: {e}")
-            except Exception as e:
-                await self.logger.error(f"Failed to get LSP context for file: {e}")
+            except (ConnectionError, AttributeError, Exception) as e:
+                if isinstance(e, (ConnectionError, AttributeError)):
+                    await self.logger.error(f"LSP error for file {self.current_context.file_path}: {e}")
+                else:
+                    await self.logger.error(f"Failed to get LSP context for file: {e}")
 
         # Determine if this is a general query (affects what context to include)
         is_general_query = not self.current_context.file_path
@@ -375,7 +384,6 @@ class AgenticContextManager:
     async def _log_context_size(self, context: Dict[str, Any]) -> None:
         """Log the estimated size of context to monitor token usage"""
         try:
-            import json
             context_json = json.dumps(context, default=str)
             estimated_tokens = len(context_json) // 4  # Rough estimate: 1 token ≈ 4 characters
             
@@ -543,7 +551,6 @@ class AgenticContextManager:
         
     def _generate_diff(self, old_content: str, new_content: str) -> str:
         """Generate a simple diff between old and new content"""
-        import difflib
         return '\n'.join(difflib.unified_diff(
             old_content.splitlines(),
             new_content.splitlines(),
@@ -551,28 +558,21 @@ class AgenticContextManager:
         ))
 
     async def _generate_embedding(self, content: str) -> List[float]:
-        """Generate semantic embedding for content using SentenceTransformer."""
+        """Generate semantic embedding for content using optimized SentenceTransformer."""
         if not self.embedding_model:
             await self.logger.warning("Embedding model not available, returning zero vector.")
             return [0.0] * 384  # Dimension of all-MiniLM-L6-v2 is 384
 
+        # Start performance monitoring
+        self.performance_monitor.start_timer("embedding_generation")
+        
         try:
-            # Use threading lock to prevent concurrent access issues
-            # Disable multiprocessing entirely to avoid macOS fork issues
-            if self._embedding_lock:
-                with self._embedding_lock:
-                    embedding = self.embedding_model.encode(
-                        content, 
-                        convert_to_tensor=False,
-                        show_progress_bar=False,
-                        batch_size=1,
-                        device='cpu',
-                        normalize_embeddings=True,
-                        num_workers=0  # Explicitly disable multiprocessing
-                    )
-            else:
-                embedding = self.embedding_model.encode(
-                    content, 
+            # Use CPU-bound task decorator for embedding generation
+            @cpu_bound_task
+            def _encode_content(model, text):
+                """Encode content using the embedding model in CPU thread pool."""
+                return model.encode(
+                    text,
                     convert_to_tensor=False,
                     show_progress_bar=False,
                     batch_size=1,
@@ -580,25 +580,42 @@ class AgenticContextManager:
                     normalize_embeddings=True,
                     num_workers=0  # Explicitly disable multiprocessing
                 )
+            
+            # Use connection pool if available, otherwise fall back to direct access
+            if self._embedding_pool:
+                model = await self._embedding_pool.acquire()
+                try:
+                    embedding = await _encode_content(model, content)
+                finally:
+                    await self._embedding_pool.release(model)
+            else:
+                # Fallback to direct model access with lock
+                if self._embedding_lock:
+                    with self._embedding_lock:
+                        embedding = await _encode_content(self.embedding_model, content)
+                else:
+                    embedding = await _encode_content(self.embedding_model, content)
+            
+            # Log performance metrics
+            embed_time = self.performance_monitor.end_timer("embedding_generation")
+            if embed_time > 1.0:  # Log slow embeddings
+                await self.logger.debug(f"Slow embedding generation: {embed_time:.2f}s for {len(content)} chars")
+            
             return embedding.tolist()
-        except AttributeError as e:
-            await self.logger.error(f"Embedding model attribute error: {e}")
-            return [0.0] * 384
-        except ValueError as e:
-            await self.logger.error(f"Invalid input for embedding generation: {e}")
-            return [0.0] * 384
-        except RuntimeError as e:
-            await self.logger.error(f"Runtime error in embedding generation: {e}")
+            
+        except (AttributeError, ValueError, RuntimeError) as e:
+            self.performance_monitor.end_timer("embedding_generation")
+            await self.logger.error(f"Embedding generation error: {e}")
             return [0.0] * 384
         except Exception as e:
-            await self.logger.error(f"Error generating embedding: {e}")
+            self.performance_monitor.end_timer("embedding_generation")
+            await self.logger.error(f"Unexpected embedding error: {e}")
             return [0.0] * 384
 
 
     async def get_enhanced_context_for_file(self, file_path: str, line: int = None) -> Dict[str, Any]:
         """Get enhanced context for a file excluding LSP outline"""
         # Ensure appropriate language server is running for this file
-        from .language_configs import LanguageConfigs
         language = detect_language_by_extension(Path(file_path).suffix)
         if language != "unknown" and not self.lsp_indexer.lsp_client.is_server_running(language):
             config = LanguageConfigs.get_config(language)
@@ -621,48 +638,82 @@ class AgenticContextManager:
         }
 
     async def _initialize_embedding_model_background(self, progress_callback=None):
-        """Initialize the SentenceTransformer model in background with progress updates."""
+        """Initialize the SentenceTransformer model in background with performance monitoring."""
         if self.embedding_model:
             return
 
+        # Start performance monitoring
+        self.performance_monitor.start_timer("embedding_model_init")
+        
         try:
             await self.logger.info("Loading SentenceTransformer model in background...")
+            if progress_callback:
+                await progress_callback("Loading embedding model...")
+            
+            # Optimize environment for single-threaded operation
             os.environ['TOKENIZERS_PARALLELISM'] = 'false'
             os.environ['OMP_NUM_THREADS'] = '1'
+            os.environ['MKL_NUM_THREADS'] = '1'
+            os.environ['NUMEXPR_NUM_THREADS'] = '1'
             
             # Try local model first, then fall back to downloading from Hugging Face
             model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'all-MiniLM-L6-v2')
             
+            @io_bound_task
             def _load_model():
+                """Load model in I/O thread pool to avoid blocking."""
                 if os.path.exists(model_path):
-                    return SentenceTransformer(model_path)
+                    return SentenceTransformer(
+                        model_path,
+                        device='cpu',
+                        cache_folder=None  # Disable additional caching
+                    )
                 else:
                     # Download from Hugging Face if local model doesn't exist
-                    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+                    return SentenceTransformer(
+                        'sentence-transformers/all-MiniLM-L6-v2',
+                        device='cpu',
+                        cache_folder=None
+                    )
             
-            self.embedding_model = await asyncio.to_thread(_load_model)
+            # Load model using optimized thread pool
+            self.embedding_model = await _load_model()
             
+            # Initialize thread lock for model access
             self._embedding_lock = threading.Lock()
+            
+            # Create connection pool for embedding operations
+            async def embedding_factory():
+                return self.embedding_model
+            
+            self._embedding_pool = ConnectionPool(
+                factory=embedding_factory,
+                max_size=1,  # Single model instance
+                health_check=lambda model: model is not None
+            )
+            
+            init_time = self.performance_monitor.end_timer("embedding_model_init")
+            
             if os.path.exists(model_path):
-                await self.logger.info("Successfully loaded local SentenceTransformer model")
+                await self.logger.info(f"Successfully loaded local SentenceTransformer model in {init_time:.2f}s")
             else:
-                await self.logger.info("Error loading SentenceTransformer model from local path")
-        except ImportError as e:
-            await self.logger.error(f"SentenceTransformer import error: {e}")
-            self.embedding_model = None
-            self._embedding_lock = None
-        except OSError as e:
-            await self.logger.error(f"Model file access error: {e}")
-            self.embedding_model = None
-            self._embedding_lock = None
-        except RuntimeError as e:
-            await self.logger.error(f"Runtime error loading model: {e}")
-            self.embedding_model = None
-            self._embedding_lock = None
+                await self.logger.info(f"Successfully loaded SentenceTransformer model from HuggingFace in {init_time:.2f}s")
+                
+            if progress_callback:
+                await progress_callback(f"Embedding model loaded ({init_time:.1f}s)")
+                
+        except (ImportError, OSError, RuntimeError) as e:
+            self._cleanup_embedding_model_on_error(f"Model initialization error: {e}")
         except Exception as e:
-            await self.logger.error(f"Error loading SentenceTransformer model: {e}")
-            self.embedding_model = None
-            self._embedding_lock = None
+            self._cleanup_embedding_model_on_error(f"Unexpected error loading SentenceTransformer model: {e}")
+    
+    def _cleanup_embedding_model_on_error(self, error_message: str):
+        """Clean up embedding model resources on initialization error"""
+        self.performance_monitor.end_timer("embedding_model_init")
+        asyncio.create_task(self.logger.error(error_message))
+        self.embedding_model = None
+        self._embedding_lock = None
+        self._embedding_pool = None
     
     async def _initialize_embedding_model(self):
         """Initialize the SentenceTransformer model asynchronously (legacy method)."""

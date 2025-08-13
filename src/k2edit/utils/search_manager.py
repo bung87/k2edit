@@ -1,9 +1,12 @@
-#!/usr/bin/env python3
-"""Search and replace functionality for the editor."""
+"""Search manager for K2Edit"""
 
 import re
-from typing import List, Tuple, Optional, Iterator
+import aiofiles
+from typing import List, Tuple, Optional
 from pathlib import Path
+import multiprocessing as mp
+from functools import partial
+from .async_performance_utils import get_thread_pool
 
 
 class SearchMatch:
@@ -29,6 +32,35 @@ class FileSearchResult:
     
     def __repr__(self):
         return f"FileSearchResult({self.file_path}, {len(self.matches)} matches)"
+
+
+def _search_file_chunk(file_chunk: List[Path], pattern: str, case_sensitive: bool, regex: bool) -> List[FileSearchResult]:
+    """Worker function for multiprocessing file search."""
+    results = []
+    
+    for file_path in file_chunk:
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            # Create a temporary SearchManager instance for pattern matching
+            temp_manager = SearchManager()
+            matches = temp_manager.search_in_text(content, pattern, case_sensitive, regex)
+            
+            if matches:
+                # Convert SearchMatch objects to simple tuples for FileSearchResult
+                file_matches = [(match.start_line + 1, match.start_col, match.text) 
+                              for match in matches]
+                results.append(FileSearchResult(str(file_path), file_matches))
+        
+        except (UnicodeDecodeError, PermissionError, OSError):
+            # Skip files that can't be read
+            continue
+        except Exception:
+            # Skip files with other errors
+            continue
+    
+    return results
 
 
 class SearchManager:
@@ -168,9 +200,9 @@ class SearchManager:
                 self.logger.error(f"Regex error in replace: {e}")
             return text, 0
     
-    def search_in_files(self, root_path: str, pattern: str, file_pattern: str = "*",
+    async def search_in_files(self, root_path: str, pattern: str, file_pattern: str = "*",
                        case_sensitive: bool = False, regex: bool = False) -> List[FileSearchResult]:
-        """Search for pattern in multiple files."""
+        """Search for pattern in multiple files with multiprocessing optimization."""
         results = []
         root = Path(root_path)
         
@@ -194,27 +226,70 @@ class SearchManager:
                     if file_path.is_file():
                         files_to_search.add(file_path)
             
-            # Search in each file
-            for file_path in files_to_search:
-                try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                    
-                    matches = self.search_in_text(content, pattern, case_sensitive, regex)
-                    if matches:
-                        # Convert SearchMatch objects to simple tuples for FileSearchResult
-                        file_matches = [(match.start_line + 1, match.start_col, match.text) 
-                                      for match in matches]
-                        results.append(FileSearchResult(str(file_path), file_matches))
-                
-                except (UnicodeDecodeError, PermissionError, OSError) as e:
-                    if self.logger:
-                        self.logger.warning(f"Could not search in file {file_path}: {e}")
-                    continue
+            files_list = list(files_to_search)
+            
+            # Use multiprocessing for large file sets (>50 files)
+            if len(files_list) > 50:
+                results = await self._search_files_multiprocess(files_list, pattern, case_sensitive, regex)
+            else:
+                # Use async for smaller file sets
+                results = await self._search_files_async(files_list, pattern, case_sensitive, regex)
         
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error in search_in_files: {e}")
+                await self.logger.error(f"Error in search_in_files: {e}")
+        
+        return results
+    
+    async def _search_files_async(self, files_list: List[Path], pattern: str, 
+                                 case_sensitive: bool, regex: bool) -> List[FileSearchResult]:
+        """Search files using async I/O for smaller file sets."""
+        results = []
+        
+        for file_path in files_list:
+            try:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = await f.read()
+                
+                matches = self.search_in_text(content, pattern, case_sensitive, regex)
+                if matches:
+                    # Convert SearchMatch objects to simple tuples for FileSearchResult
+                    file_matches = [(match.start_line + 1, match.start_col, match.text) 
+                                  for match in matches]
+                    results.append(FileSearchResult(str(file_path), file_matches))
+            
+            except (UnicodeDecodeError, PermissionError, OSError) as e:
+                if self.logger:
+                    await self.logger.warning(f"Could not search in file {file_path}: {e}")
+                continue
+        
+        return results
+    
+    async def _search_files_multiprocess(self, files_list: List[Path], pattern: str,
+                                        case_sensitive: bool, regex: bool) -> List[FileSearchResult]:
+        """Search files using multiprocessing for large file sets."""
+        # Determine optimal number of processes
+        num_processes = min(mp.cpu_count(), max(2, len(files_list) // 20))
+        
+        # Split files into chunks for each process
+        chunk_size = max(1, len(files_list) // num_processes)
+        file_chunks = [files_list[i:i + chunk_size] for i in range(0, len(files_list), chunk_size)]
+        
+        # Create partial function with search parameters
+        search_func = partial(_search_file_chunk, pattern=pattern, 
+                             case_sensitive=case_sensitive, regex=regex)
+        
+        # Execute optimized search using thread pool for I/O-bound operations
+        thread_pool = get_thread_pool()
+        chunk_results = []
+        for chunk in file_chunks:
+            result = await thread_pool.run_io_bound(search_func, chunk)
+            chunk_results.append(result)
+        
+        # Flatten results from all chunks
+        results = []
+        for chunk_result in chunk_results:
+            results.extend(chunk_result)
         
         return results
     

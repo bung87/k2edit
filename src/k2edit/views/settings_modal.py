@@ -36,6 +36,13 @@ class SettingsModal(ModalScreen[None]):
         self.api_address_input: Optional[Input] = None
         self.api_key_input: Optional[Input] = None
         self.status_label: Optional[Static] = None
+        self._initialized = False
+    
+    async def initialize(self) -> None:
+        """Initialize the settings manager asynchronously."""
+        if not self._initialized:
+            await self.settings_manager.initialize()
+            self._initialized = True
     
     async def _log_debug(self, message: str):
         """Log debug message asynchronously"""
@@ -59,9 +66,9 @@ class SettingsModal(ModalScreen[None]):
                 
                 # API Address input
                 yield Label("API Address:")
-                api_address, _ = self.settings_manager.get_api_settings(self.current_model)
+                # Use empty default for compose, will be loaded async later
                 self.api_address_input = Input(
-                    value=api_address,
+                    value="",
                     placeholder="Enter API endpoint URL",
                     id="api-address-input"
                 )
@@ -69,9 +76,9 @@ class SettingsModal(ModalScreen[None]):
                 
                 # API Key input
                 yield Label("API Key:")
-                _, api_key = self.settings_manager.get_api_settings(self.current_model)
+                # Use empty default for compose, will be loaded async later
                 self.api_key_input = Input(
-                    value=api_key,
+                    value="",
                     placeholder="Enter API key (leave empty if not required)",
                     password=True,
                     id="api-key-input"
@@ -88,6 +95,11 @@ class SettingsModal(ModalScreen[None]):
                     yield Button("Reset to Default", variant="default", id="reset-button")
                     yield Button("Cancel", variant="default", id="cancel-button")
     
+    async def on_mount(self) -> None:
+        """Initialize settings when modal is mounted."""
+        await self.initialize()
+        await self._load_model_settings(self.current_model)
+    
     async def on_select_changed(self, event: Select.Changed) -> None:
         """Handle model selection change."""
         if event.select.id == "model-select" and event.value != Select.BLANK:
@@ -95,8 +107,9 @@ class SettingsModal(ModalScreen[None]):
     
     async def _load_model_settings(self, model_id: str) -> None:
         """Load settings for the selected model."""
+        await self.initialize()
         self.current_model = model_id
-        api_address, api_key = self.settings_manager.get_api_settings(model_id)
+        api_address, api_key = await self.settings_manager.get_api_settings(model_id)
         
         if self.api_address_input:
             self.api_address_input.value = api_address
@@ -132,7 +145,7 @@ class SettingsModal(ModalScreen[None]):
             return
         
         # Save settings
-        success, message = self.settings_manager.save_model_settings(
+        success, message = await self.settings_manager.save_model_settings(
             self.current_model, api_address, api_key
         )
         
@@ -148,7 +161,7 @@ class SettingsModal(ModalScreen[None]):
     
     async def _reset_to_default(self) -> None:
         """Reset current model settings to default values."""
-        self.settings_manager.reset_model_to_default(self.current_model)
+        await self.settings_manager.reset_model_to_default(self.current_model)
         await self._load_model_settings(self.current_model)
         await self._show_status("Settings reset to default values.", "success")
         await self._log_debug(f"Reset settings to default for model: {self.current_model}")

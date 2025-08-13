@@ -62,9 +62,8 @@ class SymbolParser:
                 for child in children:
                     parse_symbol(child, name)
                     
-            except Exception as e:
-                pass
-                return []
+            except (KeyError, TypeError, AttributeError):
+                return
 
         # Handle both list and dict formats
         try:
@@ -73,8 +72,8 @@ class SymbolParser:
                     parse_symbol(symbol)
             elif isinstance(lsp_symbols, dict):
                 parse_symbol(lsp_symbols)
-        except Exception as e:
-            pass
+        except (TypeError, AttributeError) as e:
+            await self.logger.warning(f"Error parsing LSP symbols: {e}")
 
         return symbols
     
@@ -225,8 +224,9 @@ class SymbolParser:
                 symbol_type_counts[symbol_type] = symbol_type_counts.get(symbol_type, 0) + 1
         
         return {
-            "total_files": total_files,
             "total_symbols": total_symbols,
+            "total_files": total_files,
             "symbol_type_breakdown": symbol_type_counts,
             "average_symbols_per_file": total_symbols / total_files if total_files > 0 else 0
         }
+    

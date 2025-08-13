@@ -3,9 +3,12 @@
 
 import json
 import os
+import asyncio
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 from urllib.parse import urlparse
+import aiofiles
+from .async_performance_utils import io_bound_task
 
 
 class SettingsManager:
@@ -37,7 +40,14 @@ class SettingsManager:
     
     def __init__(self):
         self.settings_file = self._get_settings_file_path()
-        self.settings = self._load_settings()
+        self.settings = {}
+        self._initialized = False
+    
+    async def initialize(self) -> None:
+        """Initialize settings asynchronously."""
+        if not self._initialized:
+            self.settings = await self._load_settings()
+            self._initialized = True
     
     def _get_settings_file_path(self) -> Path:
         """Get the cross-platform settings file path."""
@@ -50,12 +60,13 @@ class SettingsManager:
         settings_dir.mkdir(exist_ok=True)
         return settings_dir / 'settings.json'
     
-    def _load_settings(self) -> Dict[str, Dict[str, str]]:
-        """Load settings from file or create default settings."""
+    async def _load_settings(self) -> Dict[str, Dict[str, str]]:
+        """Load settings from file or create default settings using async I/O."""
         if self.settings_file.exists():
             try:
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
+                    content = await f.read()
+                    return await asyncio.to_thread(json.loads, content)
             except (json.JSONDecodeError, IOError):
                 # If file is corrupted, create default settings
                 pass
@@ -68,18 +79,22 @@ class SettingsManager:
                 "api_key": ""
             }
         
-        self._save_settings(default_settings)
+        await self._save_settings(default_settings)
         return default_settings
     
-    def _save_settings(self, settings: Dict[str, Dict[str, str]]) -> None:
-        """Save settings to file."""
+    async def _save_settings(self, settings: Dict[str, Dict[str, str]]) -> None:
+        """Save settings to file using async I/O."""
         try:
-            with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=2, ensure_ascii=False)
+            # Use asyncio.to_thread for JSON serialization to avoid blocking
+            json_content = await asyncio.to_thread(
+                json.dumps, settings, indent=2, ensure_ascii=False
+            )
+            async with aiofiles.open(self.settings_file, 'w', encoding='utf-8') as f:
+                await f.write(json_content)
         except IOError as e:
             raise RuntimeError(f"Failed to save settings: {e}")
     
-    def get_api_settings(self, model_name: str) -> Tuple[str, str]:
+    async def get_api_settings(self, model_name: str) -> Tuple[str, str]:
         """Get API settings for a specific model.
         
         Args:
@@ -88,6 +103,9 @@ class SettingsManager:
         Returns:
             Tuple of (api_address, api_key)
         """
+        # Ensure settings are initialized
+        await self.initialize()
+        
         if model_name not in self.settings:
             # Return default if model not found
             default_endpoint = self.DEFAULT_ENDPOINTS.get(model_name, "")
@@ -96,8 +114,8 @@ class SettingsManager:
         model_settings = self.settings[model_name]
         return (model_settings.get("api_address", ""), model_settings.get("api_key", ""))
     
-    def save_model_settings(self, model_name: str, api_address: str, api_key: str) -> Tuple[bool, str]:
-        """Save settings for a specific model.
+    async def save_model_settings(self, model_name: str, api_address: str, api_key: str) -> Tuple[bool, str]:
+        """Save settings for a specific model using async I/O.
         
         Args:
             model_name: The model identifier
@@ -107,6 +125,9 @@ class SettingsManager:
         Returns:
             Tuple of (success, error_message)
         """
+        # Ensure settings are initialized
+        await self.initialize()
+        
         # Validate API address
         if not self._validate_url(api_address):
             return (False, "Invalid API address. Please enter a valid URL.")
@@ -119,7 +140,7 @@ class SettingsManager:
         self.settings[model_name]["api_key"] = api_key.strip()
         
         try:
-            self._save_settings(self.settings)
+            await self._save_settings(self.settings)
             return (True, "Settings saved successfully.")
         except RuntimeError as e:
             return (False, str(e))
@@ -143,11 +164,14 @@ class SettingsManager:
         """Get the display name for a model ID."""
         return self.MODEL_NAMES.get(model_id, model_id)
     
-    def reset_model_to_default(self, model_name: str) -> None:
-        """Reset a model's settings to default values."""
+    async def reset_model_to_default(self, model_name: str) -> None:
+        """Reset a model's settings to default values using async I/O."""
+        # Ensure settings are initialized
+        await self.initialize()
+        
         if model_name in self.DEFAULT_ENDPOINTS:
             self.settings[model_name] = {
                 "api_address": self.DEFAULT_ENDPOINTS[model_name],
                 "api_key": ""
             }
-            self._save_settings(self.settings)
+            await self._save_settings(self.settings)
