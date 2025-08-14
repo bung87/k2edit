@@ -23,6 +23,7 @@ class ServerStatus(Enum):
 class LSPConnection:
     """Represents a connection to a language server"""
     language: str
+    project_root: Path
     process: asyncio.subprocess.Process
     status: ServerStatus
     last_activity: float
@@ -52,6 +53,7 @@ class LSPClient:
     def __init__(self, logger: Logger, diagnostics_callback: Callable = None, show_message_callback: Callable = None):
         # All logging is now standardized to async patterns
         self.logger = logger
+        # Use composite key (language, project_root) for server identification
         self.connections: Dict[str, LSPConnection] = {}
         self.diagnostics: Dict[str, List[Dict[str, Any]]] = {}
         self.diagnostics_callback = diagnostics_callback
@@ -65,33 +67,53 @@ class LSPClient:
         self.max_failed_health_checks = 3
         self.failed_health_checks: Dict[str, int] = {}
         
+        # Language-specific timeouts (some servers are slower)
+        self.language_timeouts = {
+            "nim": 30.0,  # Nim LSP can be slower, especially on first requests
+            "rust": 25.0,  # Rust analyzer can be slow on large projects
+            "go": 20.0,    # Go LSP can be slow with modules
+        }
+        
         # Server operation locks to prevent concurrent starts/restarts
         self._server_locks: Dict[str, asyncio.Lock] = {}
         
 
+    
+    def _get_server_key(self, language: str, project_root: Path) -> str:
+        """Generate a unique key for server identification based on language and project root"""
+        return f"{language}:{str(project_root)}"
+    
+    def _find_server_key_by_language(self, language: str) -> Optional[str]:
+        """Find the first server key for a given language (for backward compatibility)"""
+        for key in self.connections:
+            if key.startswith(f"{language}:"):
+                return key
+        return None
         
     async def start_server(self, language: str, command: List[str], project_root: Path) -> bool:
         """Start a language server with improved error handling"""
-        # Get or create lock for this language
-        if language not in self._server_locks:
-            self._server_locks[language] = asyncio.Lock()
+        server_key = self._get_server_key(language, project_root)
+        # Get or create lock for this server key
+        if server_key not in self._server_locks:
+            self._server_locks[server_key] = asyncio.Lock()
         
-        async with self._server_locks[language]:
+        async with self._server_locks[server_key]:
             return await self._start_server_internal(language, command, project_root)
     
     async def _start_server_internal(self, language: str, command: List[str], project_root: Path) -> bool:
         """Internal server start logic without locking"""
         try:
-            await self.logger.info(f"Starting {language} language server: {' '.join(command)}")
+            server_key = self._get_server_key(language, project_root)
+            await self.logger.info(f"Starting {language} language server for {project_root}: {' '.join(command)}")
             
             # Check if server is already running (another task might have started it)
-            if language in self.connections and self.connections[language].is_healthy():
-                await self.logger.info(f"{language} server is already running and healthy")
+            if server_key in self.connections and self.connections[server_key].is_healthy():
+                await self.logger.info(f"{language} server for {project_root} is already running and healthy")
                 return True
             
             # Stop existing server if running
-            if language in self.connections:
-                await self.stop_server(language)
+            if server_key in self.connections:
+                await self.stop_server(language, project_root)
             
             # Create subprocess with specific error handling
             try:
@@ -110,21 +132,22 @@ class LSPClient:
             # Create connection object
             connection = LSPConnection(
                 language=language,
+                project_root=project_root,
                 process=process,
                 status=ServerStatus.STARTING,
                 last_activity=time.time(),
                 pending_requests={}
             )
             
-            self.connections[language] = connection
+            self.connections[server_key] = connection
             
             # Start message reader
             try:
-                reader_task = asyncio.create_task(self._message_reader(language))
-                self.message_readers[language] = reader_task
+                reader_task = asyncio.create_task(self._message_reader(server_key))
+                self.message_readers[server_key] = reader_task
             except RuntimeError as e:
                 await self.logger.error(f"Failed to create message reader task for {language}: {e}")
-                await self.stop_server(language)
+                await self.stop_server(language, project_root)
                 return False
             
             # Start stderr logger
@@ -150,13 +173,29 @@ class LSPClient:
             await self.logger.error(f"Failed to start {language} server: {e}", exc_info=True)
             return False
     
-    async def stop_server(self, language: str) -> None:
+    async def stop_server(self, language: str, project_root: Path = None) -> None:
         """Stop a language server gracefully"""
-        if language not in self.connections:
+        # For backward compatibility, if no project_root provided, stop all servers for this language
+        if project_root is None:
+            servers_to_stop = [key for key in self.connections.keys() if key.startswith(f"{language}:")]
+            for server_key in servers_to_stop:
+                connection = self.connections[server_key]
+                await self._stop_server_internal(server_key, connection)
             return
             
-        connection = self.connections[language]
-        await self.logger.info(f"Stopping server for {language}. Process: {connection.process.pid if connection.process else 'N/A'}")
+        server_key = self._get_server_key(language, project_root)
+        if server_key not in self.connections:
+            return
+            
+        connection = self.connections[server_key]
+        await self._stop_server_internal(server_key, connection)
+    
+    async def _stop_server_internal(self, server_key: str, connection: LSPConnection) -> None:
+        """Internal method to stop a specific server connection"""
+        language = connection.language
+        project_root = connection.project_root
+        
+        await self.logger.info(f"Stopping server for {language} in {project_root}. Process: {connection.process.pid if connection.process else 'N/A'}")
         
         # Cancel pending requests
         try:
@@ -169,10 +208,10 @@ class LSPClient:
         
         # Stop message reader
         try:
-            if language in self.message_readers:
+            if server_key in self.message_readers:
                 await self.logger.info(f"Stopping message reader for {language}")
-                self.message_readers[language].cancel()
-                del self.message_readers[language]
+                self.message_readers[server_key].cancel()
+                del self.message_readers[server_key]
         except Exception as e:
             await self.logger.warning(f"Error stopping message reader for {language}: {e}")
         
@@ -194,14 +233,15 @@ class LSPClient:
         except Exception as e:
             await self.logger.error(f"Error stopping {language} server: {e}")
         finally:
-            await self.logger.info(f"Cleaning up connection for {language}")
-            if language in self.connections:
-                del self.connections[language]
-            self.failed_health_checks.pop(language, None)
+            await self.logger.info(f"Cleaning up connection for {language} in {project_root}")
+            if server_key in self.connections:
+                del self.connections[server_key]
+            self.failed_health_checks.pop(server_key, None)
     
     async def initialize_connection(self, language: str, project_root: Path, settings: Dict[str, Any] = None) -> bool:
         """Initialize LSP connection with capabilities and settings"""
-        if language not in self.connections:
+        server_key = self._get_server_key(language, project_root)
+        if server_key not in self.connections:
             return False
         
         init_params = {
@@ -249,7 +289,7 @@ class LSPClient:
         # Handle response
         if response and "result" in response:
             # Mark connection as running
-            self.connections[language].status = ServerStatus.RUNNING
+            self.connections[server_key].status = ServerStatus.RUNNING
             
             # Send initialized notification
             try:
@@ -272,11 +312,12 @@ class LSPClient:
     
     async def send_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Send LSP request with improved response correlation"""
-        if language not in self.connections:
+        server_key = self._find_server_key_by_language(language)
+        if server_key is None:
             await self.logger.warning(f"No connection for language: {language}")
             return None
         
-        connection = self.connections[language]
+        connection = self.connections[server_key]
         
         if not connection.is_healthy():
             await self.logger.warning(f"Connection unhealthy for {language}")
@@ -313,12 +354,13 @@ class LSPClient:
             connection.pending_requests.pop(message_id, None)
             return None
         
-        # Wait for response with timeout
+        # Wait for response with language-specific timeout
+        timeout = self.language_timeouts.get(language, self.request_timeout)
         try:
-            response = await asyncio.wait_for(response_future, timeout=self.request_timeout)
+            response = await asyncio.wait_for(response_future, timeout=timeout)
             return response
         except asyncio.TimeoutError:
-            await self.logger.warning(f"Request {message_id} timed out for {language} after {self.request_timeout}s - server may be unresponsive")
+            await self.logger.warning(f"Request {message_id} timed out for {language} after {timeout}s - server may be unresponsive")
             # Mark server as potentially unhealthy after timeout
             connection.failed_health_checks += 1
             
@@ -399,10 +441,11 @@ class LSPClient:
     
     async def send_notification(self, language: str, notification: Dict[str, Any]) -> None:
         """Send LSP notification (no response expected)"""
-        if language not in self.connections:
+        server_key = self._find_server_key_by_language(language)
+        if server_key is None:
             return
         
-        connection = self.connections[language]
+        connection = self.connections[server_key]
         
         if not connection.is_healthy():
             return
@@ -428,12 +471,13 @@ class LSPClient:
         connection.process.stdin.write(full_message)
         await connection.process.stdin.drain()
     
-    async def _message_reader(self, language: str) -> None:
+    async def _message_reader(self, server_key: str) -> None:
         """Read and route messages concurrently"""
-        if language not in self.connections:
+        if server_key not in self.connections:
             return
         
-        connection = self.connections[language]
+        connection = self.connections[server_key]
+        language = connection.language
         await self.logger.debug(f"Started message reader for {language}")
         consecutive_errors = 0
         max_consecutive_errors = 5
@@ -685,10 +729,11 @@ class LSPClient:
     
     async def _check_server_health(self, language: str) -> None:
         """Check health of a specific server"""
-        if language not in self.connections:
+        server_key = self._find_server_key_by_language(language)
+        if server_key is None:
             return
         
-        connection = self.connections[language]
+        connection = self.connections[server_key]
         max_failed_health_checks = 1  # Reduced to 1 for faster recovery
         
         # Check if process is still alive
@@ -724,16 +769,17 @@ class LSPClient:
     
     async def _restart_server(self, language: str, command: List[str], project_root: Path) -> bool:
         """Restart a language server with given command and project root"""
-        # Get or create lock for this language
-        if language not in self._server_locks:
-            self._server_locks[language] = asyncio.Lock()
+        server_key = self._get_server_key(language, project_root)
+        # Get or create lock for this server key
+        if server_key not in self._server_locks:
+            self._server_locks[server_key] = asyncio.Lock()
         
-        async with self._server_locks[language]:
+        async with self._server_locks[server_key]:
             await self.logger.info(f"Restarting {language} server")
             
             try:
                 # Stop the existing server
-                await self.stop_server(language)
+                await self.stop_server(language, project_root)
                 
                 # Wait a moment for cleanup
                 await asyncio.sleep(1.0)
@@ -855,10 +901,18 @@ class LSPClient:
             if language == "unknown" or not self.is_server_running(language):
                 return None
             
+            # Ensure file is opened with LSP server before hover request
+            await self.notify_file_opened(file_path, language)
+            
             uri = f"file://{Path(file_path).absolute()}"
             
+            server_key = self._find_server_key_by_language(language)
+            if server_key is None:
+                return None
+                
             request = {
                 "jsonrpc": "2.0",
+                "id": self.connections[server_key].get_next_message_id(),
                 "method": "textDocument/hover",
                 "params": {
                     "textDocument": {"uri": uri},
@@ -934,11 +988,12 @@ class LSPClient:
     
     async def send_request_with_timeout(self, language: str, request: Dict[str, Any], timeout: float) -> Optional[Dict[str, Any]]:
         """Send LSP request with custom timeout"""
-        if language not in self.connections:
+        server_key = self._find_server_key_by_language(language)
+        if server_key is None:
             await self.logger.warning(f"No connection for language: {language}")
             return None
         
-        connection = self.connections[language]
+        connection = self.connections[server_key]
         
         if not connection.is_healthy():
             await self.logger.warning(f"Connection unhealthy for {language}")
@@ -1047,10 +1102,18 @@ class LSPClient:
             await self.logger.error(f"Failed to get document symbols: {e}")
             return None
     
-    def is_server_running(self, language: str) -> bool:
-        """Check if a language server is running"""
-        return (language in self.connections and 
-                self.connections[language].is_healthy())
+    def is_server_running(self, language: str, project_root: Path = None) -> bool:
+        """Check if a language server is running for the given language and project"""
+        if project_root is None:
+            # Backward compatibility: check if any server for this language exists
+            for key in self.connections:
+                if key.startswith(f"{language}:"):
+                    return self.connections[key].is_healthy()
+            return False
+        
+        server_key = self._get_server_key(language, project_root)
+        return (server_key in self.connections and 
+                self.connections[server_key].is_healthy())
     
     async def shutdown(self) -> None:
         """Shutdown all language servers"""

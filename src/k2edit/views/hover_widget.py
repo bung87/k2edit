@@ -28,8 +28,7 @@ class HoverWidget(Widget):
     
     async def show_hover(self, content: str, line: int, column: int, editor=None) -> None:
         """Show hover content near the cursor position."""
-        await self.logger.debug(f"HoverWidget.show_hover: line={line}, column={column}, content_length={len(content)}")
-        
+
         self._content = content
         self._visible = True
         
@@ -80,8 +79,7 @@ class HoverWidget(Widget):
         
         # Get widget height to position it properly above cursor
         widget_height = self.size.height
-        await self.logger.debug(f"Widget size: {self.size}, height: {widget_height}")
-        
+
         # If widget still has no height after refresh, calculate based on content
         if widget_height <= 0:
             # Count lines in content to estimate height

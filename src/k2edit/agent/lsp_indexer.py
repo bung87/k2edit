@@ -322,8 +322,9 @@ class LSPIndexer:
                      # If LSP returned None/empty, the server might be unresponsive
                      await self.logger.warning(f"LSP server returned no symbols for {file_path} - server may be unresponsive")
                      # Mark server as potentially unhealthy for future restart
-                     if self.language in self.lsp_client.connections:
-                         connection = self.lsp_client.connections[self.language]
+                     server_key = self.lsp_client._find_server_key_by_language(self.language)
+                     if server_key is not None:
+                         connection = self.lsp_client.connections[server_key]
                          connection.failed_health_checks += 1
                          if connection.failed_health_checks >= 2:
                              await self.logger.info(f"Marking {self.language} server as unhealthy due to repeated failures")
@@ -331,8 +332,9 @@ class LSPIndexer:
             except Exception as e:
                 await self.logger.warning(f"LSP request failed for {file_path}: {e}")
                 # Mark server as unhealthy on exception
-                if self.language in self.lsp_client.connections:
-                    connection = self.lsp_client.connections[self.language]
+                server_key = self.lsp_client._find_server_key_by_language(self.language)
+                if server_key is not None:
+                    connection = self.lsp_client.connections[server_key]
                     connection.failed_health_checks += 1
                     connection.status = ServerStatus.ERROR
         
@@ -350,8 +352,9 @@ class LSPIndexer:
         # Use lock to prevent concurrent server restarts
         async with self._server_restart_lock:
             # Re-check server status after acquiring lock (another task might have fixed it)
-            if self.language in self.lsp_client.connections:
-                connection = self.lsp_client.connections[self.language]
+            server_key = self.lsp_client._find_server_key_by_language(self.language)
+            if server_key is not None:
+                connection = self.lsp_client.connections[server_key]
                 
                 # Check if server is unhealthy or unresponsive
                 is_unhealthy = (

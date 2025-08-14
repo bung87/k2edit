@@ -639,7 +639,6 @@ class K2EditApp(App):
                 
                 if content and content.strip():
                     self._last_hover_content = content
-                    await self.logger.debug("Showing hover content")
                     await self._show_hover_at_cursor(content)
                 else:
                     await self.logger.debug("Hover content empty or invalid")
