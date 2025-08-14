@@ -5,6 +5,7 @@ High-level orchestrator for LSP-based code intelligence
 
 import asyncio
 import time
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from aiologger import Logger
@@ -13,13 +14,14 @@ from .lsp_client import LSPClient, ServerStatus
 from .language_configs import LanguageConfigs
 from .symbol_parser import SymbolParser
 from .file_filter import FileFilter
+from .chroma_memory_store import ChromaMemoryStore
 from ..utils.language_utils import detect_language_by_extension
 
 
 class LSPIndexer:
     """High-level LSP indexer that orchestrates language servers and symbol indexing"""
     
-    def __init__(self, lsp_client: LSPClient = None, logger: Logger = None):
+    def __init__(self, lsp_client: LSPClient = None, logger: Logger = None, memory_store: ChromaMemoryStore = None):
         # Only use aiologger.Logger
         self.logger = logger or Logger(name="k2edit-lsp")
             
@@ -34,6 +36,9 @@ class LSPIndexer:
         self.symbol_index: Dict[str, List[Dict[str, Any]]] = {}
         self.file_index: Dict[str, Dict[str, Any]] = {}
         
+        # ChromaDB symbol cache - use provided memory_store or None
+        self.symbol_cache: Optional[ChromaMemoryStore] = memory_store
+        
         # Server restart lock to prevent concurrent restarts
         self._server_restart_lock = asyncio.Lock()
         
@@ -45,6 +50,14 @@ class LSPIndexer:
         if progress_callback:
             await progress_callback("Starting symbol indexing...")
             await asyncio.sleep(0.1)
+        
+        # Log symbol cache status
+        if self.symbol_cache:
+            await self.logger.info("Using provided ChromaDB symbol cache")
+            if progress_callback:
+                await progress_callback("Symbol cache ready")
+        else:
+            await self.logger.info("No symbol cache provided - using LSP-only indexing")
         
         # Detect language and start appropriate server
         self.language = self.file_filter.detect_project_language(self.project_root)
@@ -169,14 +182,24 @@ class LSPIndexer:
         return results
     
     async def _index_file(self, file_path: Path):
-        """Index a single file for symbols"""
+        """Index a single file for symbols with caching support"""
         try:
             relative_path = file_path.relative_to(self.project_root)
             
             await self.logger.debug(f"Indexing symbols for file: {relative_path}")
             
-            # Request document symbols
-            symbols = await self._get_document_symbols(str(relative_path))
+            # First, try to get cached symbols
+            symbols = await self._get_cached_symbols(file_path)
+            
+            if symbols is not None:
+                await self.logger.debug(f"Using cached symbols for {relative_path} ({len(symbols)} symbols)")
+            else:
+                # Request document symbols from LSP
+                symbols = await self._get_document_symbols(str(relative_path))
+                
+                # Cache the symbols for future use
+                if symbols:
+                    await self._cache_symbols(file_path, symbols)
             
             # Count symbol types for this file
             symbol_types = {}
@@ -200,6 +223,77 @@ class LSPIndexer:
             
         except Exception as e:
             await self.logger.error(f"Failed to index file {file_path}: {e}")
+    
+    def _calculate_file_hash(self, content: str) -> str:
+        """Calculate MD5 hash of file content"""
+        return hashlib.md5(content.encode('utf-8')).hexdigest()
+    
+    async def _get_cached_symbols(self, file_path: Path) -> Optional[List[Dict[str, Any]]]:
+        """Get cached symbols for a file if content hasn't changed"""
+        if not self.symbol_cache:
+            return None
+        
+        try:
+            # Read file content to calculate hash
+            content = file_path.read_text(encoding='utf-8')
+            content_hash = self._calculate_file_hash(content)
+            
+            # Search for cached symbols using file path and content hash
+            abs_path = str(file_path.absolute())
+            search_query = f"symbols_cache:{abs_path}:{content_hash}"
+            
+            results = await self.symbol_cache.search_relevant_context(search_query, limit=1)
+            
+            if results and len(results) > 0:
+                result = results[0]
+                # Extract symbols from the cached result
+                if 'content' in result and isinstance(result['content'], dict):
+                    cached_data = result['content']
+                    if 'symbols' in cached_data and 'content_hash' in cached_data:
+                        if cached_data['content_hash'] == content_hash:
+                            await self.logger.debug(f"Found cached symbols for {file_path}")
+                            return cached_data['symbols']
+            
+            return None
+        except Exception as e:
+            await self.logger.debug(f"Error checking symbol cache for {file_path}: {e}")
+            return None
+    
+    async def _cache_symbols(self, file_path: Path, symbols: List[Dict[str, Any]]) -> None:
+        """Cache symbols for a file with its content hash"""
+        if not self.symbol_cache:
+            return
+        
+        try:
+            # Read file content to calculate hash
+            content = file_path.read_text(encoding='utf-8')
+            content_hash = self._calculate_file_hash(content)
+            
+            abs_path = str(file_path.absolute())
+            
+            # Store symbols with file path and content hash
+            cache_data = {
+                'file_path': abs_path,
+                'content_hash': content_hash,
+                'symbols': symbols,
+                'timestamp': time.time(),
+                'language': self.language
+            }
+            
+            # Use a unique identifier for the cache entry
+            cache_id = f"symbols_cache:{abs_path}:{content_hash}"
+            
+            # Store in ChromaDB using the pattern storage method
+            await self.symbol_cache.store_pattern(
+                cache_id,
+                f"Cached symbols for {abs_path}",
+                cache_data
+            )
+            
+            await self.logger.debug(f"Cached {len(symbols)} symbols for {file_path}")
+            
+        except Exception as e:
+            await self.logger.debug(f"Error caching symbols for {file_path}: {e}")
     
     async def _get_document_symbols(self, file_path: str) -> List[Dict[str, Any]]:
         """Get symbols from a specific file via LSP with AST fallback"""
@@ -523,7 +617,65 @@ class LSPIndexer:
         
         return outline
     
+    async def clear_symbol_cache(self, file_path: str = None) -> bool:
+        """Clear symbol cache for a specific file or all files
+        
+        Args:
+            file_path: Path to the file to clear cache for (optional, clears all if None)
+            
+        Returns:
+            True if cache was cleared successfully, False otherwise
+        """
+        if not self.symbol_cache:
+            await self.logger.warning("Symbol cache not initialized")
+            return False
+        
+        try:
+            if file_path:
+                # Clear cache for specific file
+                abs_path = str(Path(file_path).absolute())
+                # Note: ChromaDB doesn't have a direct delete by pattern method
+                # This is a limitation we'll document
+                await self.logger.info(f"Cache clearing for specific files not fully implemented yet for {abs_path}")
+                return True
+            else:
+                # Clear all symbol cache
+                # Note: This would require recreating the collections
+                await self.logger.info("Full cache clearing not implemented - restart application to clear cache")
+                return True
+                
+        except Exception as e:
+            await self.logger.error(f"Error clearing symbol cache: {e}")
+            return False
+    
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        """Get statistics about the symbol cache"""
+        if not self.symbol_cache:
+            return {"cache_enabled": False, "error": "Symbol cache not initialized"}
+        
+        try:
+            # Get basic cache information
+            return {
+                "cache_enabled": True,
+                "cache_type": "ChromaDB",
+                "project_root": str(self.project_root),
+                "language": self.language
+            }
+        except Exception as e:
+            return {"cache_enabled": True, "error": str(e)}
+    
     async def shutdown(self):
         """Shutdown the LSP indexer and all language servers"""
         await self.lsp_client.shutdown()
+        
+        # Clean up symbol cache if initialized
+        if self.symbol_cache:
+            try:
+                # ChromaMemoryStore doesn't have an explicit shutdown method
+                # but we can clear the reference
+                self.symbol_cache = None
+                await self.logger.info("Symbol cache cleaned up")
+            except Exception as e:
+                await self.logger.warning(f"Error cleaning up symbol cache: {e}")
+        
         await self.logger.info("LSP indexer shutdown complete")

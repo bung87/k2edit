@@ -57,7 +57,7 @@ class AgenticContextManager:
     def __init__(self, logger: Logger, lsp_client=None):
         self.logger = logger
         self.memory_store = create_memory_store(self, self.logger)
-        self.lsp_indexer = LSPIndexer(lsp_client=lsp_client, logger=self.logger)
+        self.lsp_indexer = LSPIndexer(lsp_client=lsp_client, logger=self.logger, memory_store=self.memory_store)
         self.current_context: Optional[AgentContext] = None
         self.conversation_history: List[Dict[str, Any]] = []
         self.embedding_model = None

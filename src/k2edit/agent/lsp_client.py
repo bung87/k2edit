@@ -622,12 +622,6 @@ class LSPClient:
         message = params.get("message", "")
         message_type = params.get("type", 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
         
-        # Handle Nim version mismatch gracefully
-        if language == "nim" and "version does not match" in message.lower():
-            await self.logger.warning(f"[{language}-lsp] Version mismatch (non-critical): {message}")
-            # Don't treat version mismatch as a fatal error for Nim
-            return
-        
         if message_type == 1:
             await self.logger.error(f"[{language}-lsp] {message}")
         elif message_type == 2:
