@@ -815,21 +815,6 @@ class K2EditApp(App):
             yield self.hover_widget
             yield self.file_path_display
 
-    
-    def on_command_bar_command_executed(self, message) -> None:
-        """Handle command executed messages from the command bar."""
-        self.output_panel.on_command_bar_command_executed(message)
-    
-    async def on_command_bar_file_opened(self, message) -> None:
-        """Handle file opened messages from the command bar."""
-        file_path = message.file_path
-        await self.logger.info(f"File opened via command: {file_path}")
-        
-        # Update file path display
-        self.file_path_display.set_file(file_path)
-        
-        # Notify agentic system about file open
-        await self._on_file_open_with_agent(file_path)
 
     async def on_file_explorer_file_selected(self, message: FileExplorer.FileSelected) -> None:
         """Handle file selection from the file explorer."""
@@ -841,39 +826,6 @@ class K2EditApp(App):
         else:
             # It's a directory, keep the tree view
             await self.logger.debug(f"Directory selected: {file_path}")
-    
-    async def on_text_area_selection_changed(self, event: TextArea.SelectionChanged) -> None:
-        """Handle selection/cursor changes in editor."""
-        if self.status_bar:
-            self.status_bar.update_cursor_position(self.editor.cursor_location[0] + 1, self.editor.cursor_location[1] + 1)
-
-    async def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Handle text changes in editor."""
-        if self.status_bar:
-            await self.status_bar.update_from_editor(self.editor.text, str(self.editor.current_file) if self.editor.current_file else "")
-
-    async def on_file_explorer_add_to_context(self, message: FileExplorer.AddToContext) -> None:
-        """Handle adding file to AI context from file explorer."""
-        file_path = message.file_path
-        await self.logger.info(f"Adding file to AI context: {file_path}")
-        
-        if Path(file_path).is_file():
-            # Add file to agent context
-            await self._add_file_to_context(file_path)
-            self.output_panel.add_info(f"Added to AI context: {Path(file_path).name}")
-        else:
-            error_msg = f"Cannot add directory to context: {file_path}"
-            await self.logger.error(error_msg)
-            self.output_panel.add_error(error_msg)
-
-    
-    def on_editor_content_changed(self, event) -> None:
-        """Handle editor content changes."""
-        # Schedule the async status bar update using task queue
-        if self._task_queue:
-            asyncio.create_task(self._task_queue.submit_task(self._update_status_bar, priority=5))
-        else:
-            asyncio.create_task(self._update_status_bar())
     
     async def _add_file_to_context(self, file_path: str) -> None:
         """Add file to AI agent context."""
@@ -1174,24 +1126,6 @@ class K2EditApp(App):
             # Final fallback error handling
             print(f"Error during application shutdown: {e}", file=sys.stderr)
 
-    async def on_status_bar_show_diagnostics_details(self, message: ShowDiagnosticsDetails) -> None:
-        """Handle show diagnostics details message from status bar."""
-        await self.logger.debug("=== DIAGNOSTICS MESSAGE HANDLER TRIGGERED ===")
-        await self.logger.debug(f"Showing diagnostics modal with {len(message.diagnostics)} items")
-        await self.logger.debug(f"Received ShowDiagnosticsDetails message with {len(message.diagnostics)} diagnostics")
-        await self.logger.debug(f"Message type: {type(message)}")
-        await self.logger.debug(f"Message sender: {getattr(message, 'sender', 'NO SENDER')}")
-        
-        try:
-            modal = DiagnosticsModal(message.diagnostics, logger=self.logger)
-            await self.logger.debug("Created DiagnosticsModal successfully")
-            await self.push_screen(modal)
-            await self.logger.debug("Pushed DiagnosticsModal to screen")
-            await self.logger.debug("=== DIAGNOSTICS MODAL DISPLAYED SUCCESSFULLY ===")
-        except Exception as e:
-            await self.logger.error(f"Failed to show diagnostics modal: {e}")
-            import traceback
-            await self.logger.error(traceback.format_exc())
 
     async def show_diagnostics_modal(self, diagnostics: list[Dict[str, Any]]) -> None:
         """Direct method to show diagnostics modal, bypassing message system."""

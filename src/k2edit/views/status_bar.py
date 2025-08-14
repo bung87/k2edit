@@ -195,8 +195,7 @@ class StatusBar(Widget):
     async def _show_diagnostics_details(self) -> None:
         """Show detailed diagnostics information."""
         await self.logger.debug("Diagnostics button clicked!")
-        await self.logger.debug(f"StatusBar app reference: {getattr(self, 'app', 'NO APP REF')}")
-        await self.logger.debug(f"StatusBar parent: {getattr(self, 'parent', 'NO PARENT')}")
+
         
         # Always show diagnostics modal, even if no data available
         diagnostics_to_show = self.diagnostics_data if self.diagnostics_data else []
@@ -205,7 +204,6 @@ class StatusBar(Widget):
         try:
             # Use direct app method call instead of message posting
             if hasattr(self, 'app') and self.app:
-                await self.logger.debug(f"Calling show_diagnostics_modal on app: {self.app}")
                 # Try to call the method directly if it exists
                 if hasattr(self.app, 'show_diagnostics_modal'):
                     await self.logger.debug("About to call show_diagnostics_modal method directly")
