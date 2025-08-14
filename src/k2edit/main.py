@@ -248,6 +248,19 @@ class K2EditApp(App):
         
         await self.logger.info("K2EditApp mounted successfully")
     
+    async def _on_show_message_received(self, message_type: int, language: str, message: str) -> None:
+        """Handle LSP show messages by displaying them as notifications."""
+        try:
+            # Map LSP message types to textual notification severities
+            if message_type == 1:  # Error
+                self.notify(message, severity="error", title=f"{language.upper()} LSP")
+            elif message_type == 2:  # Warning
+                self.notify(message, severity="warning", title=f"{language.upper()} LSP")
+            else:  # Info (3) or Log (4)
+                self.notify(message, severity="information", title=f"{language.upper()} LSP")
+        except Exception as e:
+            await self.logger.error(f"Error handling show message: {e}")
+    
     async def _initialize_agent_system(self):
         """Initialize the agentic system using the standardized initializer with performance monitoring."""
         # Start performance monitoring
@@ -265,6 +278,7 @@ class K2EditApp(App):
             self.agent_integration = await self.agent_initializer.initialize_agent_system(
                 project_root=str(Path.cwd()),
                 diagnostics_callback=self._on_diagnostics_received,
+                show_message_callback=self._on_show_message_received,
                 progress_callback=progress_callback,
                 command_bar=self.command_bar,
                 output_panel=self.output_panel,

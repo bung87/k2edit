@@ -24,13 +24,14 @@ from .file_filter import FileFilter
 class K2EditAgentIntegration:
     """Simple integration class for K2Edit agentic system"""
     
-    def __init__(self, project_root: str, logger: Logger, diagnostics_callback=None):
+    def __init__(self, project_root: str, logger: Logger, diagnostics_callback=None, show_message_callback=None):
         self.project_root = Path(project_root)
         self.logger = logger
         self.agent_initialized = False
         self._lsp_indexer = None
         self.diagnostics_callback = diagnostics_callback
-        self.lsp_client = LSPClient(logger=self.logger, diagnostics_callback=diagnostics_callback)
+        self.show_message_callback = show_message_callback
+        self.lsp_client = LSPClient(logger=self.logger, diagnostics_callback=diagnostics_callback, show_message_callback=show_message_callback)
         self.output_panel = None
         
     def set_output_panel(self, output_panel) -> None:

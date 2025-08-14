@@ -49,12 +49,13 @@ class LSPConnection:
 class LSPClient:
     """Improved LSP client with non-blocking concurrent operations"""
     
-    def __init__(self, logger: Logger, diagnostics_callback: Callable = None):
+    def __init__(self, logger: Logger, diagnostics_callback: Callable = None, show_message_callback: Callable = None):
         # All logging is now standardized to async patterns
         self.logger = logger
         self.connections: Dict[str, LSPConnection] = {}
         self.diagnostics: Dict[str, List[Dict[str, Any]]] = {}
         self.diagnostics_callback = diagnostics_callback
+        self.show_message_callback = show_message_callback
         self.health_monitor_task: Optional[asyncio.Task] = None
         self.message_readers: Dict[str, asyncio.Task] = {}
         
@@ -617,10 +618,21 @@ class LSPClient:
         else:
             await self.logger.info(f"[{language}-lsp] {message}")
     
+    async def notify(self, message_type: int, language: str, message: str) -> None:
+        """Notify about show message with corresponding message type"""
+        if self.show_message_callback:
+            try:
+                await self.show_message_callback(message_type, language, message)
+            except Exception as e:
+                await self.logger.error(f"Error in show message callback: {e}")
+    
     async def _handle_show_message(self, language: str, params: Dict[str, Any]) -> None:
         """Handle show message from language server"""
         message = params.get("message", "")
         message_type = params.get("type", 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
+        
+        # Call notify with corresponding message type
+        await self.notify(message_type, language, message)
         
         if message_type == 1:
             await self.logger.error(f"[{language}-lsp] {message}")

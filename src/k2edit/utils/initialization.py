@@ -18,6 +18,7 @@ class AgentInitializer:
         self,
         project_root: str,
         diagnostics_callback: Optional[Callable] = None,
+        show_message_callback: Optional[Callable] = None,
         progress_callback: Optional[Callable[[str], None]] = None,
         command_bar=None,
         output_panel=None,
@@ -32,7 +33,8 @@ class AgentInitializer:
             agent_integration = K2EditAgentIntegration(
                 project_root, 
                 self.logger, 
-                diagnostics_callback
+                diagnostics_callback,
+                show_message_callback
             )
             
             # Initialize with progress updates
