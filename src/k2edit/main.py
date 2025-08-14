@@ -480,10 +480,9 @@ class K2EditApp(App):
                     try:
                         await self.logger.info(f"Starting {language} language server for file: {file_path}")
                         config = LanguageConfigs.get_config(language)
-                        await self.agent_integration.lsp_client.start_server(language, config["command"], str(self.agent_integration.project_root))
-                        await self.agent_integration.lsp_client.initialize_connection(language, str(self.agent_integration.project_root))
-                        await self.logger.info(f"Started {language} language server successfully")
-                        # Update LSP status after starting server
+                        # Start server initialization in background to avoid blocking UI
+                        asyncio.create_task(self._start_language_server_async(language, config, file_path))
+                        # Update LSP status immediately to show "Starting" state
                         await self._update_lsp_status()
                     except KeyError as e:
                         await self.logger.error(f"Language server configuration not found for {language}: {e}")
@@ -504,6 +503,33 @@ class K2EditApp(App):
             # Notify LSP server about the opened file
             if self.agent_integration.lsp_client:
                 await self.agent_integration.lsp_client.notify_file_opened(file_path)
+    
+    async def _start_language_server_async(self, language: str, config: dict, file_path: str):
+        """Start language server asynchronously without blocking UI"""
+        try:
+            # Start the server
+            success = await self.agent_integration.lsp_client.start_server(
+                language, config["command"], str(self.agent_integration.project_root)
+            )
+            
+            if success:
+                # Initialize connection
+                init_success = await self.agent_integration.lsp_client.initialize_connection(
+                    language, str(self.agent_integration.project_root)
+                )
+                
+                if init_success:
+                    await self.logger.info(f"Started {language} language server successfully")
+                else:
+                    await self.logger.error(f"Failed to initialize {language} language server connection")
+            else:
+                await self.logger.error(f"Failed to start {language} language server")
+                
+        except Exception as e:
+            await self.logger.error(f"Error in background language server startup for {language}: {e}", exc_info=True)
+        finally:
+            # Always update LSP status after completion
+            await self._update_lsp_status()
 
     
     async def _update_lsp_status(self):
