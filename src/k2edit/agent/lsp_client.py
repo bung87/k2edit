@@ -127,21 +127,21 @@ class LSPClient:
                 return False
             
             # Start stderr logger
-            try:
-                asyncio.create_task(self._stderr_logger(language))
-            except RuntimeError as e:
-                await self.logger.warning(f"Failed to create stderr logger task for {language}: {e}")
-                # Don't fail the entire operation for this
+            # try:
+            #     asyncio.create_task(self._stderr_logger(language))
+            # except RuntimeError as e:
+            #     await self.logger.warning(f"Failed to create stderr logger task for {language}: {e}")
+            #     # Don't fail the entire operation for this
             
             await self.logger.info(f"{language} server started with PID: {process.pid}")
             
-            # Start health monitoring if not already running
-            if self.health_monitor_task is None:
-                try:
-                    self.health_monitor_task = asyncio.create_task(self._health_monitor())
-                except RuntimeError as e:
-                    await self.logger.warning(f"Failed to create health monitor task: {e}")
-                    # Don't fail the entire operation for this
+            # # Start health monitoring if not already running
+            # if self.health_monitor_task is None:
+            #     try:
+            #         self.health_monitor_task = asyncio.create_task(self._health_monitor())
+            #     except RuntimeError as e:
+            #         await self.logger.warning(f"Failed to create health monitor task: {e}")
+            #         # Don't fail the entire operation for this
             
             return True
             
@@ -233,7 +233,8 @@ class LSPClient:
             "params": init_params
         }
         
-        # Send initialization request
+
+        # Send initialization request for other languages
         try:
             response = await self.send_request(language, init_request)
         except (ConnectionError, json.JSONDecodeError) as e:
@@ -265,6 +266,8 @@ class LSPClient:
         else:
             await self.logger.error(f"Failed to initialize {language} server")
             return False
+    
+
     
     async def send_request(self, language: str, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Send LSP request with improved response correlation"""
@@ -576,6 +579,8 @@ class LSPClient:
             await self._handle_diagnostics(params)
         elif method == "window/logMessage":
             await self._handle_log_message(language, params)
+        elif method == "window/showMessage":
+            await self._handle_show_message(language, params)
         # Add more notification handlers as needed
     
     async def _handle_diagnostics(self, params: Dict[str, Any]) -> None:
@@ -612,42 +617,60 @@ class LSPClient:
         else:
             await self.logger.info(f"[{language}-lsp] {message}")
     
-    async def _stderr_logger(self, language: str) -> None:
-        """Log stderr from language server"""
-        if language not in self.connections:
+    async def _handle_show_message(self, language: str, params: Dict[str, Any]) -> None:
+        """Handle show message from language server"""
+        message = params.get("message", "")
+        message_type = params.get("type", 1)  # 1=Error, 2=Warning, 3=Info, 4=Log
+        
+        # Handle Nim version mismatch gracefully
+        if language == "nim" and "version does not match" in message.lower():
+            await self.logger.warning(f"[{language}-lsp] Version mismatch (non-critical): {message}")
+            # Don't treat version mismatch as a fatal error for Nim
             return
         
-        connection = self.connections[language]
-        
-        try:
-            while connection.is_healthy():
-                line = await connection.process.stderr.readline()
-                if not line:
-                    break
-                
-                message = line.decode('utf-8').strip()
-                if message and not message.startswith('DEBUG'):
-                    await self.logger.warning(f"[{language}-stderr] {message}")
-                    
-        except UnicodeDecodeError as e:
-            await self.logger.error(f"Unicode decode error in stderr logger for {language}: {e}")
-        except ConnectionError as e:
-            await self.logger.warning(f"Connection error in health monitor for {language}: {e}")
-        except Exception as e:
-            await self.logger.error(f"Error in health monitor for {language}: {e}")
+        if message_type == 1:
+            await self.logger.error(f"[{language}-lsp] {message}")
+        elif message_type == 2:
+            await self.logger.warning(f"[{language}-lsp] {message}")
+        else:
+            await self.logger.info(f"[{language}-lsp] {message}")
     
-    async def _health_monitor(self) -> None:
-        """Monitor health of all language servers"""
-        await self.logger.info("Started LSP health monitor")
+    # async def _stderr_logger(self, language: str) -> None:
+    #     """Log stderr from language server"""
+    #     if language not in self.connections:
+    #         return
         
-        try:
-            while True:
-                await asyncio.sleep(self.health_check_interval)
-                await self._check_all_servers()
-        except asyncio.CancelledError:
-            await self.logger.info("Health monitor cancelled")
-        except Exception as e:
-            await self.logger.error(f"Error in health monitor: {e}")
+    #     connection = self.connections[language]
+        
+    #     try:
+    #         while connection.is_healthy():
+    #             line = await connection.process.stderr.readline()
+    #             if not line:
+    #                 break
+                
+    #             message = line.decode('utf-8').strip()
+    #             if message and not message.startswith('DEBUG'):
+    #                 await self.logger.warning(f"[{language}-stderr] {message}")
+                    
+    #     except UnicodeDecodeError as e:
+    #         await self.logger.error(f"Unicode decode error in stderr logger for {language}: {e}")
+    #     except ConnectionError as e:
+    #         await self.logger.warning(f"Connection error in health monitor for {language}: {e}")
+    #     except Exception as e:
+    #         await self.logger.error(f"Error in health monitor for {language}: {e}")
+    
+    # async def _health_monitor(self) -> None:
+    #     """Monitor health of all language servers"""
+    #     await self.logger.info("Started LSP health monitor")
+        
+    #     try:
+    #         while True:
+    #             await asyncio.sleep(self.health_check_interval)
+    #             await self._check_all_servers()
+    #     except asyncio.CancelledError:
+    #         await self.logger.info("Health monitor cancelled")
+    #     except Exception as e:
+    #         await self.logger.error(f"Error in health monitor: {e}")
     
     async def _check_all_servers(self) -> None:
         """Check health of all running servers"""
@@ -1028,16 +1051,16 @@ class LSPClient:
         await self.logger.info("Shutting down all LSP servers")
         
         # Cancel health monitor
-        if self.health_monitor_task:
-            await self.logger.info("Cancelling LSP health monitor")
-            self.health_monitor_task.cancel()
-            try:
-                # Only await if it's actually an asyncio task
-                if hasattr(self.health_monitor_task, '__await__'):
-                    await self.health_monitor_task
-            except asyncio.CancelledError:
-                await self.logger.info("LSP health monitor cancelled")
-                pass
+        # if self.health_monitor_task:
+        #     await self.logger.info("Cancelling LSP health monitor")
+        #     self.health_monitor_task.cancel()
+        #     try:
+        #         # Only await if it's actually an asyncio task
+        #         if hasattr(self.health_monitor_task, '__await__'):
+        #             await self.health_monitor_task
+        #     except asyncio.CancelledError:
+        #         await self.logger.info("LSP health monitor cancelled")
+        #         pass
         
         # Stop all servers
         for language in list(self.connections.keys()):

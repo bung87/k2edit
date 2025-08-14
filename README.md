@@ -2,6 +2,8 @@
 
 A powerful terminal-based code editor built with Python and Textual, featuring full integration with the Kimi-K2 AI model for intelligent code assistance, agent mode, and tool calling capabilities.
 
+![k2edit](K2Edit.svg)  
+
 ## Features
 
 ### 🖥️ Terminal-Based Editor
