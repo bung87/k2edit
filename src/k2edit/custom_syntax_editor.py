@@ -355,7 +355,15 @@ class CustomSyntaxEditor(TextArea):
 
     async def on_text_area_selection_changed(self, event) -> None:
         """Called when cursor position or selection changes."""
-        line, column = self.cursor_location
+        try:
+            cursor_location = self.cursor_location
+            if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
+                line, column = cursor_location[0], cursor_location[1]
+            else:
+                return  # Skip if cursor location format is invalid
+        except (ValueError, TypeError):
+            return  # Skip if unpacking fails
+        
         current_position = (line, column)
         
         # Only process if position actually changed
@@ -439,7 +447,14 @@ class CustomSyntaxEditor(TextArea):
 
     def _should_trigger_autocomplete(self) -> bool:
         """Determine if autocomplete should be triggered based on context."""
-        line, column = self.cursor_location
+        try:
+            cursor_location = self.cursor_location
+            if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
+                line, column = cursor_location[0], cursor_location[1]
+            else:
+                return False  # Don't trigger if cursor location format is invalid
+        except (ValueError, TypeError):
+            return False  # Don't trigger if unpacking fails
         lines = self.text.splitlines()
         
         if line >= len(lines):
@@ -478,7 +493,16 @@ class CustomSyntaxEditor(TextArea):
                 self.logger.debug(f"LSP server not running for language: {language}")
                 return
             
-            line, character = self.cursor_location
+            try:
+                cursor_location = self.cursor_location
+                if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
+                    line, character = cursor_location[0], cursor_location[1]
+                else:
+                    await self.logger.error(f"Invalid cursor_location format: {cursor_location}")
+                    return
+            except (ValueError, TypeError) as e:
+                await self.logger.error(f"Error getting cursor location: {e}")
+                return
             
             self.logger.debug(f"Requesting completions for {self.current_file}:{line}:{character}")
             
@@ -554,7 +578,15 @@ class CustomSyntaxEditor(TextArea):
             suggestion_list.append(item)
         
         # Position popup near cursor
-        line, column = self.cursor_location
+        try:
+            cursor_location = self.cursor_location
+            if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
+                line, column = cursor_location[0], cursor_location[1]
+            else:
+                return  # Skip positioning if cursor location format is invalid
+        except (ValueError, TypeError):
+            return  # Skip positioning if unpacking fails
+        
         self._position_popup(line, column)
         
         self._suggestion_popup.display = True
