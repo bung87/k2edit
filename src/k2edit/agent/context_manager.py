@@ -104,7 +104,7 @@ class AgenticContextManager:
         # Set initial context
         self.current_context = AgentContext(
             project_root=project_root,
-            language=self._detect_language(project_root)
+            language=detect_project_language(project_root)
         )
         
         if progress_callback:
@@ -148,7 +148,7 @@ class AgenticContextManager:
             "type": "additional_file",
             "file_path": file_path,
             "content": file_content,
-            "language": self._detect_language(file_path),
+            "language": detect_language_from_filename(file_path),
             "timestamp": datetime.now().isoformat()
         }
         
@@ -434,7 +434,7 @@ class AgenticContextManager:
                         rel_path = os.path.relpath(file_path, project_root)
                         
                         # Determine language
-                        lang = self._detect_language_from_filename(file)
+                        lang = detect_language_from_filename(file)
                         structure["files"].append({
                             "path": rel_path,
                             "language": lang,
@@ -443,7 +443,7 @@ class AgenticContextManager:
                         file_count += 1
                     
                     # Always count language stats
-                    lang = self._detect_language_from_filename(file)
+                    lang = detect_language_from_filename(file)
                     structure["language_stats"][lang] = structure["language_stats"].get(lang, 0) + 1
         
         if structure["total_files"] > max_files:
@@ -452,9 +452,7 @@ class AgenticContextManager:
         
         return structure
 
-    def _detect_language_from_filename(self, filename: str) -> str:
-        """Detect programming language from filename"""
-        return detect_language_from_filename(filename)
+
         
     async def process_agent_request(self, query: str, max_semantic_distance: float = 1.2) -> Dict[str, Any]:
         """Process an AI agent request with full context"""
@@ -545,9 +543,7 @@ class AgenticContextManager:
                 
             await self.memory_store.store_change(change_entry)
             
-    def _detect_language(self, project_root: str) -> str:
-        """Detect the primary language of the project"""
-        return detect_project_language(project_root)
+
         
     def _generate_diff(self, old_content: str, new_content: str) -> str:
         """Generate a simple diff between old and new content"""

@@ -119,21 +119,51 @@ def detect_project_language(project_root: str) -> str:
     """
     root = Path(project_root)
     
-    # Common language indicators (config files and extensions)
-    language_indicators = {
-        "python": ["requirements.txt", "setup.py", "pyproject.toml", ".py"],
-        "javascript": ["package.json", "yarn.lock", ".js", ".ts"],
-        "go": ["go.mod", "go.sum", ".go"],
-        "rust": ["Cargo.toml", "Cargo.lock", ".rs"],
-        "java": ["pom.xml", "build.gradle", ".java"],
-        "cpp": ["CMakeLists.txt", "Makefile", ".cpp", ".h"],
-        "nim": ["nim.cfg", ".nim", ".nims"]
+    # First check for specific project configuration files (higher priority)
+    config_indicators = {
+        "nim": ["*.nimble", "nim.cfg", "config.nims"],
+        "rust": ["Cargo.toml", "Cargo.lock"],
+        "go": ["go.mod", "go.sum"],
+        "javascript": ["package.json", "yarn.lock"],
+        "python": ["requirements.txt", "setup.py", "pyproject.toml"],
+        "java": ["pom.xml", "build.gradle"],
+        "cpp": ["CMakeLists.txt", "Makefile"]
     }
     
-    for lang, indicators in language_indicators.items():
+    # Check config files first (more reliable indicators)
+    for lang, indicators in config_indicators.items():
         for indicator in indicators:
-            if any(root.rglob(f"*{indicator}")):
+            if list(root.glob(indicator)) or (not indicator.startswith('*') and list(root.rglob(indicator))):
                 return lang
+    
+    # If no config files found, check for source file extensions
+    extension_indicators = {
+        "nim": [".nim", ".nims"],
+        "rust": [".rs"],
+        "go": [".go"],
+        "javascript": [".js", ".ts"],
+        "python": [".py"],
+        "java": [".java"],
+        "cpp": [".cpp", ".h"]
+    }
+    
+    # Count files by extension to determine primary language
+    file_counts = {}
+    for lang, extensions in extension_indicators.items():
+        count = 0
+        for ext in extensions:
+            count += len(list(root.rglob(f"*{ext}")))
+        if count > 0:
+            file_counts[lang] = count
+    
+    # Return language with most files, but only if it has a significant presence
+    if file_counts:
+        primary_lang = max(file_counts, key=file_counts.get)
+        # Require at least 3 files to consider it the primary language
+        if file_counts[primary_lang] >= 3:
+            return primary_lang
+        # For smaller projects, just return the language with any files
+        return primary_lang
                 
     return "unknown"
 

@@ -86,11 +86,6 @@ class HoverWidget(Widget):
         self.styles.position = "absolute"
         self.styles.offset = (hover_x, hover_y)
         
-        # Set anchor to top-left (default) so offset positions from widget's top-left corner
-        # This ensures the widget appears above the cursor, not centered on it
-        self.styles.text_align = "left"
-        self.styles.content_align = "left top"
-        
         await self.logger.debug(f"Hover positioned at absolute coordinates: ({hover_x}, {hover_y})")
         await self.logger.debug(f"Calculated from editor region ({editor_region.x}, {editor_region.y}) + visible cursor ({visible_cursor_column}, {visible_cursor_line})")
         await self.logger.debug(f"Original cursor ({cursor_column}, {cursor_line}) adjusted by scroll offset ({scroll_offset.x}, {scroll_offset.y})")

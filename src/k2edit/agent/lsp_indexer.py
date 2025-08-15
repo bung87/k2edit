@@ -15,7 +15,7 @@ from .language_configs import LanguageConfigs
 from .symbol_parser import SymbolParser
 from .file_filter import FileFilter
 from .chroma_memory_store import ChromaMemoryStore
-from ..utils.language_utils import detect_language_by_extension
+from ..utils.language_utils import detect_language_by_extension, detect_project_language
 
 
 class LSPIndexer:
@@ -60,8 +60,8 @@ class LSPIndexer:
             await self.logger.info("No symbol cache provided - using LSP-only indexing")
         
         # Detect language and start appropriate server
-        self.language = self.file_filter.detect_project_language(self.project_root)
-        await self.logger.info(f"Detected language: {self.language}")
+        self.language = detect_project_language(str(self.project_root))
+        await self.logger.info(f"Detected language: {self.language} of project {self.project_root}")
         
         if progress_callback:
             await asyncio.sleep(0.1)

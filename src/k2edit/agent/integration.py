@@ -20,6 +20,7 @@ from . import (
 from .lsp_client import LSPClient
 from .language_configs import LanguageConfigs
 from .file_filter import FileFilter
+from ..utils.language_utils import detect_project_language
 
 class K2EditAgentIntegration:
     """Simple integration class for K2Edit agentic system"""
@@ -83,7 +84,7 @@ class K2EditAgentIntegration:
         """Initialize the LSP client for the project"""
         try:
             file_filter = FileFilter(logger=self.logger)
-            language = file_filter.detect_project_language(self.project_root)
+            language = detect_project_language(str(self.project_root))
             
             if language != "unknown":
                 config = LanguageConfigs.get_config(language)

@@ -163,9 +163,7 @@ class FileFilter:
             "included": included_count
         }
     
-    def detect_project_language(self, project_root: Path) -> str:
-        """Detect the primary language of the project"""
-        return detect_project_language(str(project_root))
+
     
     def get_file_info(self, file_path: Path) -> Dict[str, any]:
         """Get basic file information"""
