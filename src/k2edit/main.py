@@ -1113,13 +1113,16 @@ class K2EditApp(App):
     async def _update_status_bar(self):
         """Update status bar with current editor information."""
         if self.editor and self.status_bar:
-            # Update cursor position
-            cursor_location = self.editor.cursor_location
-            if cursor_location:
-                self.status_bar.update_cursor_position(
-                    cursor_location[0] + 1,  # Convert to 1-based
-                    cursor_location[1] + 1
-                )
+            # Update cursor position with safe unpacking
+            try:
+                cursor_location = self.editor.cursor_location
+                if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
+                    self.status_bar.update_cursor_position(
+                        cursor_location[0] + 1,  # Convert to 1-based
+                        cursor_location[1] + 1
+                    )
+            except (ValueError, TypeError, IndexError) as e:
+                await self.logger.debug(f"Error updating cursor position in status bar: {e}")
             
             # Update file information
             current_file = str(self.editor.current_file) if self.editor.current_file else ""
