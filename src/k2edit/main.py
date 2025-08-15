@@ -216,8 +216,8 @@ class K2EditApp(App):
         # Initialize task queue
         self._task_queue = await get_task_queue()
         
-        # Set up project root for file path display
-        self.project_root = str(Path.cwd())
+        # Determine project root based on initial file/directory
+        self.project_root = self._determine_project_root()
         self.file_path_display.set_project_root(self.project_root)
         
         # Initialize agentic system in background using task queue
@@ -261,6 +261,27 @@ class K2EditApp(App):
         except Exception as e:
             await self.logger.error(f"Error handling show message: {e}")
     
+    def _determine_project_root(self) -> str:
+        """Determine the project root based on initial file/directory parameter.
+        
+        Returns:
+            str: The project root directory path
+        """
+        if self.initial_file:
+            initial_path = Path(self.initial_file)
+            if initial_path.is_dir():
+                # If initial file is a directory, use it as project root
+                return str(initial_path.resolve())
+            elif initial_path.exists():
+                # If initial file is a file, use its parent directory as project root
+                return str(initial_path.parent.resolve())
+            else:
+                # If initial file doesn't exist, try to use its parent directory
+                return str(initial_path.parent.resolve())
+        else:
+            # No initial file provided, use current working directory
+            return str(Path.cwd())
+    
     async def _initialize_agent_system(self):
         """Initialize the agentic system using the standardized initializer with performance monitoring."""
         # Start performance monitoring
@@ -276,7 +297,7 @@ class K2EditApp(App):
         try:
             # Initialize agent system with performance monitoring
             self.agent_integration = await self.agent_initializer.initialize_agent_system(
-                project_root=str(Path.cwd()),
+                project_root=self.project_root,
                 diagnostics_callback=self._on_diagnostics_received,
                 show_message_callback=self._on_show_message_received,
                 progress_callback=progress_callback,
@@ -681,8 +702,17 @@ class K2EditApp(App):
         if not content or not content.strip():
             return
             
-        # Get cursor position in terminal coordinates
-        line, column = self.editor.cursor_location
+        # Get cursor position in terminal coordinates with safe unpacking
+        try:
+            cursor_location = self.editor.cursor_location
+            if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
+                line, column = cursor_location[0], cursor_location[1]
+            else:
+                await self.logger.error(f"Invalid cursor_location format: {cursor_location}")
+                return
+        except Exception as e:
+            await self.logger.error(f"Error getting cursor location: {e}")
+            return
         
         # Position hover widget near cursor
         hover_line = line
