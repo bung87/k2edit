@@ -642,40 +642,49 @@ class K2EditApp(App):
             await self.logger.debug("Hover request skipped: no current file")
             return
             
+        # Get current file path
         try:
-            # Get current file path
             file_path = str(self.editor.current_file)
-            await self.logger.debug(f"Requesting hover for: {file_path} at ({line}, {column})")
+        except AttributeError as e:
+            await self.logger.error(f"Editor current_file not available: {e}")
+            return
             
-            # Request hover information
+        await self.logger.debug(f"Requesting hover for: {file_path} at ({line}, {column})")
+        
+        # Request hover information from LSP
+        try:
             hover_result = await self.agent_integration.lsp_client.get_hover_info(
                 file_path, line, column
             )
-            await self.logger.debug(f"Hover result: {hover_result is not None}")
-            
-            if hover_result and "contents" in hover_result:
-                # Extract markdown content
-                content = self._extract_hover_content(hover_result["contents"])
-                await self.logger.debug(f"Extracted hover content length: {len(content) if content else 0}")
-                
-                if content and content.strip():
-                    self._last_hover_content = content
-                    await self._show_hover_at_cursor(content)
-                else:
-                    await self.logger.debug("Hover content empty or invalid")
-            else:
-                await self.logger.debug("No hover result from LSP")
-                    
         except AttributeError as e:
             await self.logger.error(f"LSP client method not available: {e}")
+            return
         except ConnectionError as e:
             await self.logger.error(f"LSP connection error during hover request: {e}")
+            return
         except ValueError as e:
             await self.logger.error(f"Invalid hover request parameters: {e}")
-        except KeyError as e:
-            await self.logger.error(f"Missing expected data in hover response: {e}")
-        except Exception as e:
-            await self.logger.error(f"Unexpected error in hover request: {e}", exc_info=True)
+            return
+            
+        await self.logger.debug(f"Hover result: {hover_result is not None}")
+        
+        if hover_result and "contents" in hover_result:
+            # Extract markdown content
+            try:
+                content = self._extract_hover_content(hover_result["contents"])
+            except KeyError as e:
+                await self.logger.error(f"Missing expected data in hover response: {e}")
+                return
+                
+            await self.logger.debug(f"Extracted hover content length: {len(content) if content else 0}")
+            
+            if content and content.strip():
+                self._last_hover_content = content
+                await self._show_hover_at_cursor(content)
+            else:
+                await self.logger.debug("Hover content empty or invalid")
+        else:
+            await self.logger.debug("No hover result from LSP")
 
     def _extract_hover_content(self, contents) -> str:
         """Extract markdown content from LSP hover response."""
