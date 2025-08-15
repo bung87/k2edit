@@ -39,25 +39,15 @@ class HoverWidget(Widget):
         self.remove_class("hidden")
         self.styles.display = "block"
         
-        # Calculate absolute position based on editor region and cursor location
+        # Calculate absolute position based on editor region and provided cursor location
         # Get editor's screen region
         editor_region = editor.region
         
-        # Safely get cursor location with error handling
-        try:
-            cursor_location = editor.cursor_location
-            if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
-                cursor_line, cursor_column = cursor_location[0], cursor_location[1]
-            else:
-                await self.logger.error(f"Invalid cursor_location format: {cursor_location}")
-                return
-        except Exception as e:
-            await self.logger.error(f"Error getting cursor location: {e}")
-            return
+        # Use the provided cursor position parameters
+        cursor_line, cursor_column = line, column
         
         await self.logger.debug(f"Editor region: {editor_region}")
         await self.logger.debug(f"Cursor location: line={cursor_line}, column={cursor_column}")
-        await self.logger.debug(f"Raw cursor_location: {cursor_location}")
         
         # Calculate absolute screen coordinates
         # Add editor's position to cursor position, accounting for scroll offset
