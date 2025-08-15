@@ -1,10 +1,10 @@
 name: Build and Release Binary
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
+  push
+  #   tags:
+  #     - 'v*'
+  # workflow_dispatch:
 
 jobs:
   build:
@@ -43,7 +43,7 @@ jobs:
         move dist\k2edit.exe dist\k2edit-${{ runner.os }}-${{ runner.arch }}.exe
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: k2edit-${{ runner.os }}-${{ runner.arch }}
         path: |
@@ -56,7 +56,7 @@ jobs:
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         path: artifacts
 
