@@ -711,17 +711,9 @@ class K2EditApp(App):
         if not content or not content.strip():
             return
             
-        # Get cursor position in terminal coordinates with safe unpacking
-        try:
-            cursor_location = self.editor.cursor_location
-            if isinstance(cursor_location, (tuple, list)) and len(cursor_location) >= 2:
-                line, column = cursor_location[0], cursor_location[1]
-            else:
-                await self.logger.error(f"Invalid cursor_location format: {cursor_location}")
-                return
-        except Exception as e:
-            await self.logger.error(f"Error getting cursor location: {e}")
-            return
+        # Get cursor position in terminal coordinates
+        cursor_location = self.editor.cursor_location
+        line, column = cursor_location
         
         # Position hover widget near cursor
         hover_line = line
