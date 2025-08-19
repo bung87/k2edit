@@ -1,0 +1,26 @@
+# Constraints file to pin dependency versions and prevent extras
+# This ensures reproducible builds and minimal installations
+
+# UI Framework - use minimum required versions
+textual==5.2.0
+rich==13.3.3
+
+# Core dependencies - pinned versions
+aiofiles==23.2.1
+aiologger==0.7.0
+chardet==5.0.0
+uvloop==0.19.0; sys_platform != "win32"
+
+# AI and API integration - minimal versions
+openai==1.0.0
+python-dotenv==1.0.0
+
+# Vector database and embeddings - minimal sentence-transformers setup
+chromadb==1.0.15
+transformers==4.38.0
+torch==2.7.1
+numpy==2.3.2
+scikit-learn==1.7.1
+scipy==1.16.1
+huggingface-hub==0.19.3
+sentence-transformers==2.2.2
