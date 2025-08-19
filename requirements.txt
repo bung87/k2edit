@@ -21,8 +21,5 @@ python-dotenv>=1.0.0
 # Vector database and embeddings
 chromadb>=1.0.15
 sentence-transformers>=2.2.2
-numpy>=1.24.0
 
-# LSP integration
-python-lsp-server>=1.7.0
 git+https://github.com/alaviss/tree-sitter-nim.git
