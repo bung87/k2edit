@@ -24,7 +24,7 @@ def read_requirements():
 
 setup(
     name="k2edit",
-    version="0.1.6",
+    version="0.1.7",
     description="Terminal Code Editor with Kimi-K2 AI Integration",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -61,8 +61,6 @@ setup(
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
