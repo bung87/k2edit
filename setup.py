@@ -24,7 +24,7 @@ def read_requirements():
 
 setup(
     name="k2edit",
-    version="0.1.5",
+    version="0.1.6",
     description="Terminal Code Editor with Kimi-K2 AI Integration",
     long_description=long_description,
     long_description_content_type="text/markdown",
