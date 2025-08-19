@@ -20,7 +20,7 @@ Replace the API key in your `.env` file:
 nano .env
 
 # Update this line:
-KIMI_API_KEY=your_new_valid_api_key_here
+OPENAI_API_KEY=your_new_valid_api_key_here
 ```
 
 ### 3. Test Your Setup
@@ -57,8 +57,8 @@ python3 -m pytest tests/test_kimi_api_integration.py -v -s
 
 ### Environment Variables
 The following variables are used:
-- `KIMI_API_KEY`: Your Moonshot API key
-- `KIMI_BASE_URL`: API endpoint (default: https://api.moonshot.cn/v1)
+- `OPENAI_API_KEY`: Your Moonshot API key
+- `OPENAI_BASE_URL`: API endpoint (default: https://api.moonshot.cn/v1)
 
 ### Manual Testing
 You can also test manually with curl:

@@ -58,7 +58,7 @@ A powerful terminal-based code editor built with Python and Textual, featuring f
    - Create an account and generate an API key
    - Add it to your `.env` file:
      ```
-     KIMI_API_KEY=your_actual_api_key_here
+     OPENAI_API_KEY=your_actual_api_key_here
      ```
 
 ## Usage
@@ -149,8 +149,8 @@ k2edit/
 
 ### Environment Variables
 
-- `KIMI_API_KEY`: Your Kimi API key (required)
-- `KIMI_BASE_URL`: API base URL (default: https://api.moonshot.cn/v1)
+- `OPENAI_API_KEY`: Your OpenAI API key (required)
+- `OPENAI_BASE_URL`: API base URL (default: https://api.moonshot.cn/v1)
 
 ### Customization
 
@@ -183,7 +183,7 @@ The editor supports these tools for AI agent mode:
 ### Common Issues
 
 1. **API Key Error**
-   - Ensure your `.env` file contains a valid `KIMI_API_KEY`
+   - Ensure your `.env` file contains a valid `OPENAI_API_KEY`
    - Check that the API key has sufficient credits
 
 2. **Import Errors**

@@ -9,9 +9,9 @@ class TestKimiAPIIntegration:
     
     def setup_method(self):
         """Setup for each test method."""
-        self.api_key = os.getenv('KIMI_API_KEY')
+        self.api_key = os.getenv('OPENAI_API_KEY')
         if not self.api_key or self.api_key == "your_actual_api_key_here":
-            pytest.skip("KIMI_API_KEY environment variable not set or invalid")
+            pytest.skip("OPENAI_API_KEY environment variable not set or invalid")
     
     @pytest.mark.asyncio
     async def test_real_single_chat(self, logger):

@@ -23,19 +23,23 @@ class KimiAPI:
     
     def __init__(self, logger):
         self.logger = logger
-        self.api_key = os.getenv("KIMI_API_KEY")
-        self.base_url = os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1")
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.moonshot.cn/v1")
         self.model = "kimi-k2-0711-preview"
         
         if not self.api_key or self.api_key == "your_actual_api_key_here":
-            print("Warning: KIMI_API_KEY not set. AI features will be disabled.")
+            print("Warning: OPENAI_API_KEY not set. AI features will be disabled.")
             self.api_key = None
         
-        self.client = AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            timeout=60.0
-        )
+        # Only create client if API key is available
+        if self.api_key:
+            self.client = AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=60.0
+            )
+        else:
+            self.client = None
         self.last_request_time = 0
         self.min_request_interval = float(os.getenv("KIMI_REQUEST_INTERVAL", "1.0"))  # Minimum interval between requests in seconds
     
@@ -50,19 +54,22 @@ class KimiAPI:
             self.base_url = api_address
             self.model = model
             
-            # Recreate the client with new configuration
-            try:
-                self.client = AsyncOpenAI(
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    timeout=60.0
-                )
-            except (ValueError, TypeError) as e:
-                await self.logger.error(f"Invalid configuration for KimiAPI client: {e}")
-                raise
-            except Exception as e:
-                await self.logger.error(f"Failed to create KimiAPI client: {e}")
-                raise
+            # Recreate the client with new configuration only if API key is available
+            if self.api_key:
+                try:
+                    self.client = AsyncOpenAI(
+                        api_key=self.api_key,
+                        base_url=self.base_url,
+                        timeout=60.0
+                    )
+                except (ValueError, TypeError) as e:
+                    await self.logger.error(f"Invalid configuration for KimiAPI client: {e}")
+                    raise
+                except Exception as e:
+                    await self.logger.error(f"Failed to create KimiAPI client: {e}")
+                    raise
+            else:
+                self.client = None
             
             await self.logger.info(f"Updated KimiAPI config - URL: {api_address}, Model: {self.model}")
             
@@ -87,7 +94,7 @@ class KimiAPI:
         await self.logger.info(f"Kimi API chat request [{request_id}]: {message[:50]}...")
         
         if not self.api_key:
-            return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
+            return {"content": "Error: OpenAI API key not configured. Please set OPENAI_API_KEY in .env file.", "error": "API key missing"}
         
         # Rate limiting: ensure minimum interval between requests
         current_time = time.time()
@@ -163,7 +170,7 @@ class KimiAPI:
             max_iterations = int(os.getenv("KIMI_MAX_ITERATIONS", "10"))
         
         if not self.api_key:
-            return {"content": "Error: Kimi API key not configured. Please set KIMI_API_KEY in .env file.", "error": "API key missing"}
+            return {"content": "Error: OpenAI API key not configured. Please set OPENAI_API_KEY in .env file.", "error": "API key missing"}
         
         await self.logger.info(f"Starting Kimi agent analysis [{request_id}] - Max iterations: {max_iterations}")
         
@@ -299,6 +306,12 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
     async def _single_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a single chat request without retry logic to prevent duplicate requests."""
         
+        if not self.client:
+            return {
+                "content": "Error: OpenAI API client not initialized. Please set OPENAI_API_KEY in .env file.",
+                "error": "Client not initialized"
+            }
+        
         # Rate limiting: ensure minimum interval between requests
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
@@ -377,6 +390,13 @@ When you have completed the goal, clearly state "TASK COMPLETED" in your respons
     
     async def _stream_chat(self, payload: Dict) -> Dict[str, Any]:
         """Send a streaming chat request without retry logic to prevent duplicate requests."""
+        
+        if not self.client:
+            return {
+                "content": "Error: OpenAI API client not initialized. Please set OPENAI_API_KEY in .env file.",
+                "error": "Client not initialized"
+            }
+        
         payload["stream"] = True
         
         # Rate limiting: ensure minimum interval between requests

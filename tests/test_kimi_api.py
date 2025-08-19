@@ -11,7 +11,7 @@ class TestKimiAPI:
     @pytest.fixture
     def kimi_api(self, logger):
         """Create a KimiAPI instance with mocked client and API key."""
-        with patch.dict(os.environ, {'KIMI_API_KEY': 'test-key'}):
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}):
             api = KimiAPI(logger)
             api.api_key = 'test-key'
             
