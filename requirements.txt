@@ -22,9 +22,9 @@ python-dotenv>=1.0.0
 chromadb>=1.0.15
 # Minimal sentence-transformers setup - only additional core dependencies
 # (tqdm already covered by rich dependency, numpy/scipy added as needed)
-transformers>=4.38.0,<5.0.0
-torch>=1.11.0
-numpy<2.0.0
+transformers==4.38.0
+torch==2.7.1
+numpy==2.3.2
 scikit-learn
 scipy
 huggingface-hub>=0.19.3
