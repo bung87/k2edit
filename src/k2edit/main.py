@@ -1152,6 +1152,12 @@ class K2EditApp(App):
             if hasattr(self, 'thread_pool'):
                 try:
                     self.thread_pool.shutdown()
+                except (KeyboardInterrupt, RuntimeError):
+                    # Handle interrupt gracefully during shutdown
+                    try:
+                        self.thread_pool.shutdown()
+                    except Exception:
+                        pass
                 except Exception as e:
                     await self.logger.error(f"Error shutting down thread pool: {e}")
             

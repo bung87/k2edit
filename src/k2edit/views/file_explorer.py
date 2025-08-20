@@ -128,8 +128,12 @@ class FileExplorer(Static):
         if not path.exists() or not path.is_dir():
             return
             
-        # Get directory contents
-        contents = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        try:
+            # Get directory contents
+            contents = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        except (PermissionError, OSError):
+            # Skip directories we can't access
+            return
         
         for item in contents:
             # Skip hidden files and directories

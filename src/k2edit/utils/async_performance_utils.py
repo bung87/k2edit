@@ -55,10 +55,23 @@ class OptimizedThreadPoolExecutor:
     
     def shutdown(self):
         """Gracefully shutdown thread pools."""
-        if hasattr(self, 'cpu_pool'):
-            self.cpu_pool.shutdown(wait=True)
-        if hasattr(self, 'io_pool'):
-            self.io_pool.shutdown(wait=True)
+        try:
+            if hasattr(self, 'cpu_pool'):
+                self.cpu_pool.shutdown(wait=False)
+            if hasattr(self, 'io_pool'):
+                self.io_pool.shutdown(wait=False)
+        except (KeyboardInterrupt, RuntimeError):
+            # Force shutdown on interrupt or runtime error
+            if hasattr(self, 'cpu_pool'):
+                try:
+                    self.cpu_pool.shutdown(wait=False)
+                except Exception:
+                    pass
+            if hasattr(self, 'io_pool'):
+                try:
+                    self.io_pool.shutdown(wait=False)
+                except Exception:
+                    pass
     
     async def run_cpu_bound(self, func: Callable, *args, **kwargs) -> Any:
         """Execute CPU-bound function in optimized thread pool."""

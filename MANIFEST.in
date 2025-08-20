@@ -1,0 +1,14 @@
+# Include non-Python resource files
+include README.md
+include requirements.txt
+include constraints.txt
+include .env.example
+recursive-include src/k2edit *.tcss
+recursive-include src/k2edit *.css
+recursive-include src/k2edit *.json
+recursive-include src/k2edit *.yaml
+recursive-include src/k2edit *.yml
+recursive-include docs *.md
+prune tests
+prune .trae
+prune .github
